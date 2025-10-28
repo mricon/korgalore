@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "korgalore"
+version = "0.1.0"
+description = "A tool to put public-inbox messages into your Gmail inbox."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "COPYING"}
+authors = [
+    {name = "Konstantin Ryabitsev", email = "konstantin@linuxfoundation.org"}
+]
+keywords = ["gmail", "cli", "email", "google-api", "lore.kernel.org", "public-inbox"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "google-auth>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
+    "google-auth-httplib2>=0.1.0",
+    "google-api-python-client>=2.0.0",
+    "click>=8.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+kgl = "korgalore.cli:main"
+
+[project.urls]
+Homepage = "https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git/"
+Repository = "https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pip-tools]
+generate-hashes = true
+
+[tool.mypy]
+strict = true
+python_version = "3.11"

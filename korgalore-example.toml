@@ -1,0 +1,11 @@
+[sources.lkml]
+feed = 'https://lore.kernel.org/lkml'
+labels = ['Lists/LKML', 'CATEGORY_FORUMS']
+
+[sources.git]
+feed = 'https://lore.kernel.org/git'
+labels = ['Lists/Git', 'CATEGORY_FORUMS', 'INBOX', 'UNREAD']
+
+[sources.linux-doc]
+feed = 'https://lore.kernel.org/linux-doc'
+labels = ['Lists/Doc', 'CATEGORY_FORUMS']
