@@ -63,8 +63,8 @@ TBD: combining with lei.
 
 For now, just:
 
-`kgl auth`: to authenticate with gmail
-`kgl pull`: to pull the configured lists and import them into your gmail
+- `kgl auth`: to authenticate with gmail
+- `kgl pull`: to pull the configured lists and import them into your gmail
 
 A lot more functionality will be added soon, including a more native background mode.
 

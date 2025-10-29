@@ -5,7 +5,7 @@ import click
 import tomllib
 
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from korgalore.gmail_service import GmailService
 from korgalore.lore_service import LoreService
 from korgalore import __version__
@@ -206,7 +206,9 @@ def labels(ctx: click.Context, ids: bool = False) -> None:
 
 @main.command()
 @click.pass_context
-def pull(ctx: click.Context) -> None:
+@click.option('--max', '-m', default=0, help='maximum number of messages to pull (0 for all)')
+@click.argument('listname', type=str, nargs=1, default=None)
+def pull(ctx: click.Context, max: int, listname: Optional[str]) -> None:
     """Pull updates from all subscribed mailing lists."""
     ls = ctx.obj['lore']
     gs = ctx.obj['gmail']
@@ -221,6 +223,11 @@ def pull(ctx: click.Context) -> None:
         raise click.Abort()
 
     sources = cfg.get('sources', {})
+    if listname:
+        if listname not in sources:
+            click.secho(f'List "{listname}" not found in configuration.', fg='red', err=True)
+            raise click.Abort()
+        sources = {listname: sources[listname]}
 
     for listname, details in sources.items():
         if verbose:
@@ -251,6 +258,11 @@ def pull(ctx: click.Context) -> None:
         if commits:
             if verbose:
                 click.secho(f'Found {len(commits)} new commits for list {listname}', fg='cyan', err=True)
+
+            if max > 0 and len(commits) > max:
+                # Take the last NN messages and discard the rest
+                click.secho(f'Limiting to {max} messages as requested', fg='cyan', err=True)
+                commits = commits[:max]
 
             last_commit = process_commits(listname=listname, commits=commits, gitdir=gitdir, ctx=ctx)
         else:
