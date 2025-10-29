@@ -3,6 +3,8 @@
 import os
 import click
 import tomllib
+import logging
+import click_log
 
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
@@ -10,6 +12,8 @@ from korgalore.gmail_service import GmailService
 from korgalore.lore_service import LoreService
 from korgalore import __version__
 
+logger = logging.getLogger(__name__)
+click_log.basic_config(logger)
 
 def get_xdg_data_dir() -> Path:
     # Get XDG_DATA_HOME or default to ~/.local/share
@@ -45,30 +49,26 @@ def get_xdg_config_dir() -> Path:
     return korgalore_config_dir
 
 
-def load_config(cfgdir: Path, verbose: bool = False) -> Dict[str, Any]:
-    config_file = cfgdir / 'korgalore.toml'
+def load_config(cfgfile: Path) -> Dict[str, Any]:
     config: Dict[str, Any] = dict()
 
-    if not config_file.exists():
-        click.secho(f'No config file found at {config_file}', fg='red', err=True)
+    if not cfgfile.exists():
+        logger.error('Config file not found: %s', str(cfgfile))
         click.Abort()
 
     try:
-        if verbose:
-            click.secho(f'Loading config from {config_file}', fg='cyan', err=True)
+        logger.debug('Loading config from %s', str(cfgfile))
 
-        with open(config_file, 'rb') as cf:
+        with open(cfgfile, 'rb') as cf:
             config = tomllib.load(cf)
 
-        if verbose:
-            click.secho('Config loaded successfully', fg='cyan', err=True)
+        logger.debug('Config loaded with %s keys', len(config.keys()))
 
         return config
 
     except Exception as e:
-        if verbose:
-            click.secho(f'Error loading config: {str(e)}', fg='red', err=True)
-        return config
+        logger.error('Error loading config: %s', str(e))
+        raise click.Abort()
 
 
 def translate_labels(gs: GmailService, cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -86,7 +86,6 @@ def translate_labels(gs: GmailService, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def process_commits(listname: str, commits: List[str], gitdir: Path, ctx: click.Context) -> str:
-    verbose = ctx.obj.get('verbose', False)
     ls = ctx.obj['lore']
     gs = ctx.obj['gmail']
     cfg = ctx.obj.get('config', {})
@@ -94,10 +93,17 @@ def process_commits(listname: str, commits: List[str], gitdir: Path, ctx: click.
 
     last_commit = ''
 
+    if logger.isEnabledFor(logging.DEBUG):
+        hidden = True
+    elif logger.isEnabledFor(logging.INFO):
+        hidden = False
+    else:
+        hidden = True
+
     with click.progressbar(commits,
                             label=f'Uploading {listname}',
                             show_pos=True,
-                            hidden=verbose) as bar:
+                            hidden=hidden) as bar:
         for at_commit in bar:
             try:
                 raw_message = ls.get_message_at_commit(gitdir, at_commit)
@@ -107,45 +113,47 @@ def process_commits(listname: str, commits: List[str], gitdir: Path, ctx: click.
             try:
                 gs.import_message(raw_message, label_ids=details.get('label_ids', None))
             except RuntimeError as re:
-                click.secho(f'Failed to upload message at commit {at_commit}: {str(re)}', fg='red', err=True)
-                click.Abort()
+                logger.critical('Failed to upload message at commit %s: %s', at_commit, str(re))
+                raise click.Abort()
             ls.update_piper_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message)
             last_commit = at_commit
-            if verbose:
+            if logger.isEnabledFor(logging.DEBUG):
                 msg = ls.parse_message(raw_message)
-                click.secho(f"  Uploaded: {msg.get('Subject', '(no subject)')}", fg='cyan', err=True)
+                logger.debug(' -> %s', msg.get('Subject', '(no subject)'))
 
     return last_commit
 
 
 @click.group()
 @click.version_option(version=__version__)
-@click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
+@click_log.simple_verbosity_option(logger)
+@click.option('--cfgfile', '-c', help='Path to configuration file.')
 @click.pass_context
-def main(ctx: click.Context, verbose: bool) -> None:
-    """korgalore - Fetch lore.kernel.org mailing list messages into Gmail."""
-
+def main(ctx: click.Context, cfgfile: str) -> None:
     ctx.ensure_object(dict)
-    ctx.obj['verbose'] = verbose
 
     # Load configuration file
-    cfgdir = get_xdg_config_dir()
-    config = load_config(cfgdir, verbose=verbose)
+    if not cfgfile:
+        cfgdir = get_xdg_config_dir()
+        cfgpath = cfgdir / 'korgalore.toml'
+    else:
+        cfgpath = Path(cfgfile)
+
+    config = load_config(cfgpath)
     ctx.obj['config'] = config
 
     # Ensure XDG data directory exists
     data_dir = get_xdg_data_dir()
     ctx.obj['data_dir'] = data_dir
 
-    if verbose:
-        click.secho('Verbose mode enabled', fg='cyan', err=True)
-        click.secho(f'Data directory: {data_dir}', fg='cyan', err=True)
+    logger.debug('Verbose mode enabled')
+    logger.debug('Data directory: %s', data_dir)
 
     try:
         ctx.obj['gmail'] = GmailService(cfgdir)
     except FileNotFoundError as fe:
-        click.secho(f'Error: {str(fe)}', fg='red', err=True)
-        click.secho('Please run "korgalore auth" to authenticate first.', fg='red', err=True)
+        logger.critical('Error: %s', str(fe))
+        logger.critical('Please run "korgalore auth" to authenticate first.')
         raise click.Abort()
     ctx.obj['lore'] = LoreService(data_dir)
 
@@ -155,17 +163,13 @@ def main(ctx: click.Context, verbose: bool) -> None:
 def auth(ctx: click.Context) -> None:
     """Authenticate with Gmail API."""
     gmail = ctx.obj['gmail']
-    verbose = ctx.obj.get('verbose', False)
 
     try:
-        if verbose:
-            click.secho('Initiating authentication...', fg='cyan', err=True)
+        logger.info('Starting authentication process')
         gmail.authenticate()
-        click.echo("Authentication successful!")
+        logger.info('Authentication successful')
     except Exception as e:
-        if verbose:
-            click.secho(f'Authentication failed: {str(e)}', fg='red', err=True)
-        click.echo(f"Error: {str(e)}", err=True)
+        logger.critical('Authentication failed: %s', str(e))
         raise click.Abort()
 
 
@@ -175,32 +179,25 @@ def auth(ctx: click.Context) -> None:
 def labels(ctx: click.Context, ids: bool = False) -> None:
     """List all available labels."""
     gmail = ctx.obj['gmail']
-    verbose = ctx.obj.get('verbose', False)
 
     try:
-        if verbose:
-            click.secho('Fetching labels from Gmail...', fg='cyan', err=True)
-
+        logger.debug('Fetching labels from Gmail')
         labels_list = gmail.list_labels()
 
         if not labels_list:
-            click.echo("No labels found.")
+            logger.info("No labels found.")
             return
 
-        if verbose:
-            click.secho(f'Found {len(labels_list)} labels', fg='cyan', err=True)
-
-        click.echo("Available labels:\n")
+        logger.debug('Found %d labels', len(labels_list))
+        logger.info('Available labels:')
         for label in labels_list:
             if ids:
-                click.echo(f"  - {label['name']} (ID: {label['id']})")
+                logger.info(f"  - {label['name']} (ID: {label['id']})")
             else:
-                click.echo(f"  - {label['name']}")
+                logger.info(f"  - {label['name']}")
 
     except Exception as e:
-        if verbose:
-            click.secho(f'Failed to fetch labels: {str(e)}', fg='red', err=True)
-        click.echo(f"Error: {str(e)}", err=True)
+        logger.critical('Failed to fetch labels: %s', str(e))
         raise click.Abort()
 
 
@@ -212,32 +209,29 @@ def pull(ctx: click.Context, max: int, listname: Optional[str]) -> None:
     """Pull updates from all subscribed mailing lists."""
     ls = ctx.obj['lore']
     gs = ctx.obj['gmail']
-    verbose = ctx.obj.get('verbose', False)
     data_dir = ctx.obj['data_dir']
 
     cfg = ctx.obj.get('config', {})
     try:
         cfg = translate_labels(gs, cfg)
     except ValueError as ve:
-        click.secho(f'Configuration error: {str(ve)}', fg='red', err=True)
+        logger.critical('Configuration error: %s', str(ve))
         raise click.Abort()
 
     sources = cfg.get('sources', {})
     if listname:
         if listname not in sources:
-            click.secho(f'List "{listname}" not found in configuration.', fg='red', err=True)
+            logger.critical('List "%s" not found in configuration.', listname)
             raise click.Abort()
         sources = {listname: sources[listname]}
 
     for listname, details in sources.items():
-        if verbose:
-            click.secho(f'Processing list: {listname}', fg='cyan', err=True)
-
+        logger.debug('Processing list: %s', listname)
         latest_epochs = ls.get_epochs(details['feed'])
 
         list_dir = data_dir / f'{listname}'
         if not list_dir.exists():
-            click.secho(f'List directory {list_dir} does not exist. Initializing.', fg='cyan', err=True)
+            logger.info('List directory %s does not exist. Initializing.', list_dir)
             ls.init_list(list_name=listname, list_dir=list_dir, pi_url=details['feed'])
             ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
             continue
@@ -249,26 +243,23 @@ def pull(ctx: click.Context, max: int, listname: Optional[str]) -> None:
             pass
 
         if current_epochs == latest_epochs:
-            if verbose:
-                click.secho(f'No updates for {listname}', fg='cyan', err=True)
+            logger.debug('No updates for list: %s', listname)
             continue
 
         # Pull the highest epoch we have
         highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir)
         if commits:
-            if verbose:
-                click.secho(f'Found {len(commits)} new commits for list {listname}', fg='cyan', err=True)
+            logger.debug('Found %d new commits for list %s', len(commits), listname)
 
             if max > 0 and len(commits) > max:
                 # Take the last NN messages and discard the rest
-                click.secho(f'Limiting to {max} messages as requested', fg='cyan', err=True)
+                logger.info('Limiting to %d messages as requested', max)
                 commits = commits[:max]
 
             last_commit = process_commits(listname=listname, commits=commits, gitdir=gitdir, ctx=ctx)
         else:
             last_commit = ''
-            if verbose:
-                click.secho(f'No new commits for list {listname}', fg='cyan', err=True)
+            logger.debug('No new commits to process for list %s', listname)
 
         # XXX: check for epoch rollover
         ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)

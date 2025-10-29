@@ -126,10 +126,16 @@ charset-normalizer==3.4.4 \
 click==8.3.0 \
     --hash=sha256:9b9f285302c6e3064f4330c05f05b81945b2a39544279343e6e7c5f27a9baddc \
     --hash=sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4
+    # via
+    #   korgalore (pyproject.toml)
+    #   click-log
+click-log==0.4.0 \
+    --hash=sha256:3970f8570ac54491237bcdb3d8ab5e3eef6c057df29f8c3d1151a51a9c23b975 \
+    --hash=sha256:a43e394b528d52112af599f2fc9e4b7cf3c15f94e53581f74fa6867e68c91756
     # via korgalore (pyproject.toml)
-google-api-core==2.28.0 \
-    --hash=sha256:4743b7d45fe8c0930e59928b1bade287242910f30b06ff9b22f139a3e33271b8 \
-    --hash=sha256:b4362b0e2e6bc06037cfb0e2b28e2fe0c3f9d760dc311f314d5fb373768c7387
+google-api-core==2.28.1 \
+    --hash=sha256:2b405df02d68e68ce0fbc138559e6036559e685159d148ae5861013dc201baf8 \
+    --hash=sha256:4021b0f8ceb77a6fb4de6fde4502cecab45062e66ff4f2895169e0b35bc9466c
     # via google-api-python-client
 google-api-python-client==2.185.0 \
     --hash=sha256:00fe173a4b346d2397fbe0d37ac15368170dfbed91a0395a66ef2558e22b93fc \
