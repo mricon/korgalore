@@ -1,10 +1,7 @@
 import requests
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Tuple, Any
 from gzip import GzipFile
 from pathlib import Path
-from email.message import EmailMessage
-from email.parser import BytesParser
-from email.policy import EmailPolicy
 from email import charset
 import io
 import json
@@ -12,28 +9,19 @@ import json
 import logging
 
 from korgalore import __version__
+from korgalore.pi_service import PIService
 
 charset.add_charset('utf-8', None)
-
-"""
-Lore service for interacting with lore.kernel.org public-inbox archives.
-
-This module provides functionality to fetch and parse mailing list archives
-from the Linux kernel's public-inbox service at lore.kernel.org.
-"""
-
 
 logger = logging.getLogger(__name__)
 
 
-class LoreService:
+class LoreService(PIService):
     """Service for interacting with lore.kernel.org public-inbox archives."""
 
-    GITCMD: str = "git"
-    emlpolicy: EmailPolicy = EmailPolicy(utf8=True, cte_type='8bit', max_line_length=None,
-                                         message_factory=EmailMessage)
-
     def __init__(self, datadir: Path) -> None:
+        # do a parent init
+        super().__init__()
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': f'korgalore/{__version__}'
@@ -52,18 +40,6 @@ class LoreService:
 
         return manifest
 
-    def run_git_command(self, topdir: Optional[str], args: List[str]) -> Tuple[int, bytes]:
-        """Run a git command in the specified topdir and return (returncode, output)."""
-        import subprocess
-
-        cmd = [self.GITCMD]
-        if topdir:
-            cmd += ['-C', topdir]
-        cmd += args
-
-        result = subprocess.run(cmd, capture_output=True)
-        return result.returncode, result.stdout.strip()
-
     def clone_epoch(self, repo_url: str, tgt_dir: Path) -> None:
         # does tgt_dir exist?
         if Path(tgt_dir).exists():
@@ -73,55 +49,6 @@ class LoreService:
         retcode, output = self.run_git_command(None, gitargs)
         if retcode != 0:
             raise RuntimeError(f"Git clone failed: {output.decode()}")
-
-    def get_message_at_commit(self, pi_dir: Path, commitish: str) -> bytes:
-        gitargs = ['show', f'{commitish}:m']
-        retcode, output = self.run_git_command(str(pi_dir), gitargs)
-        if retcode == 128:
-            raise FileNotFoundError(f"Commit {commitish} does not have a message file.")
-        if retcode != 0:
-            raise RuntimeError(f"Git show failed: {output.decode()}")
-        return output
-
-    def parse_message(self, raw_message: bytes) -> EmailMessage:
-        """Parse a raw email message into an EmailMessage object."""
-        msg: EmailMessage = BytesParser(_class=EmailMessage,
-                                        policy=self.emlpolicy).parsebytes(raw_message)  # type: ignore
-        return msg
-
-    def update_piper_info(self, gitdir: Path,
-                          latest_commit: Optional[str] = None,
-                          message: Optional[bytes] = None) -> None:
-        if not latest_commit:
-            gitargs = ['rev-list', '-n', '1', 'master']
-            retcode, output = self.run_git_command(str(gitdir), gitargs)
-            if retcode != 0:
-                raise RuntimeError(f"Git rev-list failed: {output.decode()}")
-            latest_commit = output.decode()
-            if not latest_commit:
-                raise RuntimeError("No commits found in the repository.")
-
-        # Get the commit date
-        gitargs = ['show', '-s', '--format=%ci', latest_commit]
-        retcode, output = self.run_git_command(str(gitdir), gitargs)
-        if retcode != 0:
-            raise RuntimeError(f"Git show failed: {output.decode()}")
-        commit_date = output.decode()
-        # TODO: latest_commit may not have a "m" file in it if it's a deletion
-        korgalore_file = Path(gitdir) / 'korgalore.info'
-        if not message:
-            message = self.get_message_at_commit(gitdir, latest_commit)
-
-        msg = self.parse_message(message)
-        subject = msg.get('Subject', '(no subject)')
-        msgid = msg.get('Message-ID', '(no message-id)')
-        with open(korgalore_file, 'w') as gf:
-            json.dump({
-                'last': latest_commit,
-                'subject': subject,
-                'msgid': msgid,
-                'commit_date': commit_date,
-            }, gf, indent=2)
 
     def get_epochs(self, pi_url: str) -> List[Tuple[int, str, str]]:
         manifest = self.get_manifest(pi_url)
@@ -171,55 +98,21 @@ class LoreService:
         tgt_dir = list_dir / 'git' / f'{enum}.git'
         repo_url = f"{pi_url.rstrip('/')}/git/{enum}.git"
         self.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir)
-        self.update_piper_info(gitdir=tgt_dir)
-
-    def load_korgalore_info(self, gitdir: Path) -> Dict[str, Any]:
-        korgalore_file = Path(gitdir) / 'korgalore.info'
-        if not korgalore_file.exists():
-            raise FileNotFoundError(
-                f"korgalore.info not found in {gitdir}. Run init_list() first."
-            )
-
-        with open(korgalore_file, 'r') as gf:
-            info = json.load(gf)  # type: Dict[str, Any]
-
-        return info
+        self.update_korgalore_info(gitdir=tgt_dir)
 
     def pull_highest_epoch(self, list_dir: Path) -> Tuple[int, Path, List[str]]:
         # What is our highest epoch?
-        epochs_dir = list_dir / 'git'
-        # List this directory for existing epochs
-        existing_epochs: List[int] = list()
-        for item in epochs_dir.iterdir():
-            if item.is_dir() and item.name.endswith('.git'):
-                epoch_str = item.name.replace('.git', '')
-                try:
-                    epoch_num = int(epoch_str)
-                    existing_epochs.append(epoch_num)
-                except ValueError:
-                    logger.debug(f"Invalid epoch directory: {item.name}")
-        if not existing_epochs:
-            raise FileNotFoundError(f"No existing epochs found in {epochs_dir}.")
-        # Sort to find the highest
+        existing_epochs = self.find_epochs(list_dir)
         highest_epoch = max(existing_epochs)
         logger.debug(f"Highest epoch found: {highest_epoch}")
+        epochs_dir = list_dir / 'git'
         tgt_dir = epochs_dir / f'{highest_epoch}.git'
         # Pull the latest changes
         gitargs = ['remote', 'update', 'origin', '--prune']
         retcode, output = self.run_git_command(str(tgt_dir), gitargs)
         if retcode != 0:
             raise RuntimeError(f"Git remote update failed: {output.decode()}")
-        # How many new commits since our latest_commit
-        info = self.load_korgalore_info(tgt_dir)
-        last_commit = info.get('last')
-        gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{last_commit}..master']
-        retcode, output = self.run_git_command(str(tgt_dir), gitargs)
-        if retcode != 0:
-            raise RuntimeError(f"Git rev-list failed: {output.decode()}")
-        if len(output):
-            new_commits = output.decode().splitlines()
-        else:
-            new_commits = []
+        new_commits = self.get_latest_commits_in_epoch(tgt_dir)
         return highest_epoch, tgt_dir, new_commits
 
     def reshallow(self, gitdir: Path, since_commit: str) -> None:
