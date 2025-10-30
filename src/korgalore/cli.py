@@ -86,7 +86,8 @@ def translate_labels(gs: GmailService, cfg: Dict[str, Any]) -> Dict[str, Any]:
     return cfg
 
 
-def process_commits(listname: str, commits: List[str], gitdir: Path, ctx: click.Context) -> str:
+def process_commits(listname: str, commits: List[str], gitdir: Path,
+                    ctx: click.Context) -> Tuple[int, str]:
     ls = ctx.obj['lore']
     gs = ctx.obj['gmail']
     cfg = ctx.obj.get('config', {})
@@ -110,6 +111,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path, ctx: click.
     else:
         hidden = True
 
+    count = 0
     with click.progressbar(commits,
                             label=f'Uploading {listname}',
                             show_pos=True,
@@ -122,20 +124,21 @@ def process_commits(listname: str, commits: List[str], gitdir: Path, ctx: click.
                 continue
             try:
                 gs.import_message(raw_message, label_ids=details.get('label_ids', None))
+                count += 1
             except RuntimeError as re:
                 logger.critical('Failed to upload message at commit %s: %s', at_commit, str(re))
-                raise click.Abort()
+                return count, last_commit
             ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message)
             last_commit = at_commit
             if logger.isEnabledFor(logging.DEBUG):
                 msg = ls.parse_message(raw_message)
                 logger.debug(' -> %s', msg.get('Subject', '(no subject)'))
 
-    return last_commit
+    return count, last_commit
 
 
 def process_lei_list(ctx: click.Context, listname: str,
-                     details: Dict[str, Any], max_mail: int) -> None:
+                     details: Dict[str, Any], max_mail: int) -> int:
     # Make sure lei knows about this list
     # Placeholder for future LEI feed processing logic
     lei = ctx.obj['lei']
@@ -152,12 +155,12 @@ def process_lei_list(ctx: click.Context, listname: str,
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
         lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git')
         logger.info('Initialized "%s".', listname)
-        return
+        return 0
     lei.up_search(lei_name=feed)
     latest_epochs = lei.get_latest_epoch_info(feedpath)
     if known_epochs == latest_epochs:
         logger.debug('No updates for LEI list: %s', listname)
-        return
+        return 0
     # XXX: this doesn't do the right thing with epoch rollover yet
     gitdir = feedpath / 'git' / f'{latest_epoch}.git'
     commits = lei.get_latest_commits_in_epoch(gitdir)
@@ -169,14 +172,17 @@ def process_lei_list(ctx: click.Context, listname: str,
             logger.info('Limiting to %d messages as requested', max)
             commits = commits[:max_mail]
 
-        process_commits(listname=listname, commits=commits, gitdir=gitdir, ctx=ctx)
+        count, last_commit = process_commits(listname=listname, commits=commits,
+                                             gitdir=gitdir, ctx=ctx)
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
+        return count
     else:
         logger.debug('No new commits to process for LEI list %s', listname)
+        return 0
 
 
 def process_lore_list(ctx: click.Context, listname: str,
-                      details: Dict[str, Any], max_mail: int) -> None:
+                      details: Dict[str, Any], max_mail: int) -> int:
     ls = ctx.obj['lore']
     latest_epochs = ls.get_epochs(details['feed'])
 
@@ -187,7 +193,7 @@ def process_lore_list(ctx: click.Context, listname: str,
         ls.init_list(list_name=listname, list_dir=list_dir, pi_url=details['feed'])
         ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
         logger.info('Initialized "%s".', listname)
-        return
+        return 0
 
     current_epochs: List[Tuple[int, str, str]] = list()
     try:
@@ -196,8 +202,8 @@ def process_lore_list(ctx: click.Context, listname: str,
         pass
 
     if current_epochs == latest_epochs:
-        logger.debug('No updates for list: %s', listname)
-        return
+        logger.debug('No updates for lore list: %s', listname)
+        return 0
 
     # Pull the highest epoch we have
     highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir)
@@ -209,7 +215,8 @@ def process_lore_list(ctx: click.Context, listname: str,
             logger.info('Limiting to %d messages as requested', max)
             commits = commits[:max_mail]
 
-        last_commit = process_commits(listname=listname, commits=commits, gitdir=gitdir, ctx=ctx)
+        count, last_commit = process_commits(listname=listname, commits=commits,
+                                             gitdir=gitdir, ctx=ctx)
     else:
         last_commit = ''
         logger.debug('No new commits to process for list %s', listname)
@@ -219,13 +226,16 @@ def process_lore_list(ctx: click.Context, listname: str,
     if last_commit:
         ls.reshallow(gitdir=gitdir, since_commit=last_commit)
 
+    return count
+
 
 @click.group()
 @click.version_option(version=__version__)
 @click_log.simple_verbosity_option(logger)
 @click.option('--cfgfile', '-c', help='Path to configuration file.')
+@click.option('-l', '--logfile', default=None, type=click.Path(), help='Path to log file.')
 @click.pass_context
-def main(ctx: click.Context, cfgfile: str) -> None:
+def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> None:
     ctx.ensure_object(dict)
 
     # Load configuration file
@@ -234,6 +244,20 @@ def main(ctx: click.Context, cfgfile: str) -> None:
         cfgpath = cfgdir / 'korgalore.toml'
     else:
         cfgpath = Path(cfgfile)
+
+    if logfile:
+        if str(logfile) == 'journal':
+            import systemd.journal  # type: ignore
+            journal_handler = systemd.journal.JournalHandler()
+            # We always send INFO-level to journal
+            journal_handler.setLevel(logging.INFO)
+            logger.addHandler(journal_handler)
+        else:
+            file_handler = logging.FileHandler(str(logfile))
+            file_handler.setLevel(logging.INFO)
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
 
     config = load_config(cfgpath)
     ctx.obj['config'] = config
@@ -314,15 +338,26 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
             raise click.Abort()
         sources = {listname: sources[listname]}
 
+    changes: List[Tuple[str, int]] = list()
     for listname, details in sources.items():
         logger.debug('Processing list: %s', listname)
         if details.get('feed', '').startswith('https:'):
-            process_lore_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            count = process_lore_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            if count > 0:
+                changes.append((listname, count))
         elif details.get('feed', '').startswith('lei:'):
-            process_lei_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            count = process_lei_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            if count > 0:
+                changes.append((listname, count))
         else:
             logger.warning('Unknown feed type for list %s: %s', listname, details.get('feed'))
             continue
+    if changes:
+        logger.info('Pull complete with updates:')
+        for listname, count in changes:
+            logger.info('  %s: %d', listname, count)
+    else:
+        logger.info('Pull complete with no updates.')
 
 
 if __name__ == '__main__':
