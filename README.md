@@ -24,49 +24,9 @@ It's a play on "k.org lore" and "Orgalorg," who is a primordial cosmic entity in
 - No filtering (use lei for that)
 - No querying (use lei for that)
 
-## Installation
+## Documentation
 
-### Prerequisites
-
-- Python 3.11 or above
-- Git
-- Gmail API credentials
-
-### Install
-
-TBD.
-
-## Configuration
-
-### Gmail Setup
-
-Gmail went out of their way to make it super difficult to access your inbox via an API, so please be prepared to suffer a bit. So, you will need to download an OAuth 2.0 Client ID file from Google that will authorize your access.
-
-The best is to follow the "quickstart app" instructions from Google itself:
-https://developers.google.com/workspace/gmail/api/quickstart/python#set-up-environment
-
-Choosing "Internal Use" and "Desktop Application" should be the simplest.
-
-Eventually, you should have a "Download JSON" link. Use that to download `client_secret_mumble-long-string.json`. Rename it into `credentials.json` and put into `~/.config/korgalorg/credentials.json`.
-
-After that, run `kgl -v auth` and follow the link to authorize access.
-
-### Config file
-
-Copy `korgalorg-example.toml` into `~/.config/korgalorg/korgalorg.toml`. You can add any lists on lore.kernel.org following the example provided.
-
-TBD: combining with lei.
-
-## Usage
-
-### Basic Usage
-
-For now, just:
-
-- `kgl auth`: to authenticate with gmail
-- `kgl pull`: to pull the configured lists and import them into your gmail
-
-A lot more functionality will be added soon, including a more native background mode.
+See the docs directory for detailed instructions on installing, configuring, and using.
 
 ## Contributing
 
