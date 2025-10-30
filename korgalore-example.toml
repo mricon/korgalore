@@ -1,11 +1,31 @@
+### Targets ###
+
+[targets.personal]
+type = 'gmail'
+credentials = '/path/to/personal-credentials.json'
+
+[targets.work]
+type = 'gmail'
+credentials = '/path/to/work-credentials.json'
+
+### Sources ###
+
 [sources.lkml]
 feed = 'https://lore.kernel.org/lkml'
-labels = ['Lists/LKML', 'CATEGORY_FORUMS']
-
-[sources.git]
-feed = 'https://lore.kernel.org/git'
-labels = ['Lists/Git', 'CATEGORY_FORUMS', 'INBOX', 'UNREAD']
+target = 'work'
+labels = ['Lists/LKML']
 
 [sources.linux-doc]
 feed = 'https://lore.kernel.org/linux-doc'
-labels = ['Lists/Doc', 'CATEGORY_FORUMS']
+target = 'work'
+labels = ['Lists/Docs']
+
+[sources.git]
+feed = 'https://lore.kernel.org/git'
+target = 'personal'
+labels = ['INBOX', 'UNREAD']
+
+# [sources.lei-mentions]
+# feed = 'lei:/home/user/lei/mentions'
+# target = 'work'
+# labels = ['INBOX', 'UNREAD']

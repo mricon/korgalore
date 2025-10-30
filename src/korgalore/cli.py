@@ -50,6 +50,47 @@ def get_xdg_config_dir() -> Path:
     return korgalore_config_dir
 
 
+def get_target(ctx: click.Context, identifier: str) -> Any:
+    if identifier in ctx.obj['targets']:
+        return ctx.obj['targets'][identifier]
+
+    config = ctx.obj.get('config', {})
+    targets = config.get('targets', {})
+    if identifier not in targets:
+        logger.critical('Target "%s" not found in configuration.', identifier)
+        raise click.Abort()
+
+    details = targets[identifier]
+    if details.get('type') != 'gmail':
+        logger.critical('Target "%s" is not a Gmail target.', identifier)
+        raise click.Abort()
+
+    gs = get_gmail_service(identifier=identifier,
+                            credentials_file=details.get('credentials', ''),
+                            token_file=details.get('token', None))
+    ctx.obj['targets'][identifier] = gs
+    return gs
+
+
+def get_gmail_service(identifier: str, credentials_file: str,
+                      token_file: Optional[str]) -> GmailService:
+    if not credentials_file:
+        logger.critical('No credentials file specified for Gmail target: %s', identifier)
+        raise click.Abort()
+    if not token_file:
+        cfgdir = get_xdg_config_dir()
+        token_file = str(cfgdir / f'gmail-{identifier}-token.json')
+    try:
+        gmail_service = GmailService(identifier=identifier,
+                                     credentials_file=credentials_file,
+                                     token_file=token_file)
+    except FileNotFoundError as fe:
+        logger.critical('Error: %s', str(fe))
+        raise click.Abort()
+
+    return gmail_service
+
+
 def load_config(cfgfile: Path) -> Dict[str, Any]:
     config: Dict[str, Any] = dict()
 
@@ -63,27 +104,14 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
         with open(cfgfile, 'rb') as cf:
             config = tomllib.load(cf)
 
-        logger.debug('Config loaded with %s keys', len(config.keys()))
+        logger.debug('Config loaded with %s targets and %s sources',
+                     len(config.get('targets', {})), len(config.get('sources', {})))
 
         return config
 
     except Exception as e:
         logger.error('Error loading config: %s', str(e))
         raise click.Abort()
-
-
-def translate_labels(gs: GmailService, cfg: Dict[str, Any]) -> Dict[str, Any]:
-    # Translate label names to their corresponding IDs
-    # Get all labels from Gmail
-    label_map = {label['name']: label['id'] for label in gs.list_labels()}
-    for listname, details in cfg.get('sources', {}).items():
-        details['label_ids'] = list()
-        for label in details.get('labels', []):
-            label_id = label_map.get(label, None)
-            if label_id is None:
-                raise ValueError(f"Label '{label}' for list '{listname}' not found in Gmail.")
-            details['label_ids'].append(label_id)
-    return cfg
 
 
 def process_commits(listname: str, commits: List[str], gitdir: Path,
@@ -94,18 +122,11 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
         commits = commits[-max_count:]
 
     ls = ctx.obj['lore']
-    gs = ctx.obj['gmail']
     cfg = ctx.obj.get('config', {})
-    if not ctx.obj.get('labels_translated', False):
-        logger.debug('Translating gmail label names to IDs')
-        try:
-            cfg = translate_labels(gs, cfg)
-            ctx.obj['labels_translated'] = True
-        except ValueError as ve:
-            logger.critical('Configuration error: %s', str(ve))
-            raise click.Abort()
 
     details = cfg['sources'][listname]
+    target = details.get('target', '')
+    gs = get_target(ctx, target)
 
     last_commit = ''
 
@@ -128,7 +149,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                 # Assuming non-m commit
                 continue
             try:
-                gs.import_message(raw_message, label_ids=details.get('label_ids', None))
+                gs.import_message(raw_message, labels=details.get('labels', []))
                 count += 1
             except RuntimeError as re:
                 logger.critical('Failed to upload message at commit %s: %s', at_commit, str(re))
@@ -290,15 +311,11 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
     data_dir = get_xdg_data_dir()
     ctx.obj['data_dir'] = data_dir
 
-    logger.debug('Verbose mode enabled')
     logger.debug('Data directory: %s', data_dir)
 
-    try:
-        ctx.obj['gmail'] = GmailService(cfgdir)
-    except FileNotFoundError as fe:
-        logger.critical('Error: %s', str(fe))
-        logger.critical('Please run "korgalore auth" to authenticate first.')
-        raise click.Abort()
+    # We lazy-load these services as needed
+    ctx.obj['targets'] = dict()
+
     ctx.obj['lore'] = LoreService(data_dir)
     ctx.obj['lei'] = LeiService()
 
@@ -306,28 +323,32 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
 @main.command()
 @click.pass_context
 def auth(ctx: click.Context) -> None:
-    """Authenticate with Gmail API."""
-    gmail = ctx.obj['gmail']
-
-    try:
-        logger.info('Starting authentication process')
-        gmail.authenticate()
-        logger.info('Authentication successful')
-    except Exception as e:
-        logger.critical('Authentication failed: %s', str(e))
+    """Authenticate with Gmail."""
+    config = ctx.obj.get('config', {})
+    targets = config.get('targets', {})
+    if not targets:
+        logger.critical('No targets defined in configuration.')
         raise click.Abort()
+    for identifier, details in targets.items():
+        if details.get('type') != 'gmail':
+            continue
+        get_gmail_service(identifier=identifier,
+                          credentials_file=details.get('credentials', ''),
+                          token_file=details.get('token', None))
+    logger.info('Authentication complete.')
 
 
 @main.command()
 @click.pass_context
+@click.argument('target', type=str, nargs=1)
 @click.option('--ids', '-i', is_flag=True, help='include id values')
-def labels(ctx: click.Context, ids: bool = False) -> None:
+def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
     """List all available labels."""
-    gmail = ctx.obj['gmail']
+    gs = get_target(ctx, ctx.params['target'])
 
     try:
         logger.debug('Fetching labels from Gmail')
-        labels_list = gmail.list_labels()
+        labels_list = gs.list_labels()
 
         if not labels_list:
             logger.info("No labels found.")
@@ -351,8 +372,6 @@ def labels(ctx: click.Context, ids: bool = False) -> None:
 @click.option('--max-mail', '-m', default=0, help='maximum number of messages to pull (0 for all)')
 @click.argument('listname', type=str, nargs=1, default=None)
 def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
-    """Pull updates from all subscribed mailing lists."""
-
     cfg = ctx.obj.get('config', {})
 
     sources = cfg.get('sources', {})
