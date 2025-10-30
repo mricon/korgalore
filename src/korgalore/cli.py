@@ -87,7 +87,12 @@ def translate_labels(gs: GmailService, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def process_commits(listname: str, commits: List[str], gitdir: Path,
-                    ctx: click.Context) -> Tuple[int, str]:
+                    ctx: click.Context, max_count: int = 0) -> Tuple[int, str]:
+    if max_count > 0 and len(commits) > max_count:
+        # Take the last NN messages and discard the rest
+        logger.info('Limiting to %d messages as requested', max_count)
+        commits = commits[-max_count:]
+
     ls = ctx.obj['lore']
     gs = ctx.obj['gmail']
     cfg = ctx.obj.get('config', {})
@@ -154,8 +159,9 @@ def process_lei_list(ctx: click.Context, listname: str,
     except FileNotFoundError:
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
         lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git')
-        logger.info('Initialized "%s".', listname)
+        logger.info('Initialized: %s.', listname)
         return 0
+    logger.debug('Running lei-up on list: %s', listname)
     lei.up_search(lei_name=feed)
     latest_epochs = lei.get_latest_epoch_info(feedpath)
     if known_epochs == latest_epochs:
@@ -166,14 +172,8 @@ def process_lei_list(ctx: click.Context, listname: str,
     commits = lei.get_latest_commits_in_epoch(gitdir)
     if commits:
         logger.debug('Found %d new commits for list %s', len(commits), listname)
-
-        if max_mail > 0 and len(commits) > max_mail:
-            # Take the last NN messages and discard the rest
-            logger.info('Limiting to %d messages as requested', max)
-            commits = commits[:max_mail]
-
         count, last_commit = process_commits(listname=listname, commits=commits,
-                                             gitdir=gitdir, ctx=ctx)
+                                             gitdir=gitdir, ctx=ctx, max_count=max_mail)
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
         return count
     else:
@@ -185,6 +185,7 @@ def process_lore_list(ctx: click.Context, listname: str,
                       details: Dict[str, Any], max_mail: int) -> int:
     ls = ctx.obj['lore']
     latest_epochs = ls.get_epochs(details['feed'])
+    count = 0
 
     data_dir = ctx.obj['data_dir']
 
@@ -192,7 +193,7 @@ def process_lore_list(ctx: click.Context, listname: str,
     if not list_dir.exists():
         ls.init_list(list_name=listname, list_dir=list_dir, pi_url=details['feed'])
         ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
-        logger.info('Initialized "%s".', listname)
+        logger.info('Initialized: %s.', listname)
         return 0
 
     current_epochs: List[Tuple[int, str, str]] = list()
@@ -206,25 +207,48 @@ def process_lore_list(ctx: click.Context, listname: str,
         return 0
 
     # Pull the highest epoch we have
+    logger.debug('Running git pull on list: %s', listname)
     highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir)
     if commits:
         logger.debug('Found %d new commits for list %s', len(commits), listname)
-
-        if max_mail > 0 and len(commits) > max_mail:
-            # Take the last NN messages and discard the rest
-            logger.info('Limiting to %d messages as requested', max)
-            commits = commits[:max_mail]
-
         count, last_commit = process_commits(listname=listname, commits=commits,
-                                             gitdir=gitdir, ctx=ctx)
+                                             gitdir=gitdir, ctx=ctx, max_count=max_mail)
     else:
         last_commit = ''
         logger.debug('No new commits to process for list %s', listname)
 
-    # XXX: check for epoch rollover
-    ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
     if last_commit:
         ls.reshallow(gitdir=gitdir, since_commit=last_commit)
+
+    local = set(e[0] for e in current_epochs)
+    remote = set(e[0] for e in latest_epochs)
+
+    new_epochs = remote - local
+    if new_epochs:
+        # In theory, we could have more than one new epoch, for example if
+        # someone hasn't run korgalore in a long time. This is almost certainly
+        # not something anyone would want, because it would involve pulling a lot of data
+        # that would take ages. So for now, we just pick the highest new epoch, which
+        # will be correct in vast majority of cases.
+        next_epoch = max(new_epochs)
+        repo_url = f"{details['feed'].rstrip('/')}/git/{next_epoch}.git"
+        tgt_dir = list_dir / 'git' / f'{next_epoch}.git'
+        logger.debug('Cloning new epoch %d for list %s', next_epoch, listname)
+        ls.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir, shallow=False)
+        commits = ls.get_all_commits_in_epoch(tgt_dir)
+        # attempt to respect max_mail across epoch boundaries
+        remaining_mail = max_mail - count if max_mail > 0 else 0
+        if remaining_mail <= 0:
+            # Not clear what to do in this case, so we're just going to do max_mail for
+            # the new epoch as well
+            remaining_mail = max_mail
+        new_count, last_commit = process_commits(listname=listname, commits=commits,
+                                                 gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail)
+        if last_commit:
+            ls.reshallow(gitdir=tgt_dir, since_commit=last_commit)
+        count += new_count
+
+    ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
 
     return count
 

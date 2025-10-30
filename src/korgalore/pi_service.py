@@ -48,6 +48,17 @@ class PIService:
             raise FileNotFoundError(f"No existing epochs found in {epochs_dir}.")
         return sorted(existing_epochs)
 
+    def get_all_commits_in_epoch(self, gitdir: Path) -> List[str]:
+        gitargs = ['rev-list', '--reverse', 'master']
+        retcode, output = self.run_git_command(str(gitdir), gitargs)
+        if retcode != 0:
+            raise RuntimeError(f"Git rev-list failed: {output.decode()}")
+        if len(output):
+            commits = output.decode().splitlines()
+        else:
+            commits = []
+        return commits
+
     def get_latest_commits_in_epoch(self, gitdir: Path) -> List[str]:
         # How many new commits since our latest_commit
         try:

@@ -40,12 +40,17 @@ class LoreService(PIService):
 
         return manifest
 
-    def clone_epoch(self, repo_url: str, tgt_dir: Path) -> None:
+    def clone_epoch(self, repo_url: str, tgt_dir: Path, shallow: bool = True) -> None:
         # does tgt_dir exist?
         if Path(tgt_dir).exists():
-            raise RuntimeError(f"Destination directory {tgt_dir} already exists.")
+            logger.debug(f"Target directory {tgt_dir} already exists, skipping clone.")
+            return
 
-        gitargs = ['clone', '--mirror', '--depth=1', repo_url, str(tgt_dir)]
+        gitargs = ['clone', '--mirror']
+        if shallow:
+            gitargs += ['--depth=1']
+        gitargs += [repo_url, str(tgt_dir)]
+
         retcode, output = self.run_git_command(None, gitargs)
         if retcode != 0:
             raise RuntimeError(f"Git clone failed: {output.decode()}")
