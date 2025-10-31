@@ -84,7 +84,9 @@ Korgalore uses an email-based workflow. Send patches to:
 Preparing Patches
 -----------------
 
-Save yourself a lot of trouble and use [b4](https://b4.docs.kernel.org/).
+Save yourself a lot of trouble and use b4_.
+
+.. _b4: https://b4.docs.kernel.org/
 
 
 Developer Certificate of Origin
@@ -106,9 +108,3 @@ Mailing List
 All development discussion happens on the mailing list:
 
    tools@kernel.org
-
-Thank You!
-==========
-
-Thank you for contributing to Korgalore! Your contributions help make
-the tool better for everyone.
