@@ -48,7 +48,7 @@ class LoreService(PIService):
 
         gitargs = ['clone', '--mirror']
         if shallow:
-            gitargs += ['--depth=1']
+            gitargs += ['--shallow-since=1.week.ago']
         gitargs += [repo_url, str(tgt_dir)]
 
         retcode, output = self.run_git_command(None, gitargs)
@@ -113,18 +113,9 @@ class LoreService(PIService):
         epochs_dir = list_dir / 'git'
         tgt_dir = epochs_dir / f'{highest_epoch}.git'
         # Pull the latest changes
-        gitargs = ['remote', 'update', 'origin', '--prune']
+        gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
         retcode, output = self.run_git_command(str(tgt_dir), gitargs)
         if retcode != 0:
             raise RuntimeError(f"Git remote update failed: {output.decode()}")
         new_commits = self.get_latest_commits_in_epoch(tgt_dir)
         return highest_epoch, tgt_dir, new_commits
-
-    def reshallow(self, gitdir: Path, since_commit: str) -> None:
-        # Trim the repository to remove anything we've handled already
-        with open(gitdir / 'shallow', 'w') as sf:
-            sf.write(since_commit + '\n')
-        gitargs = ['gc', '--prune=now']
-        retcode, output = self.run_git_command(str(gitdir), gitargs)
-        if retcode != 0:
-            raise RuntimeError(f"Git gc failed: {output.decode()}")

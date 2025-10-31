@@ -28,6 +28,7 @@ class PIService:
         if topdir:
             cmd += ['-C', topdir]
         cmd += args
+        logger.debug('Running git command: %s', ' '.join(cmd))
 
         result = subprocess.run(cmd, capture_output=True)
         return result.returncode, result.stdout.strip()

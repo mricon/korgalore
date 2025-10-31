@@ -238,9 +238,6 @@ def process_lore_list(ctx: click.Context, listname: str,
         last_commit = ''
         logger.debug('No new commits to process for list %s', listname)
 
-    if last_commit:
-        ls.reshallow(gitdir=gitdir, since_commit=last_commit)
-
     local = set(e[0] for e in current_epochs)
     remote = set(e[0] for e in latest_epochs)
 
@@ -265,8 +262,6 @@ def process_lore_list(ctx: click.Context, listname: str,
             remaining_mail = max_mail
         new_count, last_commit = process_commits(listname=listname, commits=commits,
                                                  gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail)
-        if last_commit:
-            ls.reshallow(gitdir=tgt_dir, since_commit=last_commit)
         count += new_count
 
     ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
