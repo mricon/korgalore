@@ -335,6 +335,43 @@ def auth(ctx: click.Context) -> None:
 
 @main.command()
 @click.pass_context
+def edit_config(ctx: click.Context) -> None:
+    """Open the configuration file in the default editor."""
+    # Get config file path
+    cfgfile = ctx.parent.params.get('cfgfile') if ctx.parent else None
+    if not cfgfile:
+        cfgdir = get_xdg_config_dir()
+        cfgpath = cfgdir / 'korgalore.toml'
+    else:
+        cfgpath = Path(cfgfile)
+
+    # Create config file with example if it doesn't exist
+    if not cfgpath.exists():
+        logger.info('Configuration file does not exist. Creating example configuration at: %s', cfgpath)
+        example_config = """### Targets ###
+
+[targets.personal]
+type = 'gmail'
+credentials = '~/.config/korgalore/credentials.json'
+
+### Sources ###
+
+# [sources.lkml]
+# feed = 'https://lore.kernel.org/lkml'
+# target = 'personal'
+# labels = ['INBOX', 'UNREAD']
+"""
+        cfgpath.parent.mkdir(parents=True, exist_ok=True)
+        cfgpath.write_text(example_config)
+
+    # Open in editor
+    logger.info('Editing configuration file: %s', cfgpath)
+    click.edit(filename=str(cfgpath))
+    logger.debug('Configuration file closed.')
+
+
+@main.command()
+@click.pass_context
 @click.argument('target', type=str, nargs=1)
 @click.option('--ids', '-i', is_flag=True, help='include id values')
 def labels(ctx: click.Context, target: str, ids: bool = False) -> None:

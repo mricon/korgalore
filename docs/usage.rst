@@ -33,7 +33,7 @@ Authenticate with Gmail targets defined in your configuration.
 
 .. code-block:: bash
 
-   kgl auth [target]
+   kgl auth
 
 This command will:
 
@@ -43,8 +43,43 @@ This command will:
 4. Save the authentication token for future use
 
 .. note::
-   You only need to run this once per target, unless you revoke access
-   or the token expires.
+   You only need to run this once per target, unless you revoke access or the token expires.
+
+edit-config
+-----------
+
+Open the configuration file in your default editor.
+
+.. code-block:: bash
+
+   kgl edit-config
+
+This command will:
+
+1. Locate your configuration file (default: ``~/.config/korgalore/korgalore.toml``)
+2. If the file doesn't exist, create it with example configuration
+3. Open it in your default editor (as specified by ``$EDITOR`` or ``$VISUAL``)
+
+You can also specify a custom config file path:
+
+.. code-block:: bash
+
+   kgl -c /path/to/config.toml edit-config
+
+This is a convenient way to edit your configuration without having to remember
+the file path or manually create the directory structure.
+
+.. tip::
+   The command uses your system's default editor. You can set it by exporting
+   the ``EDITOR`` environment variable in your shell configuration:
+
+   .. code-block:: bash
+
+      export EDITOR=vim
+      # or
+      export EDITOR=nano
+      # or
+      export EDITOR=code  # for VS Code
 
 labels
 ------

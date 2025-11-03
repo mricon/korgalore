@@ -45,7 +45,16 @@ Rename it to ``credentials.json`` and place it in your config directory:
 Step 3: Create a Configuration File
 ====================================
 
-Create a configuration file at ``~/.config/korgalore/korgalore.toml``:
+You can create a configuration file manually or use the built-in command:
+
+.. code-block:: bash
+
+   kgl edit-config
+
+This will create a configuration file at ``~/.config/korgalore/korgalore.toml`` with
+an example configuration and open it in your default editor.
+
+Alternatively, create it manually with this content:
 
 .. code-block:: toml
 
