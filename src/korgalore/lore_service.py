@@ -13,7 +13,7 @@ from korgalore.pi_service import PIService
 
 charset.add_charset('utf-8', None)
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('korgalore')
 
 
 class LoreService(PIService):

@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 from korgalore.pi_service import PIService
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('korgalore')
 
 class LeiService(PIService):
     """Service for interacting with lore.kernel.org public-inbox archives."""

@@ -8,7 +8,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow # type: ignore
 from googleapiclient.discovery import build # type: ignore
 from googleapiclient.errors import HttpError # type: ignore
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('korgalore')
 
 # If modifying these scopes, delete the file token.json.
 # We need scopes for reading and inserting new emails, but not

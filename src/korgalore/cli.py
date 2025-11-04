@@ -13,7 +13,7 @@ from korgalore.lore_service import LoreService
 from korgalore.lei_service import LeiService
 from korgalore import __version__
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
 
 def get_xdg_data_dir() -> Path:

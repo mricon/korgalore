@@ -7,10 +7,12 @@ from email.policy import EmailPolicy
 from email import charset
 from pathlib import Path
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from datetime import datetime
 
 charset.add_charset('utf-8', None)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('korgalore')
 
 class PIService:
     GITCMD: str = "git"
@@ -60,14 +62,74 @@ class PIService:
             commits = []
         return commits
 
-    def get_latest_commits_in_epoch(self, gitdir: Path) -> List[str]:
+    def recover_after_rebase(self, tgt_dir: Path) -> str:
+        # Load korgalore.info to find last processed commit
+        info = self.load_korgalore_info(tgt_dir)
+        # Get the commit's date and parse it into datetime
+        # The string is ISO with tzinfo: "2025-11-04 20:47:21 +0000"
+        commit_date_str = info.get('commit_date')
+        if not commit_date_str:
+            raise RuntimeError(f"No commit_date found in korgalore.info in {tgt_dir}.")
+        commit_date = datetime.strptime(commit_date_str, '%Y-%m-%d %H:%M:%S %z')
+        logger.debug(f"Last processed commit date: {commit_date.isoformat()}")
+        # Try to find the new hash of this commit in the log by matching the subject and
+        # message-id.
+        gitargs = ['rev-list', '--reverse', '--since-as-filter', commit_date_str, 'master']
+        retcode, output = self.run_git_command(str(tgt_dir), gitargs)
+        if retcode != 0:
+            # Not sure what happened here, just give up and return the latest commit
+            logger.warning("Could not run rev-list to recover after rebase, returning latest commit.")
+            latest_commit = self.get_top_commit(tgt_dir)
+            return latest_commit
+
+        possible_commits = output.decode().splitlines()
+        if not possible_commits:
+            # Just record the latest info, then
+            self.update_korgalore_info(gitdir=tgt_dir)
+            latest_commit = self.get_top_commit(tgt_dir)
+            return latest_commit
+
+        last_commit = ''
+        first_commit = possible_commits[0]
+        for commit in possible_commits:
+            raw_message = self.get_message_at_commit(tgt_dir, commit)
+            msg = self.parse_message(raw_message)
+            subject = msg.get('Subject', '(no subject)')
+            msgid = msg.get('Message-ID', '(no message-id)')
+            if subject == info.get('subject') and msgid == info.get('msgid'):
+                logger.debug(f"Found matching commit: {commit}")
+                last_commit = commit
+                break
+        if not last_commit:
+            logger.error("Could not find exact commit after rebase.")
+            logger.error("Returning first possible commit after date: %s", first_commit)
+            last_commit = first_commit
+            raw_message = self.get_message_at_commit(tgt_dir, last_commit)
+            msg = self.parse_message(raw_message)
+        else:
+            logger.debug("Recovered exact matching commit after rebase: %s", last_commit)
+
+        self.update_korgalore_info(gitdir=tgt_dir, latest_commit=last_commit, message=msg)
+        return last_commit
+
+    def get_latest_commits_in_epoch(self, gitdir: Path,
+                                    since_commit: Optional[str] = None) -> List[str]:
         # How many new commits since our latest_commit
-        try:
-            info = self.load_korgalore_info(gitdir)
-        except FileNotFoundError:
-            raise RuntimeError(f"korgalore.info not found in {gitdir}. Run init_list() first.")
-        last_commit = info.get('last')
-        gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{last_commit}..master']
+        if not since_commit:
+            try:
+                info = self.load_korgalore_info(gitdir)
+            except FileNotFoundError:
+                raise FileNotFoundError(f"korgalore.info not found in {gitdir}. Run init_list() first.")
+            since_commit = info.get('last')
+        # is this still a valid commit?
+        gitargs = ['cat-file', '-e', f'{since_commit}^']
+        retcode, output = self.run_git_command(str(gitdir), gitargs)
+        if retcode != 0:
+            # The commit is not valid anymore, so try to find the latest commit by other
+            # means.
+            logger.debug(f"Since commit {since_commit} not found, trying to recover after rebase.")
+            since_commit = self.recover_after_rebase(gitdir)
+        gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..master']
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise RuntimeError(f"Git rev-list failed: {output.decode()}")
@@ -92,17 +154,19 @@ class PIService:
                                         policy=self.emlpolicy).parsebytes(raw_message)  # type: ignore
         return msg
 
+    def get_top_commit(self, gitdir: Path) -> str:
+        gitargs = ['rev-list', '-n', '1', 'master']
+        retcode, output = self.run_git_command(str(gitdir), gitargs)
+        if retcode != 0:
+            raise RuntimeError(f"Git rev-list failed: {output.decode()}")
+        top_commit = output.decode()
+        return top_commit
+
     def update_korgalore_info(self, gitdir: Path,
                               latest_commit: Optional[str] = None,
-                              message: Optional[bytes] = None) -> None:
+                              message: Optional[Union[bytes, EmailMessage]] = None) -> None:
         if not latest_commit:
-            gitargs = ['rev-list', '-n', '1', 'master']
-            retcode, output = self.run_git_command(str(gitdir), gitargs)
-            if retcode != 0:
-                raise RuntimeError(f"Git rev-list failed: {output.decode()}")
-            latest_commit = output.decode()
-            if not latest_commit:
-                raise RuntimeError("No commits found in the repository.")
+            latest_commit = self.get_top_commit(gitdir)
 
         # Get the commit date
         gitargs = ['show', '-s', '--format=%ci', latest_commit]
@@ -115,7 +179,10 @@ class PIService:
         if not message:
             message = self.get_message_at_commit(gitdir, latest_commit)
 
-        msg = self.parse_message(message)
+        if isinstance(message, bytes):
+            msg = self.parse_message(message)
+        else:
+            msg = message
         subject = msg.get('Subject', '(no subject)')
         msgid = msg.get('Message-ID', '(no message-id)')
         with open(korgalore_file, 'w') as gf:
