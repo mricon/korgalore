@@ -122,6 +122,7 @@ not yet import any email into your Gmail inbox. However, you only have
 to wait a few minutes and then rerun ``kgl pull`` again:
 
 .. code-block::
+
    $ kgl pull
    Uploading lkml  [####################################]  3/3
    Pull complete with updates:
