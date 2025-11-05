@@ -56,6 +56,19 @@ After that, the first time you run ``kgl pull``, you will be prompted to
 log in to your Google account and authorize the application. You can
 also run ``kgl auth`` to the same effect.
 
+Once you obtain the token file (usually located at
+``~/.config/korgalore/gmail-personal-token.json``), you can copy it to a
+headless node and modify your configuration file to point to it:
+
+.. code-block:: toml
+
+   [targets.personal]
+   type = 'gmail'
+   credentials = '~/.config/korgalore/credentials.json'
+   token = '~/.config/korgalore/gmail-personal-token.json'
+
+This will let you run korgalore on a headless node as opposed to your
+workstation.
 
 Configuration File Format
 =========================

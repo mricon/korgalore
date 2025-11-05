@@ -368,6 +368,7 @@ def edit_config(ctx: click.Context) -> None:
 [targets.personal]
 type = 'gmail'
 credentials = '~/.config/korgalore/credentials.json'
+# token = '~/.config/korgalore/token.json'
 
 ### Sources ###
 

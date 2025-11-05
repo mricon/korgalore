@@ -80,7 +80,10 @@ This minimal configuration:
 Step 4: Authenticate with Gmail
 ================================
 
-Run the authentication command:
+This must be done on a system with a running web browser, because Gmail
+basically hates you. If you are setting up a headless node, you therefore
+must run ``kgl auth`` on your local machine first, and then copy the
+generated token file to the headless node.
 
 .. code-block:: bash
 
@@ -88,6 +91,22 @@ Run the authentication command:
 
 Follow the link that appears, authorize the application in your browser,
 and allow access to your Gmail account.
+
+Step 4.5: Move to a headless node
+---------------------------------
+
+Once you obtain the token file (usually located at
+``~/.config/korgalore/gmail-personal-token.json``), copy it to your headless
+node and modify your configuration file to point to it:
+
+.. code-block:: toml
+
+   [targets.personal]
+   type = 'gmail'
+   credentials = '~/.config/korgalore/credentials.json'
+   token = '~/.config/korgalore/gmail-personal-token.json'
+
+This will let you run korgalore on a headless node.
 
 Step 5: Pull Messages
 ======================
