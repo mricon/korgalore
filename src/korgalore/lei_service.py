@@ -24,7 +24,10 @@ class LeiService(PIService):
         cmd = [self.LEICMD]
         cmd += args
 
-        result = subprocess.run(cmd, capture_output=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True)
+        except FileNotFoundError:
+            raise PublicInboxError(f"LEI command '{self.LEICMD}' not found. Is it installed?")
         return result.returncode, result.stdout.strip()
 
     def get_latest_epoch_info(self, list_dir: Path) -> List[Tuple[int, str]]:

@@ -33,7 +33,10 @@ class PIService:
         cmd += args
         logger.debug('Running git command: %s', ' '.join(cmd))
 
-        result = subprocess.run(cmd, capture_output=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True)
+        except FileNotFoundError:
+            raise GitError(f"Git command '{self.GITCMD}' not found. Is it installed?")
         return result.returncode, result.stdout.strip()
 
     def find_epochs(self, topdir: Path) -> List[int]:

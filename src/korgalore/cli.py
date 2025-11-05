@@ -174,6 +174,9 @@ def process_lei_list(ctx: click.Context, listname: str,
     # Make sure lei knows about this list
     # Placeholder for future LEI feed processing logic
     lei = ctx.obj['lei']
+    if lei is None:
+        lei = LeiService()
+        ctx.obj['lei'] = lei
     feed = details.get('feed', '')[4:]  # Strip 'lei:' prefix
     if feed not in lei.known_searches:
         logger.critical('LEI search "%s" not known. Please create it first.', listname)
@@ -211,6 +214,10 @@ def process_lei_list(ctx: click.Context, listname: str,
 def process_lore_list(ctx: click.Context, listname: str,
                       details: Dict[str, Any], max_mail: int) -> int:
     ls = ctx.obj['lore']
+    if ls is None:
+        data_dir = ctx.obj['data_dir']
+        ls = LoreService(data_dir)
+        ctx.obj['lore'] = ls
     latest_epochs = ls.get_epochs(details['feed'])
     count = 0
 
@@ -319,8 +326,8 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
     # We lazy-load these services as needed
     ctx.obj['targets'] = dict()
 
-    ctx.obj['lore'] = LoreService(data_dir)
-    ctx.obj['lei'] = LeiService()
+    ctx.obj['lore'] = None
+    ctx.obj['lei'] = None
 
 
 @main.command()
