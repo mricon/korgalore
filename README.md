@@ -2,7 +2,7 @@
 
 A tool for feeding public-inbox git repositories directly into Gmail as an alternative to subscribing.
 
-WARNING: This is alpha-quality software. It will likely explode or cause you to miss mail.
+WARNING: This is beta-quality software. It can explode or cause you to miss mail.
 
 ## Overview
 
