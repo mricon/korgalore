@@ -30,6 +30,9 @@ class GmailService:
         self._label_map: Optional[Dict[str, str]] = None
 
     def _load_credentials(self, credentials_file: str, token_file: str) -> None:
+        # Expand vars and tildes on file paths
+        credentials_file = os.path.expandvars(os.path.expanduser(credentials_file))
+        token_file = os.path.expandvars(os.path.expanduser(token_file))
         # The file token.json stores the user's access and refresh tokens
         if os.path.exists(token_file):
             self.creds = Credentials.from_authorized_user_file(token_file, SCOPES) # type: ignore
