@@ -46,7 +46,7 @@ class GmailService:
 
                 flow = InstalledAppFlow.from_client_secrets_file(
                     credentials_file, SCOPES)
-                self.creds = flow.run_local_server(port=0)
+                self.creds = flow.run_console()
             else:
                 raise ConfigurationError(
                     f"{credentials_file} not found. Please download it from Google Cloud Console."
