@@ -11,6 +11,13 @@ Before installing Korgalore, ensure you have the following:
 * Git
 * Gmail API credentials (see :doc:`configuration` for setup instructions)
 
+Installing from PyPI
+====================
+
+.. code-block:: bash
+
+   pip install korgalore
+
 Installing from Source
 ======================
 
@@ -35,18 +42,6 @@ For development, install with dev dependencies:
 
 This will install the package in editable mode with additional development tools.
 
-Installing from PyPI
-====================
-
-.. note::
-   PyPI package is not yet available.
-
-Once available, you will be able to install using:
-
-.. code-block:: bash
-
-   pip install korgalore
-
 Verifying Installation
 ======================
 
@@ -57,4 +52,3 @@ After installation, verify that the ``kgl`` command is available:
    kgl --version
 
 This should display the version number of Korgalore.
-
