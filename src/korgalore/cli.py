@@ -305,8 +305,10 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
-    config = load_config(cfgpath)
-    ctx.obj['config'] = config
+    # Only load config if we're not in edit-config mode
+    if ctx.invoked_subcommand != 'edit-config':
+        config = load_config(cfgpath)
+        ctx.obj['config'] = config
 
     # Ensure XDG data directory exists
     data_dir = get_xdg_data_dir()
