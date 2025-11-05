@@ -299,18 +299,11 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
         cfgpath = Path(cfgfile)
 
     if logfile:
-        if str(logfile) == 'journal':
-            import systemd.journal  # type: ignore
-            journal_handler = systemd.journal.JournalHandler()
-            # We always send INFO-level to journal
-            journal_handler.setLevel(logging.INFO)
-            logger.addHandler(journal_handler)
-        else:
-            file_handler = logging.FileHandler(str(logfile))
-            file_handler.setLevel(logging.INFO)
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
+        file_handler = logging.FileHandler(str(logfile))
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     # Only load config if we're not in edit-config mode
     if ctx.invoked_subcommand != 'edit-config':

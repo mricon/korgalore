@@ -221,7 +221,7 @@ Create ``~/.config/systemd/user/korgalore.service``:
 
    [Service]
    Type=oneshot
-   ExecStart=/usr/local/bin/kgl -l journal -v CRITICAL pull
+   ExecStart=$HOME/.local/bin/kgl -l $HOME/.share/korgalore/kgl.log -v CRITICAL pull
 
 Create ``~/.config/systemd/user/korgalore.timer``:
 
