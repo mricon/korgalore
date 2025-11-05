@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from korgalore.pi_service import PIService
+from korgalore import GitError, PublicInboxError, StateError
 
 logger = logging.getLogger('korgalore')
 
@@ -34,7 +35,7 @@ class LeiService(PIService):
             gitargs = ['show-ref']
             retcode, output = self.run_git_command(str(epoch_dir), gitargs)
             if retcode != 0:
-                raise RuntimeError(f"Git show-ref failed: {output.decode()}")
+                raise GitError(f"Git show-ref failed: {output.decode()}")
             # It's just one ref in lei repos
             refdata = output.decode()
             logger.debug('Epoch %d refdata: %s', epoch, refdata)
@@ -44,7 +45,7 @@ class LeiService(PIService):
     def load_known_epoch_info(self, list_dir: Path) -> List[Tuple[int, str]]:
         epochs_file = list_dir / 'epochs.json'
         if not epochs_file.exists():
-            raise FileNotFoundError(f"Epochs file {epochs_file} does not exist.")
+            raise StateError(f"Epochs file {epochs_file} does not exist.")
         with open(epochs_file, 'r') as ef:
             epochs_data = json.load(ef)
         epochs: List[Tuple[int, str]] = list()
@@ -67,7 +68,7 @@ class LeiService(PIService):
         args = ['ls-search', '-l', '-f', 'json']
         retcode, output = self.run_lei_command(args)
         if retcode != 0:
-            raise RuntimeError(f"LEI list searches failed: {output.decode()}")
+            raise PublicInboxError(f"LEI list searches failed: {output.decode()}")
         json_output = output.decode()
         ls_data = json.loads(json_output)
         # Only return the names of v2 searches
@@ -80,4 +81,4 @@ class LeiService(PIService):
         leiargs = ['up', lei_name]
         retcode, output = self.run_lei_command(leiargs)
         if retcode != 0:
-            raise RuntimeError(f"LEI update failed: {output.decode()}")
+            raise PublicInboxError(f"LEI update failed: {output.decode()}")

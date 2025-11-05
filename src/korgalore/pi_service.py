@@ -6,6 +6,7 @@ from email.parser import BytesParser
 from email.policy import EmailPolicy
 from email import charset
 from pathlib import Path
+from korgalore import PublicInboxError, GitError, StateError
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -48,14 +49,14 @@ class PIService:
                 except ValueError:
                     logger.debug(f"Invalid epoch directory: {item.name}")
         if not existing_epochs:
-            raise FileNotFoundError(f"No existing epochs found in {epochs_dir}.")
+            raise PublicInboxError(f"No existing epochs found in {epochs_dir}.")
         return sorted(existing_epochs)
 
     def get_all_commits_in_epoch(self, gitdir: Path) -> List[str]:
         gitargs = ['rev-list', '--reverse', 'master']
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise RuntimeError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed: {output.decode()}")
         if len(output):
             commits = output.decode().splitlines()
         else:
@@ -69,7 +70,7 @@ class PIService:
         # The string is ISO with tzinfo: "2025-11-04 20:47:21 +0000"
         commit_date_str = info.get('commit_date')
         if not commit_date_str:
-            raise RuntimeError(f"No commit_date found in korgalore.info in {tgt_dir}.")
+            raise StateError(f"No commit_date found in korgalore.info in {tgt_dir}.")
         commit_date = datetime.strptime(commit_date_str, '%Y-%m-%d %H:%M:%S %z')
         logger.debug(f"Last processed commit date: {commit_date.isoformat()}")
         # Try to find the new hash of this commit in the log by matching the subject and
@@ -118,8 +119,8 @@ class PIService:
         if not since_commit:
             try:
                 info = self.load_korgalore_info(gitdir)
-            except FileNotFoundError:
-                raise FileNotFoundError(f"korgalore.info not found in {gitdir}. Run init_list() first.")
+            except StateError:
+                raise StateError(f"korgalore.info not found in {gitdir}. Run init_list() first.")
             since_commit = info.get('last')
         # is this still a valid commit?
         gitargs = ['cat-file', '-e', f'{since_commit}^']
@@ -132,7 +133,7 @@ class PIService:
         gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..master']
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise RuntimeError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed: {output.decode()}")
         if len(output):
             new_commits = output.decode().splitlines()
         else:
@@ -143,9 +144,9 @@ class PIService:
         gitargs = ['show', f'{commitish}:m']
         retcode, output = self.run_git_command(str(pi_dir), gitargs)
         if retcode == 128:
-            raise FileNotFoundError(f"Commit {commitish} does not have a message file.")
+            raise StateError(f"Commit {commitish} does not have a message file.")
         if retcode != 0:
-            raise RuntimeError(f"Git show failed: {output.decode()}")
+            raise GitError(f"Git show failed: {output.decode()}")
         return output
 
     def parse_message(self, raw_message: bytes) -> EmailMessage:
@@ -158,7 +159,7 @@ class PIService:
         gitargs = ['rev-list', '-n', '1', 'master']
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise RuntimeError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed: {output.decode()}")
         top_commit = output.decode()
         return top_commit
 
@@ -172,7 +173,7 @@ class PIService:
         gitargs = ['show', '-s', '--format=%ci', latest_commit]
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise RuntimeError(f"Git show failed: {output.decode()}")
+            raise GitError(f"Git show failed: {output.decode()}")
         commit_date = output.decode()
         # TODO: latest_commit may not have a "m" file in it if it's a deletion
         korgalore_file = Path(gitdir) / 'korgalore.info'
@@ -196,7 +197,7 @@ class PIService:
     def load_korgalore_info(self, gitdir: Path) -> Dict[str, Any]:
         korgalore_file = Path(gitdir) / 'korgalore.info'
         if not korgalore_file.exists():
-            raise FileNotFoundError(
+            raise StateError(
                 f"korgalore.info not found in {gitdir}. Run init_list() first."
             )
 

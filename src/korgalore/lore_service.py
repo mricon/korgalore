@@ -8,7 +8,7 @@ import json
 
 import logging
 
-from korgalore import __version__
+from korgalore import __version__, StateError, RemoteError
 from korgalore.pi_service import PIService
 
 charset.add_charset('utf-8', None)
@@ -29,8 +29,13 @@ class LoreService(PIService):
         self.datadir = datadir
 
     def get_manifest(self, pi_url: str) -> Dict[str, Any]:
-        response = self.session.get(f"{pi_url.rstrip('/')}/manifest.js.gz")
-        response.raise_for_status()
+        try:
+            response = self.session.get(f"{pi_url.rstrip('/')}/manifest.js.gz")
+            response.raise_for_status()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch manifest from {pi_url}: {e}"
+            ) from e
         # ungzip and parse the manifest
         manifest: Dict[str, Any] = dict()
         with GzipFile(fileobj=io.BytesIO(response.content)) as f:
@@ -53,7 +58,7 @@ class LoreService(PIService):
 
         retcode, output = self.run_git_command(None, gitargs)
         if retcode != 0:
-            raise RuntimeError(f"Git clone failed: {output.decode()}")
+            raise RemoteError(f"Git clone failed: {output.decode()}")
 
     def get_epochs(self, pi_url: str) -> List[Tuple[int, str, str]]:
         manifest = self.get_manifest(pi_url)
@@ -87,7 +92,7 @@ class LoreService(PIService):
     def load_epochs_info(self, list_dir: Path) -> List[Tuple[int, str, str]]:
         epochs_file = list_dir / 'epochs.json'
         if not epochs_file.exists():
-            raise FileNotFoundError(f"Epochs file {epochs_file} does not exist.")
+            raise StateError(f"Epochs file {epochs_file} does not exist.")
         with open(epochs_file, 'r') as ef:
             epochs_data = json.load(ef)
         epochs: List[Tuple[int, str, str]] = []
@@ -116,6 +121,6 @@ class LoreService(PIService):
         gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
         retcode, output = self.run_git_command(str(tgt_dir), gitargs)
         if retcode != 0:
-            raise RuntimeError(f"Git remote update failed: {output.decode()}")
+            raise RemoteError(f"Git remote update failed: {output.decode()}")
         new_commits = self.get_latest_commits_in_epoch(tgt_dir)
         return highest_epoch, tgt_dir, new_commits

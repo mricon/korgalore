@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from korgalore.gmail_service import GmailService
 from korgalore.lore_service import LoreService
 from korgalore.lei_service import LeiService
-from korgalore import __version__
+from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError
 
 logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
@@ -58,6 +58,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
     targets = config.get('targets', {})
     if identifier not in targets:
         logger.critical('Target "%s" not found in configuration.', identifier)
+        logger.critical('Known targets: %s', ', '.join(targets.keys()))
         raise click.Abort()
 
     details = targets[identifier]
@@ -84,7 +85,7 @@ def get_gmail_service(identifier: str, credentials_file: str,
         gmail_service = GmailService(identifier=identifier,
                                      credentials_file=credentials_file,
                                      token_file=token_file)
-    except FileNotFoundError as fe:
+    except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort()
 
@@ -126,7 +127,11 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
 
     details = cfg['sources'][listname]
     target = details.get('target', '')
-    gs = get_target(ctx, target)
+    try:
+        gs = get_target(ctx, target)
+    except click.Abort:
+        logger.critical('Failed to process list "%s".', listname)
+        raise ConfigurationError()
 
     last_commit = ''
 
@@ -145,13 +150,14 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
         for at_commit in bar:
             try:
                 raw_message = ls.get_message_at_commit(gitdir, at_commit)
-            except FileNotFoundError:
+            except (StateError, GitError) as e:
+                logger.debug('Skipping commit %s: %s', at_commit, str(e))
                 # Assuming non-m commit
                 continue
             try:
                 gs.import_message(raw_message, labels=details.get('labels', []))
                 count += 1
-            except RuntimeError as re:
+            except RemoteError as re:
                 logger.critical('Failed to upload message at commit %s: %s', at_commit, str(re))
                 return count, last_commit
             ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message)
@@ -177,7 +183,7 @@ def process_lei_list(ctx: click.Context, listname: str,
     latest_epoch = max(lei.find_epochs(feedpath))
     try:
         known_epochs = lei.load_known_epoch_info(feedpath)
-    except FileNotFoundError:
+    except StateError:
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
         lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git')
         logger.info('Initialized: %s.', listname)
@@ -220,7 +226,7 @@ def process_lore_list(ctx: click.Context, listname: str,
     current_epochs: List[Tuple[int, str, str]] = list()
     try:
         current_epochs = ls.load_epochs_info(list_dir=list_dir)
-    except FileNotFoundError:
+    except StateError:
         pass
 
     if current_epochs == latest_epochs:
@@ -417,11 +423,19 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
     for listname, details in sources.items():
         logger.debug('Processing list: %s', listname)
         if details.get('feed', '').startswith('https:'):
-            count = process_lore_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            try:
+                count = process_lore_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            except Exception as e:
+                logger.critical('Failed to process lore list "%s": %s', listname, str(e))
+                continue
             if count > 0:
                 changes.append((listname, count))
         elif details.get('feed', '').startswith('lei:'):
-            count = process_lei_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            try:
+                count = process_lei_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+            except Exception as e:
+                logger.critical('Failed to process LEI list "%s": %s', listname, str(e))
+                continue
             if count > 0:
                 changes.append((listname, count))
         else:

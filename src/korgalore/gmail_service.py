@@ -8,6 +8,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow # type: ignore
 from googleapiclient.discovery import build # type: ignore
 from googleapiclient.errors import HttpError # type: ignore
 
+from korgalore import ConfigurationError, RemoteError
+
 logger = logging.getLogger('korgalore')
 
 # If modifying these scopes, delete the file token.json.
@@ -43,7 +45,7 @@ class GmailService:
                     credentials_file, SCOPES)
                 self.creds = flow.run_local_server(port=0)
             else:
-                raise FileNotFoundError(
+                raise ConfigurationError(
                     f"{credentials_file} not found. Please download it from Google Cloud Console."
                 )
 
@@ -65,7 +67,7 @@ class GmailService:
             return labels  # type: ignore
 
         except HttpError as error:
-            raise Exception(f'An error occurred: {error}')
+            raise RemoteError(f'An error occurred: {error}')
 
     def translate_labels(self, labels: List[str]) -> List[str]:
         # Translate label names to their corresponding IDs
@@ -76,7 +78,7 @@ class GmailService:
         for label in labels:
             label_id = self._label_map.get(label, None)
             if label_id is None:
-                raise ValueError(f"Label '{label}' not found in Gmail '{self.identifier}'.")
+                raise ConfigurationError(f"Label '{label}' not found in Gmail '{self.identifier}'.")
             translated.append(label_id)
         return translated
 
@@ -100,4 +102,4 @@ class GmailService:
             return result
 
         except HttpError as error:
-            raise RuntimeError(f'An error occurred: {error}')
+            raise RemoteError(f'An error occurred: {error}')
