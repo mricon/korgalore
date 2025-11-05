@@ -23,7 +23,8 @@ class PIService:
     def __init__(self) -> None:
         pass
 
-    def run_git_command(self, topdir: Optional[str], args: List[str]) -> Tuple[int, bytes]:
+    def run_git_command(self, topdir: Optional[str], args: List[str],
+                        stdin: Optional[bytes] = None) -> Tuple[int, bytes]:
         """Run a git command in the specified topdir and return (returncode, output)."""
         import subprocess
 
@@ -34,7 +35,7 @@ class PIService:
         logger.debug('Running git command: %s', ' '.join(cmd))
 
         try:
-            result = subprocess.run(cmd, capture_output=True)
+            result = subprocess.run(cmd, capture_output=True, input=stdin)
         except FileNotFoundError:
             raise GitError(f"Git command '{self.GITCMD}' not found. Is it installed?")
         return result.returncode, result.stdout.strip()

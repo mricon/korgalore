@@ -161,6 +161,45 @@ For lei sources:
 2. Check for new commits in the lei repository
 3. Extract and import new messages
 
+yank
+----
+
+Fetch and upload a single message or entire thread from lore.kernel.org.
+
+.. code-block:: bash
+
+   kgl yank [OPTIONS] MSGID_OR_URL
+
+Arguments:
+
+* ``MSGID_OR_URL``: Either a message-id (e.g., ``some@msgid.com``) or a lore.kernel.org URL
+
+Options:
+
+* ``-t, --target TEXT``: Target to upload the message to (required)
+* ``-l, --labels TEXT``: Labels to apply to the message (can be used multiple times)
+* ``-T, --thread``: Fetch and upload the entire thread instead of just a single message
+
+Examples:
+
+.. code-block:: bash
+
+   # Upload a single message by message-id
+   kgl yank --target personal some@msgid.com
+
+   # Upload a single message by URL
+   kgl yank --target work https://lore.kernel.org/lkml/msgid@example.com/
+
+   # Upload with specific labels
+   kgl yank --target personal --labels INBOX --labels UNREAD some@msgid.com
+
+   # Upload an entire thread
+   kgl yank --target personal --thread some@msgid.com
+
+   # Upload an entire thread with labels (short form)
+   kgl yank -t work -T -l Lists/LKML https://lore.kernel.org/lkml/msgid@example.com/
+
+
 Common Usage Patterns
 =====================
 
@@ -196,6 +235,12 @@ Regular Use
 
    # Pull a specific list
    kgl pull lkml
+
+   # Yank a specific message you're interested in
+   kgl yank --target personal --labels INBOX some@msgid.com
+
+   # Yank an entire thread
+   kgl yank --target personal --thread --labels INBOX some@msgid.com
 
 Automated Pulls
 ---------------

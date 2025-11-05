@@ -413,6 +413,7 @@ def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
 @click.option('--max-mail', '-m', default=0, help='maximum number of messages to pull (0 for all)')
 @click.argument('listname', type=str, nargs=1, default=None)
 def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
+    """Pull messages from configured lore and LEI lists."""
     cfg = ctx.obj.get('config', {})
 
     sources = cfg.get('sources', {})
@@ -450,6 +451,108 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
             logger.info('  %s: %d', listname, count)
     else:
         logger.info('Pull complete with no updates.')
+
+
+@main.command()
+@click.pass_context
+@click.option('--target', '-t', default=None, help='Target to upload the message to')
+@click.option('--labels', '-l', multiple=True,
+              default=['INBOX', 'UNREAD'],
+              help='Labels to apply to the message (can be used multiple times)')
+@click.option('--thread', '-T', is_flag=True, help='Fetch and upload the entire thread')
+@click.argument('msgid_or_url', type=str, nargs=1)
+def yank(ctx: click.Context, target: Optional[str],
+         labels: Tuple[str, ...], thread: bool, msgid_or_url: str) -> None:
+    """Yank a single message or entire thread to a Gmail target."""
+    # Get the lore service
+    ls = ctx.obj.get('lore')
+    if ls is None:
+        data_dir = ctx.obj['data_dir']
+        ls = LoreService(data_dir)
+        ctx.obj['lore'] = ls
+
+    # Get the target Gmail service
+    if not target:
+        # Get the first target in the list
+        config = ctx.obj.get('config', {})
+        targets = config.get('targets', {})
+        target = list(targets.keys())[0]
+        logger.debug('No target specified, using first target: %s', target)
+
+    try:
+        gs = get_target(ctx, target)
+    except click.Abort:
+        logger.critical('Failed to get target "%s".', target)
+        raise
+
+    # Convert labels tuple to list
+    labels_list = list(labels) if labels else []
+
+    if thread:
+        # Fetch the entire thread
+        logger.debug('Fetching thread: %s', msgid_or_url)
+        try:
+            messages = ls.get_thread_by_msgid(msgid_or_url)
+        except RemoteError as e:
+            logger.critical('Failed to fetch thread: %s', str(e))
+            raise click.Abort()
+
+        logger.info('Found %d messages in thread', len(messages))
+
+        # Upload each message in the thread
+        uploaded = 0
+        failed = 0
+
+        if logger.isEnabledFor(logging.DEBUG):
+            hidden = True
+        elif logger.isEnabledFor(logging.INFO):
+            hidden = False
+        else:
+            hidden = True
+
+        with click.progressbar(messages,
+                              label='Uploading thread',
+                              show_pos=True,
+                              hidden=hidden) as bar:
+            for raw_message in bar:
+                try:
+                    msg = ls.parse_message(raw_message)
+                    subject = msg.get('Subject', '(no subject)')
+                    logger.debug('Uploading: %s', subject)
+                    gs.import_message(raw_message, labels=labels_list)
+                    uploaded += 1
+                except RemoteError as e:
+                    logger.error('Failed to upload message: %s', str(e))
+                    failed += 1
+                    continue
+
+        if failed > 0:
+            logger.warning('Uploaded %d messages, %d failed', uploaded, failed)
+        else:
+            logger.info('Successfully uploaded %d messages from thread', uploaded)
+    else:
+        # Fetch a single message
+        logger.debug('Fetching message: %s', msgid_or_url)
+        try:
+            raw_message = ls.get_message_by_msgid(msgid_or_url)
+        except RemoteError as e:
+            logger.critical('Failed to fetch message: %s', str(e))
+            raise click.Abort()
+
+        # Parse to get the subject for logging
+        msg = ls.parse_message(raw_message)
+        subject = msg.get('Subject', '(no subject)')
+        logger.debug('Message subject: %s', subject)
+
+        # Upload the message
+        logger.info('Uploading to target "%s"', target)
+        logger.debug('Uploading: %s', subject)
+        try:
+            gs.import_message(raw_message, labels=labels_list)
+            logger.info('Successfully uploaded message.')
+        except RemoteError as e:
+            logger.critical('Failed to upload message: %s', str(e))
+            raise click.Abort()
 
 
 if __name__ == '__main__':

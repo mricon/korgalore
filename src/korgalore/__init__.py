@@ -1,6 +1,6 @@
 """Korgalore - A command-line tool to put public-inbox sources directly into Gmail."""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "Konstantin Ryabitsev"
 __email__ = "konstantin@linuxfoundation.org"
 

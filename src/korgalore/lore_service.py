@@ -5,6 +5,10 @@ from pathlib import Path
 from email import charset
 import io
 import json
+import os
+import tempfile
+import re
+import urllib.parse
 
 import logging
 
@@ -124,3 +128,73 @@ class LoreService(PIService):
             raise RemoteError(f"Git remote update failed: {output.decode()}")
         new_commits = self.get_latest_commits_in_epoch(tgt_dir)
         return highest_epoch, tgt_dir, new_commits
+
+    def get_msgid_from_url(self, msgid_or_url: str) -> str:
+        # Parse the input to determine if it's a URL or a msgid
+        if '://' in msgid_or_url:
+            # Get anything that looks like a msgid
+            matches = re.search(r'^https?://[^@]+/([^/]+@[^/]+)', msgid_or_url, re.IGNORECASE)
+            if matches:
+                chunks = matches.groups()
+                msgid = urllib.parse.unquote(chunks[0])
+                return msgid
+        return msgid_or_url.strip('<>')
+
+    def get_message_by_msgid(self, msgid_or_url: str) -> bytes:
+        # Parse the input to determine if it's a URL or a msgid
+        msgid = self.get_msgid_from_url(msgid_or_url)
+        raw_url = f"https://lore.kernel.org/all/{msgid}/raw"
+
+        logger.debug(f"Fetching message from: {raw_url}")
+
+        try:
+            response = self.session.get(raw_url)
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch message from {raw_url}: {e}"
+            ) from e
+
+    def get_thread_by_msgid(self, msgid_or_url: str) -> List[bytes]:
+        msgid = self.get_msgid_from_url(msgid_or_url)
+        mbox_url = f"https://lore.kernel.org/all/{msgid}/t.mbox.gz"
+        logger.debug(f"Fetching thread from: {mbox_url}")
+
+        try:
+            response = self.session.get(mbox_url)
+            response.raise_for_status()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch thread from {mbox_url}: {e}"
+            ) from e
+
+        # Decompress the gzipped mbox
+        try:
+            with GzipFile(fileobj=io.BytesIO(response.content)) as f:
+                mbox_content = f.read()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to decompress thread mbox: {e}"
+            ) from e
+
+        messages = self.mailsplit_bytes(mbox_content)
+        logger.debug(f"Parsed {len(messages)} messages from thread")
+
+        return messages
+
+    def mailsplit_bytes(self, bmbox: bytes) -> List[bytes]:
+        msgs: List[bytes] = list()
+        # Use a safe temporary directory for mailsplit output
+        with tempfile.TemporaryDirectory(suffix='-mailsplit') as tfd:
+            logger.debug('Mailsplitting the mbox into %s', tfd)
+            args = ['mailsplit', '--mboxrd', '-o%s' % tfd]
+            ecode, out = self.run_git_command(None, args, stdin=bmbox)
+            if ecode > 0:
+                logger.critical('Unable to parse mbox received from the server')
+                return msgs
+            # Read in the files
+            for msg in os.listdir(tfd):
+                with open(os.path.join(tfd, msg), 'rb') as fh:
+                    msgs.append(fh.read())
+            return msgs

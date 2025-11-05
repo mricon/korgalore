@@ -134,6 +134,21 @@ Step 6: Check Your Gmail
 Open Gmail and look for the label you configured (e.g., "LKML"). You
 should see the imported messages there.
 
+One-Off Message Import (Yank)
+==============================
+
+If you want to import a specific message or thread, you can use the ``yank``
+command. This is useful if, for example, you want to respond to a message or
+just want a copy of the thread for reading.
+
+.. code-block:: bash
+
+   # Import a single message by URL into the first defined target
+   kgl yank https://lore.kernel.org/lkml/some-message-id@example.com/
+
+   # Import an entire thread
+   kgl yank --thread https://lore.kernel.org/lkml/some-message-id@example.com/
+
 Unsubscribing
 =============
 Comment out the relevant ``[sources]`` section to stop pulling that
