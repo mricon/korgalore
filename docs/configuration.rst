@@ -2,8 +2,9 @@
 Configuration
 =============
 
-Korgalore uses a TOML configuration file to define targets (Gmail accounts) and
-sources (mailing lists or lei searches).
+Korgalore uses a TOML configuration file to define targets (e.g. Gmail accounts)
+feeds (mailing lists or lei searches), and deliveries (which feed goes to which
+target).
 
 Configuration File Location
 ===========================
@@ -74,7 +75,7 @@ Configuration File Format
 =========================
 
 The configuration file uses TOML format and consists of three main sections:
-``targets``, ``feeds``, and ``sources``.
+``targets``, ``feeds``, and ``deliveries``.
 
 Targets
 -------
@@ -102,7 +103,7 @@ Target Parameters
 Feeds
 -----
 
-Feeds define reusable feed URLs that can be referenced by multiple sources.
+Feeds define reusable feed URLs that can be referenced by multiple deliveries.
 This is useful when you want to import the same mailing list feed into
 different Gmail accounts with different labels.
 
@@ -119,33 +120,33 @@ Feed Parameters
 
 * ``url``: The URL of the feed (must start with ``https:`` for lore feeds or ``lei:`` for lei searches)
 
-Sources
--------
+Deliveries
+----------
 
-Sources define mailing lists or lei searches to import from. A source can
+Deliveries define mailing lists or lei searches to import from. A delivery can
 reference a feed by name (defined in the ``feeds`` section) or use a direct URL.
 
-Lore.kernel.org Sources
-~~~~~~~~~~~~~~~~~~~~~~~
+Lore.kernel.org Deliveries
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Sources can reference feeds by name or use direct URLs:
+Deliveries can reference feeds by name or use direct URLs:
 
 .. code-block:: toml
 
    # Using a named feed (defined in the feeds section)
-   [sources.lkml]
+   [deliveries.lkml]
    feed = 'lkml'
    target = 'personal'
    labels = ['Lists/LKML']
 
    # Using a direct URL
-   [sources.linux-doc]
+   [deliveries.linux-doc]
    feed = 'https://lore.kernel.org/linux-doc'
    target = 'work'
    labels = ['Lists/Docs', 'UNREAD']
 
-Lei Sources
-~~~~~~~~~~~
+Lei Deliveries
+~~~~~~~~~~~~~~
 
 .. note::
    This requires ``lei`` to be installed and configured separately.
@@ -167,15 +168,15 @@ You can add this feed into ``korgalore.conf`` now:
 
 .. code-block:: toml
 
-   [sources.lei-wtf]
+   [deliveries.lei-wtf]
    feed = 'lei:/home/user/lei/wtf'
    target = 'work'
    labels = ['INBOX', 'UNREAD']
 
 Korgalore will run ``lei up`` automatically for you.
 
-Source Parameters
-~~~~~~~~~~~~~~~~~
+Delivery Parameters
+~~~~~~~~~~~~~~~~~~~
 
 * ``feed``: Name of a feed defined in the ``feeds`` section, or a direct URL of a lore.kernel.org archive or lei search path (prefixed with ``lei:``)
 * ``target``: Identifier of the target Gmail account (must match a target name)
@@ -218,9 +219,9 @@ Here's a complete configuration file example:
    [feeds.git]
    url = 'https://lore.kernel.org/git'
 
-   ### Sources ###
+   ### Deliveries ###
 
-   [sources.lkml]
+   [deliveries.lkml]
    feed = 'lkml'  # References the feed defined above
    target = 'work'
    labels = ['Lists/LKML']
@@ -236,13 +237,13 @@ Here's a complete configuration file example:
    labels = ['INBOX', 'UNREAD']
 
    # Using a direct URL without a feed definition
-   # [sources.example-direct]
+   # [deliveries.example-direct]
    # feed = 'https://lore.kernel.org/example'
    # target = 'work'
    # labels = ['Lists/Example']
 
    # Lei source (commented out - requires lei setup)
-   # [sources.lei-mentions]
+   # [deliveries.lei-mentions]
    # feed = 'lei:/home/user/lei/mentions'
    # target = 'work'
    # labels = ['INBOX', 'UNREAD']

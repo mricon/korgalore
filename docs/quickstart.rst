@@ -62,7 +62,7 @@ Alternatively, create it manually with this content:
    type = 'gmail'
    credentials = '~/.config/korgalore/credentials.json'
 
-   [sources.lkml]
+   [deliveries.lkml]
    feed = 'https://lore.kernel.org/lkml'
    target = 'personal'
    labels = ['LKML']
@@ -70,7 +70,7 @@ Alternatively, create it manually with this content:
 This minimal configuration:
 
 * Sets up a Gmail target called "personal"
-* Configures the Linux Kernel Mailing List as a source
+* Configures the Linux Kernel Mailing List as a delivery
 * Applies the label "LKML" to imported messages
 
 .. note::
@@ -111,7 +111,7 @@ This will let you run korgalore on a headless node.
 Step 5: Pull Messages
 ======================
 
-Now you can pull messages from your configured sources:
+Now you can pull messages from your configured deliveries:
 
 .. code-block:: bash
 
@@ -151,7 +151,7 @@ just want a copy of the thread for reading.
 
 Unsubscribing
 =============
-Comment out the relevant ``[sources]`` section to stop pulling that
+Comment out the relevant ``[deliveries]`` section to stop pulling that
 mailing list.
 
 Next Steps
@@ -159,7 +159,7 @@ Next Steps
 
 * Read :doc:`configuration` to learn about advanced configuration options
 * Read :doc:`usage` to learn about all available commands
-* Set up additional mailing list sources
+* Set up additional mailing list deliveries
 * Configure automatic pulls using cron or systemd timers
 
 Troubleshooting

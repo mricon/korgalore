@@ -9,8 +9,8 @@ type = 'gmail'
 credentials = '/path/to/work-credentials.json'
 
 ### Feeds ###
-# Feeds can be defined here and referenced by name in sources
-# This allows multiple sources to share the same feed URL
+# Feeds can be defined here and referenced by name in deliveries
+# This allows multiple deliveries to share the same feed URL
 
 [feeds.lkml]
 url = 'https://lore.kernel.org/lkml'
@@ -21,30 +21,30 @@ url = 'https://lore.kernel.org/linux-doc'
 [feeds.git]
 url = 'https://lore.kernel.org/git'
 
-### Sources ###
+### Deliveries ###
 
-[sources.lkml]
+[deliveries.lkml]
 feed = 'lkml'  # References the feed defined above
 target = 'work'
 labels = ['Lists/LKML']
 
-[sources.linux-doc]
+[deliveries.linux-doc]
 feed = 'linux-doc'  # References the feed defined above
 target = 'work'
 labels = ['Lists/Docs']
 
-[sources.git]
+[deliveries.git]
 feed = 'git'  # References the feed defined above
 target = 'personal'
 labels = ['INBOX', 'UNREAD']
 
 # You can also use direct URLs without defining a feed
-# [sources.example-direct]
+# [deliveries.example-direct]
 # feed = 'https://lore.kernel.org/example'
 # target = 'work'
 # labels = ['Lists/Example']
 
-# [sources.lei-mentions]
+# [deliveries.lei-mentions]
 # feed = 'lei:/home/user/lei/mentions'
 # target = 'work'
 # labels = ['INBOX', 'UNREAD']

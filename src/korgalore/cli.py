@@ -129,8 +129,14 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
         with open(cfgfile, 'rb') as cf:
             config = tomllib.load(cf)
 
-        logger.debug('Config loaded with %s targets, %s sources, and %s feeds',
-                     len(config.get('targets', {})), len(config.get('sources', {})),
+        # Backward compatibility: convert 'sources' to 'deliveries'
+        if 'sources' in config and 'deliveries' not in config:
+            logger.debug('Converting legacy "sources" to "deliveries" in config')
+            config['deliveries'] = config['sources']
+            del config['sources']
+
+        logger.debug('Config loaded with %s targets, %s deliveries, and %s feeds',
+                     len(config.get('targets', {})), len(config.get('deliveries', {})),
                      len(config.get('feeds', {})))
 
         return config
@@ -262,7 +268,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
         ls = ctx.obj['lei']
     cfg = ctx.obj.get('config', {})
 
-    details = cfg['sources'][listname]
+    details = cfg['deliveries'][listname]
     target = details.get('target', '')
     labels = details.get('labels', [])
 
@@ -603,15 +609,24 @@ type = 'gmail'
 credentials = '~/.config/korgalore/credentials.json'
 # token = '~/.config/korgalore/token.json'
 
-### Sources ###
+### Deliveries ###
 
-# [sources.lkml]
+# [deliveries.lkml]
 # feed = 'https://lore.kernel.org/lkml'
 # target = 'personal'
 # labels = ['INBOX', 'UNREAD']
 """
         cfgpath.parent.mkdir(parents=True, exist_ok=True)
         cfgpath.write_text(example_config)
+    else:
+        # Convert legacy 'sources' to 'deliveries' in existing config file
+        content = cfgpath.read_text()
+        if '[sources.' in content or '### Sources ###' in content:
+            logger.debug('Converting legacy "sources" to "deliveries" in config file')
+            content = content.replace('[sources.', '[deliveries.')
+            content = content.replace('### Sources ###', '### Deliveries ###')
+            cfgpath.write_text(content)
+            logger.info('Converted legacy "sources" to "deliveries" in config file')
 
     # Open in editor
     logger.info('Editing configuration file: %s', cfgpath)
@@ -656,15 +671,15 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
     """Pull messages from configured lore and LEI lists."""
     cfg = ctx.obj.get('config', {})
 
-    sources = cfg.get('sources', {})
+    deliveries = cfg.get('deliveries', {})
     if listname:
-        if listname not in sources:
+        if listname not in deliveries:
             logger.critical('List "%s" not found in configuration.', listname)
             raise click.Abort()
-        sources = {listname: sources[listname]}
+        deliveries = {listname: deliveries[listname]}
 
     changes: List[Tuple[str, int]] = list()
-    for listname, details in sources.items():
+    for listname, details in deliveries.items():
         logger.debug('Processing list: %s', listname)
 
         # Resolve feed URL from name or use direct URL

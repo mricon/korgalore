@@ -107,14 +107,14 @@ Example:
 
 This is useful for:
 
-* Checking which labels exist before configuring sources
+* Checking which labels exist before configuring deliveries
 * Finding the exact label names to use in your configuration
 * Verifying that your target authentication is working
 
 pull
 ----
 
-Pull messages from configured sources and import them into Gmail.
+Pull messages from configured deliveries and import them into Gmail.
 
 .. code-block:: bash
 
@@ -122,7 +122,7 @@ Pull messages from configured sources and import them into Gmail.
 
 Arguments:
 
-* ``LISTNAME``: (Optional) Name of a specific list to pull. If not provided, all configured sources will be processed.
+* ``LISTNAME``: (Optional) Name of a specific list to pull. If not provided, all configured deliveries will be processed.
 
 Options:
 
@@ -132,22 +132,22 @@ Examples:
 
 .. code-block:: bash
 
-   # Pull all messages from all configured sources
+   # Pull all messages from all configured deliveries
    kgl pull
 
-   # Pull messages from a specific source
+   # Pull messages from a specific delivery
    kgl pull lkml
 
-   # Pull only the last 50 messages from each source
+   # Pull only the last 50 messages from each delivery
    kgl pull -m 50
 
-   # Pull only the last 10 messages from a specific source
+   # Pull only the last 10 messages from a specific delivery
    kgl pull -m 10 lkml
 
 How Pull Works
 ~~~~~~~~~~~~~~
 
-For lore.kernel.org sources:
+For lore.kernel.org deliveries:
 
 1. Check for new epochs (git repositories)
 2. Pull latest commits from the highest epoch
@@ -155,7 +155,7 @@ For lore.kernel.org sources:
 4. Import messages into Gmail with configured labels
 5. Update tracking information
 
-For lei sources:
+For lei deliveries:
 
 1. Run ``lei up`` to update the search
 2. Check for new commits in the lei repository
