@@ -231,7 +231,11 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
         logger.info('Limiting to %d messages as requested', max_count)
         commits = commits[-max_count:]
 
+    # This can be either a lore or a lei source, but it doesn't really
+    # matter, as we use the underlying pi_service class for all actions
     ls = ctx.obj['lore']
+    if ls is None:
+        ls = ctx.obj['lei']
     cfg = ctx.obj.get('config', {})
 
     details = cfg['sources'][listname]
