@@ -5,6 +5,7 @@ import click
 import tomllib
 import logging
 import click_log
+import json
 
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
@@ -115,8 +116,116 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
         raise click.Abort()
 
 
+def load_failed_commits(gitdir: Path) -> Dict[str, int]:
+    """Load the tracking file of failed commits.
+
+    Returns a dict mapping commit hash to failure count.
+    """
+    failed_file = gitdir / 'korgalore.failed'
+    if not failed_file.exists():
+        return {}
+
+    try:
+        with open(failed_file, 'r') as f:
+            data: Dict[str, int] = json.load(f)
+            return data
+    except Exception as e:
+        logger.warning('Failed to load failed commits file: %s', str(e))
+        return {}
+
+
+def save_failed_commits(gitdir: Path, failed_commits: Dict[str, int]) -> None:
+    """Save the tracking file of failed commits."""
+    failed_file = gitdir / 'korgalore.failed'
+    try:
+        with open(failed_file, 'w') as f:
+            json.dump(failed_commits, f, indent=2)
+    except Exception as e:
+        logger.error('Failed to save failed commits file: %s', str(e))
+
+
+def load_rejected_commits(gitdir: Path) -> List[str]:
+    rejected_file = gitdir / 'korgalore.rejected'
+    if not rejected_file.exists():
+        return []
+
+    try:
+        with open(rejected_file, 'r') as f:
+            data: List[str] = json.load(f)
+            return data
+    except Exception as e:
+        logger.warning('Failed to load rejected commits file: %s', str(e))
+        return []
+
+
+def save_rejected_commits(gitdir: Path, rejected_commits: List[str]) -> None:
+    rejected_file = gitdir / 'korgalore.rejected'
+    try:
+        with open(rejected_file, 'w') as f:
+            json.dump(rejected_commits, f, indent=2)
+    except Exception as e:
+        logger.error('Failed to save rejected commits file: %s', str(e))
+
+
+def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str]) -> Tuple[int, Dict[str, int], List[str]]:
+    failed_commits = load_failed_commits(gitdir)
+    rejected_commits = load_rejected_commits(gitdir)
+
+    if not failed_commits:
+        return 0, {}, []
+
+    logger.info('Retrying %d previously failed commits', len(failed_commits))
+
+    success_count = 0
+    still_failed = {}
+    newly_rejected = []
+
+    for commit_hash, fail_count in failed_commits.items():
+        try:
+            raw_message = ls.get_message_at_commit(gitdir, commit_hash)
+        except (StateError, GitError) as e:
+            logger.debug('Skipping retry of commit %s: %s', commit_hash, str(e))
+            # Still count this as failed
+            still_failed[commit_hash] = fail_count
+            continue
+
+        try:
+            gs.import_message(raw_message, labels=labels)
+            logger.debug('Successfully retried commit %s', commit_hash)
+            success_count += 1
+            # Don't add to still_failed - it succeeded!
+        except RemoteError:
+            # Failed again
+            new_fail_count = fail_count + 1
+            if new_fail_count > 5:
+                logger.warning('Commit %s failed %d times, moving to rejected', commit_hash, new_fail_count)
+                newly_rejected.append(commit_hash)
+                rejected_commits.append(commit_hash)
+            else:
+                logger.debug('Commit %s failed again (attempt %d)', commit_hash, new_fail_count)
+                still_failed[commit_hash] = new_fail_count
+
+    # Save updated tracking files
+    if still_failed:
+        save_failed_commits(gitdir, still_failed)
+    else:
+        # Remove the file if all retries succeeded
+        failed_file = gitdir / 'korgalore.failed'
+        if failed_file.exists():
+            failed_file.unlink()
+
+    if newly_rejected:
+        save_rejected_commits(gitdir, rejected_commits)
+
+    if success_count > 0:
+        logger.info('Successfully retried %d commits', success_count)
+
+    return success_count, still_failed, newly_rejected
+
+
 def process_commits(listname: str, commits: List[str], gitdir: Path,
-                    ctx: click.Context, max_count: int = 0) -> Tuple[int, str]:
+                    ctx: click.Context, max_count: int = 0,
+                    still_failed_dict: Optional[Dict[str, int]] = None) -> Tuple[int, str]:
     if max_count > 0 and len(commits) > max_count:
         # Take the last NN messages and discard the rest
         logger.info('Limiting to %d messages as requested', max_count)
@@ -127,13 +236,26 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
 
     details = cfg['sources'][listname]
     target = details.get('target', '')
+    labels = details.get('labels', [])
+
     try:
         gs = get_target(ctx, target)
     except click.Abort:
         logger.critical('Failed to process list "%s".', listname)
         raise ConfigurationError()
 
+    # Use the passed-in still_failed_dict or create a new one
+    if still_failed_dict is None:
+        still_failed_dict = {}
+
+    # Track failed commits from this run
+    failed_commits_this_run = {}
+
     last_commit = ''
+    consecutive_failures = 0
+    # If we hit this many consecutive failures, abort, because clearly
+    # the remote is having issues.
+    MAX_CONSECUTIVE_FAILURES = 5
 
     if logger.isEnabledFor(logging.DEBUG):
         hidden = True
@@ -152,19 +274,48 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                 raw_message = ls.get_message_at_commit(gitdir, at_commit)
             except (StateError, GitError) as e:
                 logger.debug('Skipping commit %s: %s', at_commit, str(e))
-                # Assuming non-m commit
+                # Assuming non-m commit, don't count as failure
                 continue
+
             try:
-                gs.import_message(raw_message, labels=details.get('labels', []))
+                gs.import_message(raw_message, labels=labels)
                 count += 1
-            except RemoteError as re:
-                logger.critical('Failed to upload message at commit %s: %s', at_commit, str(re))
-                return count, last_commit
+                consecutive_failures = 0  # Reset on success
+
+                # Remove from still_failed_dict if it was there
+                if at_commit in still_failed_dict:
+                    del still_failed_dict[at_commit]
+                    logger.debug('Removed successfully imported commit %s from failed list', at_commit)
+            except RemoteError as err:
+                logger.error('Failed to upload message at commit %s: %s', at_commit, str(err))
+
+                # Track this failure
+                failed_commits_this_run[at_commit] = 1
+                consecutive_failures += 1
+
+                # Check if we should abort
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    logger.critical('Aborting after %d consecutive failures', consecutive_failures)
+                    # Save failed commits before aborting
+                    merged_failed = {**still_failed_dict, **failed_commits_this_run}
+                    save_failed_commits(gitdir, merged_failed)
+                    return count, last_commit
+
+                # Continue to next commit
+                continue
+
+            # Update tracking info on success
             ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message)
             last_commit = at_commit
             if logger.isEnabledFor(logging.DEBUG):
                 msg = ls.parse_message(raw_message)
                 logger.debug(' -> %s', msg.get('Subject', '(no subject)'))
+
+    # After processing all commits, merge and save failed commits
+    if failed_commits_this_run or still_failed_dict:
+        merged_failed = {**still_failed_dict, **failed_commits_this_run}
+        save_failed_commits(gitdir, merged_failed)
+        logger.info('%d commits failed and will be retried next run', len(merged_failed))
 
     return count, last_commit
 
@@ -194,21 +345,41 @@ def process_lei_list(ctx: click.Context, listname: str,
     logger.debug('Running lei-up on list: %s', listname)
     lei.up_search(lei_name=feed)
     latest_epochs = lei.get_latest_epoch_info(feedpath)
-    if known_epochs == latest_epochs:
-        logger.debug('No updates for LEI list: %s', listname)
-        return 0
+
     # XXX: this doesn't do the right thing with epoch rollover yet
     gitdir = feedpath / 'git' / f'{latest_epoch}.git'
+
+    # Get target and labels for retry logic
+    ls = ctx.obj['lore']
+    target = details.get('target', '')
+    labels = details.get('labels', [])
+    try:
+        gs = get_target(ctx, target)
+    except click.Abort:
+        logger.critical('Failed to get target for list "%s".', listname)
+        raise ConfigurationError()
+
+    # Always retry failed commits, even if there are no new commits
+    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels)
+    count = retry_success if retry_success > 0 else 0
+
+    if known_epochs == latest_epochs:
+        logger.debug('No updates for LEI list: %s', listname)
+        return count
+
     commits = lei.get_latest_commits_in_epoch(gitdir)
     if commits:
         logger.debug('Found %d new commits for list %s', len(commits), listname)
-        count, last_commit = process_commits(listname=listname, commits=commits,
-                                             gitdir=gitdir, ctx=ctx, max_count=max_mail)
+        new_count, last_commit = process_commits(listname=listname, commits=commits,
+                                             gitdir=gitdir, ctx=ctx, max_count=max_mail,
+                                             still_failed_dict=still_failed_dict)
+        count += new_count
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
         return count
     else:
         logger.debug('No new commits to process for LEI list %s', listname)
-        return 0
+        lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
+        return count
 
 
 def process_lore_list(ctx: click.Context, listname: str,
@@ -236,17 +407,36 @@ def process_lore_list(ctx: click.Context, listname: str,
     except StateError:
         pass
 
-    if current_epochs == latest_epochs:
-        logger.debug('No updates for lore list: %s', listname)
-        return 0
-
     # Pull the highest epoch we have
     logger.debug('Running git pull on list: %s', listname)
     highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir)
+
+    # Get target and labels for retry logic
+    target = details.get('target', '')
+    labels = details.get('labels', [])
+    try:
+        gs = get_target(ctx, target)
+    except click.Abort:
+        logger.critical('Failed to get target for list "%s".', listname)
+        raise ConfigurationError()
+
+    # Always retry failed commits, even if there are no new commits
+    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels)
+    if retry_success > 0:
+        count = retry_success
+    else:
+        count = 0
+
+    if current_epochs == latest_epochs and not commits:
+        logger.debug('No updates for lore list: %s', listname)
+        return count
+
     if commits:
         logger.debug('Found %d new commits for list %s', len(commits), listname)
-        count, last_commit = process_commits(listname=listname, commits=commits,
-                                             gitdir=gitdir, ctx=ctx, max_count=max_mail)
+        new_count, last_commit = process_commits(listname=listname, commits=commits,
+                                             gitdir=gitdir, ctx=ctx, max_count=max_mail,
+                                             still_failed_dict=still_failed_dict)
+        count += new_count
     else:
         last_commit = ''
         logger.debug('No new commits to process for list %s', listname)
@@ -273,8 +463,12 @@ def process_lore_list(ctx: click.Context, listname: str,
             # Not clear what to do in this case, so we're just going to do max_mail for
             # the new epoch as well
             remaining_mail = max_mail
+        # For new epochs, we need to get a fresh still_failed_dict since it's a different gitdir
+        new_retry_success, new_still_failed_dict, new_newly_rejected = retry_failed_commits(tgt_dir, ls, gs, labels)
+        count += new_retry_success
         new_count, last_commit = process_commits(listname=listname, commits=commits,
-                                                 gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail)
+                                                 gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail,
+                                                 still_failed_dict=new_still_failed_dict)
         count += new_count
 
     ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
