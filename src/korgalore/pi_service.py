@@ -23,6 +23,53 @@ class PIService:
     def __init__(self) -> None:
         self._branch_cache: Dict[str, str] = {}
 
+    def _get_state_file_path(self, gitdir: Path, delivery_name: Optional[str], suffix: str) -> Path:
+        """Get the path to a state file, supporting per-delivery naming.
+
+        Args:
+            gitdir: Git directory path
+            delivery_name: Name of the delivery (optional for backward compatibility)
+            suffix: File suffix (e.g., 'info')
+
+        Returns:
+            Path to the state file
+        """
+        if delivery_name:
+            return gitdir / f'korgalore.{delivery_name}.{suffix}'
+        else:
+            return gitdir / f'korgalore.{suffix}'
+
+    def _migrate_legacy_info_file(self, gitdir: Path, delivery_name: str) -> bool:
+        """Migrate a legacy korgalore.info file to the new per-delivery format.
+
+        Args:
+            gitdir: Git directory path
+            delivery_name: Name of the delivery
+
+        Returns:
+            True if migration occurred, False otherwise
+        """
+        legacy_path = gitdir / 'korgalore.info'
+        new_path = gitdir / f'korgalore.{delivery_name}.info'
+
+        # If new file exists, no migration needed
+        if new_path.exists():
+            return False
+
+        # If legacy file exists, migrate it
+        if legacy_path.exists():
+            logger.debug('Migrating legacy %s file to %s', legacy_path.name, new_path.name)
+            try:
+                import shutil
+                shutil.copy2(legacy_path, new_path)
+                logger.info('Migrated %s to per-delivery format: %s', legacy_path.name, new_path.name)
+                return True
+            except Exception as e:
+                logger.warning('Failed to migrate %s: %s', legacy_path.name, str(e))
+                return False
+
+        return False
+
     def get_default_branch(self, gitdir: Path) -> str:
         """Detect the default branch name in the repository."""
         gitdir_str = str(gitdir)
@@ -100,9 +147,18 @@ class PIService:
             commits = []
         return commits
 
-    def recover_after_rebase(self, tgt_dir: Path) -> str:
+    def recover_after_rebase(self, tgt_dir: Path, delivery_name: Optional[str] = None) -> str:
+        """Recover after a rebase by finding the matching commit.
+
+        Args:
+            tgt_dir: Git directory path
+            delivery_name: Name of the delivery (for per-delivery state files)
+
+        Returns:
+            The recovered commit hash
+        """
         # Load korgalore.info to find last processed commit
-        info = self.load_korgalore_info(tgt_dir)
+        info = self.load_korgalore_info(tgt_dir, delivery_name)
         # Get the commit's date and parse it into datetime
         # The string is ISO with tzinfo: "2025-11-04 20:47:21 +0000"
         commit_date_str = info.get('commit_date')
@@ -124,7 +180,7 @@ class PIService:
         possible_commits = output.decode().splitlines()
         if not possible_commits:
             # Just record the latest info, then
-            self.update_korgalore_info(gitdir=tgt_dir)
+            self.update_korgalore_info(gitdir=tgt_dir, delivery_name=delivery_name)
             latest_commit = self.get_top_commit(tgt_dir)
             return latest_commit
 
@@ -148,15 +204,26 @@ class PIService:
         else:
             logger.debug("Recovered exact matching commit after rebase: %s", last_commit)
 
-        self.update_korgalore_info(gitdir=tgt_dir, latest_commit=last_commit, message=msg)
+        self.update_korgalore_info(gitdir=tgt_dir, latest_commit=last_commit, message=msg, delivery_name=delivery_name)
         return last_commit
 
     def get_latest_commits_in_epoch(self, gitdir: Path,
-                                    since_commit: Optional[str] = None) -> List[str]:
+                                    since_commit: Optional[str] = None,
+                                    delivery_name: Optional[str] = None) -> List[str]:
+        """Get the latest commits in an epoch.
+
+        Args:
+            gitdir: Git directory path
+            since_commit: Commit to start from (optional, will load from info if not provided)
+            delivery_name: Name of the delivery (for per-delivery state files)
+
+        Returns:
+            List of new commit hashes
+        """
         # How many new commits since our latest_commit
         if not since_commit:
             try:
-                info = self.load_korgalore_info(gitdir)
+                info = self.load_korgalore_info(gitdir, delivery_name)
             except StateError:
                 raise StateError(f"korgalore.info not found in {gitdir}. Run init_list() first.")
             since_commit = info.get('last')
@@ -167,7 +234,7 @@ class PIService:
             # The commit is not valid anymore, so try to find the latest commit by other
             # means.
             logger.debug(f"Since commit {since_commit} not found, trying to recover after rebase.")
-            since_commit = self.recover_after_rebase(gitdir)
+            since_commit = self.recover_after_rebase(gitdir, delivery_name)
         branch = self.get_default_branch(gitdir)
         gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..{branch}']
         retcode, output = self.run_git_command(str(gitdir), gitargs)
@@ -205,7 +272,16 @@ class PIService:
 
     def update_korgalore_info(self, gitdir: Path,
                               latest_commit: Optional[str] = None,
-                              message: Optional[Union[bytes, EmailMessage]] = None) -> None:
+                              message: Optional[Union[bytes, EmailMessage]] = None,
+                              delivery_name: Optional[str] = None) -> None:
+        """Update korgalore.info file with latest commit information.
+
+        Args:
+            gitdir: Git directory path
+            latest_commit: Latest commit hash (optional, will get top commit if not provided)
+            message: Email message (optional, will fetch from commit if not provided)
+            delivery_name: Name of the delivery (for per-delivery state files)
+        """
         if not latest_commit:
             latest_commit = self.get_top_commit(gitdir)
 
@@ -216,7 +292,7 @@ class PIService:
             raise GitError(f"Git show failed: {output.decode()}")
         commit_date = output.decode()
         # TODO: latest_commit may not have a "m" file in it if it's a deletion
-        korgalore_file = Path(gitdir) / 'korgalore.info'
+        korgalore_file = self._get_state_file_path(gitdir, delivery_name, 'info')
         if not message:
             message = self.get_message_at_commit(gitdir, latest_commit)
 
@@ -234,8 +310,21 @@ class PIService:
                 'commit_date': commit_date,
             }, gf, indent=2)
 
-    def load_korgalore_info(self, gitdir: Path) -> Dict[str, Any]:
-        korgalore_file = Path(gitdir) / 'korgalore.info'
+    def load_korgalore_info(self, gitdir: Path, delivery_name: Optional[str] = None) -> Dict[str, Any]:
+        """Load korgalore.info file.
+
+        Args:
+            gitdir: Git directory path
+            delivery_name: Name of the delivery (for per-delivery state files)
+
+        Returns:
+            Dict containing state information
+        """
+        # Try to migrate legacy file if delivery_name is provided
+        if delivery_name:
+            self._migrate_legacy_info_file(gitdir, delivery_name)
+
+        korgalore_file = self._get_state_file_path(gitdir, delivery_name, 'info')
         if not korgalore_file.exists():
             raise StateError(
                 f"korgalore.info not found in {gitdir}. Run init_list() first."

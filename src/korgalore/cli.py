@@ -146,12 +146,72 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
         raise click.Abort()
 
 
-def load_failed_commits(gitdir: Path) -> Dict[str, int]:
+def get_state_file_path(gitdir: Path, delivery_name: Optional[str], suffix: str) -> Path:
+    """Get the path to a state file, supporting per-delivery naming.
+
+    Args:
+        gitdir: Git directory path
+        delivery_name: Name of the delivery (optional for backward compatibility)
+        suffix: File suffix (e.g., 'failed', 'rejected', 'info')
+
+    Returns:
+        Path to the state file
+    """
+    if delivery_name:
+        return gitdir / f'korgalore.{delivery_name}.{suffix}'
+    else:
+        return gitdir / f'korgalore.{suffix}'
+
+
+def migrate_legacy_state_file(gitdir: Path, delivery_name: str, suffix: str) -> bool:
+    """Migrate a legacy state file to the new per-delivery format.
+
+    Args:
+        gitdir: Git directory path
+        delivery_name: Name of the delivery
+        suffix: File suffix (e.g., 'failed', 'rejected', 'info')
+
+    Returns:
+        True if migration occurred, False otherwise
+    """
+    legacy_path = gitdir / f'korgalore.{suffix}'
+    new_path = gitdir / f'korgalore.{delivery_name}.{suffix}'
+
+    # If new file exists, no migration needed
+    if new_path.exists():
+        return False
+
+    # If legacy file exists, migrate it
+    if legacy_path.exists():
+        logger.debug('Migrating legacy %s file to %s', legacy_path.name, new_path.name)
+        try:
+            # For .info files, we need to preserve content as-is
+            # For .failed and .rejected, we can just rename
+            import shutil
+            shutil.copy2(legacy_path, new_path)
+            logger.info('Migrated %s to per-delivery format: %s', legacy_path.name, new_path.name)
+            return True
+        except Exception as e:
+            logger.warning('Failed to migrate %s: %s', legacy_path.name, str(e))
+            return False
+
+    return False
+
+
+def load_failed_commits(gitdir: Path, delivery_name: Optional[str] = None) -> Dict[str, int]:
     """Load the tracking file of failed commits.
+
+    Args:
+        gitdir: Git directory path
+        delivery_name: Name of the delivery (for per-delivery state files)
 
     Returns a dict mapping commit hash to failure count.
     """
-    failed_file = gitdir / 'korgalore.failed'
+    # Try to migrate legacy file if delivery_name is provided
+    if delivery_name:
+        migrate_legacy_state_file(gitdir, delivery_name, 'failed')
+
+    failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
     if not failed_file.exists():
         return {}
 
@@ -164,9 +224,15 @@ def load_failed_commits(gitdir: Path) -> Dict[str, int]:
         return {}
 
 
-def save_failed_commits(gitdir: Path, failed_commits: Dict[str, int]) -> None:
-    """Save the tracking file of failed commits."""
-    failed_file = gitdir / 'korgalore.failed'
+def save_failed_commits(gitdir: Path, failed_commits: Dict[str, int], delivery_name: Optional[str] = None) -> None:
+    """Save the tracking file of failed commits.
+
+    Args:
+        gitdir: Git directory path
+        failed_commits: Dict mapping commit hash to failure count
+        delivery_name: Name of the delivery (for per-delivery state files)
+    """
+    failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
     try:
         with open(failed_file, 'w') as f:
             json.dump(failed_commits, f, indent=2)
@@ -174,8 +240,21 @@ def save_failed_commits(gitdir: Path, failed_commits: Dict[str, int]) -> None:
         logger.error('Failed to save failed commits file: %s', str(e))
 
 
-def load_rejected_commits(gitdir: Path) -> List[str]:
-    rejected_file = gitdir / 'korgalore.rejected'
+def load_rejected_commits(gitdir: Path, delivery_name: Optional[str] = None) -> List[str]:
+    """Load the tracking file of rejected commits.
+
+    Args:
+        gitdir: Git directory path
+        delivery_name: Name of the delivery (for per-delivery state files)
+
+    Returns:
+        List of rejected commit hashes
+    """
+    # Try to migrate legacy file if delivery_name is provided
+    if delivery_name:
+        migrate_legacy_state_file(gitdir, delivery_name, 'rejected')
+
+    rejected_file = get_state_file_path(gitdir, delivery_name, 'rejected')
     if not rejected_file.exists():
         return []
 
@@ -188,8 +267,15 @@ def load_rejected_commits(gitdir: Path) -> List[str]:
         return []
 
 
-def save_rejected_commits(gitdir: Path, rejected_commits: List[str]) -> None:
-    rejected_file = gitdir / 'korgalore.rejected'
+def save_rejected_commits(gitdir: Path, rejected_commits: List[str], delivery_name: Optional[str] = None) -> None:
+    """Save the tracking file of rejected commits.
+
+    Args:
+        gitdir: Git directory path
+        rejected_commits: List of rejected commit hashes
+        delivery_name: Name of the delivery (for per-delivery state files)
+    """
+    rejected_file = get_state_file_path(gitdir, delivery_name, 'rejected')
     try:
         with open(rejected_file, 'w') as f:
             json.dump(rejected_commits, f, indent=2)
@@ -197,9 +283,21 @@ def save_rejected_commits(gitdir: Path, rejected_commits: List[str]) -> None:
         logger.error('Failed to save rejected commits file: %s', str(e))
 
 
-def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str]) -> Tuple[int, Dict[str, int], List[str]]:
-    failed_commits = load_failed_commits(gitdir)
-    rejected_commits = load_rejected_commits(gitdir)
+def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str], delivery_name: Optional[str] = None) -> Tuple[int, Dict[str, int], List[str]]:
+    """Retry previously failed commits.
+
+    Args:
+        gitdir: Git directory path
+        ls: Lore/LEI service
+        gs: Gmail service
+        labels: Labels to apply
+        delivery_name: Name of the delivery (for per-delivery state files)
+
+    Returns:
+        Tuple of (success_count, still_failed_dict, newly_rejected_list)
+    """
+    failed_commits = load_failed_commits(gitdir, delivery_name)
+    rejected_commits = load_rejected_commits(gitdir, delivery_name)
 
     if not failed_commits:
         return 0, {}, []
@@ -237,15 +335,15 @@ def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str]) -> T
 
     # Save updated tracking files
     if still_failed:
-        save_failed_commits(gitdir, still_failed)
+        save_failed_commits(gitdir, still_failed, delivery_name)
     else:
         # Remove the file if all retries succeeded
-        failed_file = gitdir / 'korgalore.failed'
+        failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
         if failed_file.exists():
             failed_file.unlink()
 
     if newly_rejected:
-        save_rejected_commits(gitdir, rejected_commits)
+        save_rejected_commits(gitdir, rejected_commits, delivery_name)
 
     if success_count > 0:
         logger.info('Successfully retried %d commits', success_count)
@@ -255,7 +353,22 @@ def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str]) -> T
 
 def process_commits(listname: str, commits: List[str], gitdir: Path,
                     ctx: click.Context, max_count: int = 0,
-                    still_failed_dict: Optional[Dict[str, int]] = None) -> Tuple[int, str]:
+                    still_failed_dict: Optional[Dict[str, int]] = None,
+                    delivery_name: Optional[str] = None) -> Tuple[int, str]:
+    """Process commits for a delivery.
+
+    Args:
+        listname: Name of the list/delivery
+        commits: List of commit hashes to process
+        gitdir: Git directory path
+        ctx: Click context
+        max_count: Maximum number of commits to process (0 for all)
+        still_failed_dict: Optional dict of previously failed commits
+        delivery_name: Name of the delivery (for per-delivery state files)
+
+    Returns:
+        Tuple of (count, last_commit)
+    """
     if max_count > 0 and len(commits) > max_count:
         # Take the last NN messages and discard the rest
         logger.info('Limiting to %d messages as requested', max_count)
@@ -322,7 +435,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                     logger.debug('Removed successfully imported commit %s from failed list', at_commit)
                     # Save immediately to persist the removal
                     merged_failed = {**still_failed_dict, **failed_commits_this_run}
-                    save_failed_commits(gitdir, merged_failed)
+                    save_failed_commits(gitdir, merged_failed, delivery_name)
             except RemoteError as err:
                 logger.error('Failed to upload message at commit %s: %s', at_commit, str(err))
 
@@ -332,7 +445,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
 
                 # Save failed commits immediately to disk
                 merged_failed = {**still_failed_dict, **failed_commits_this_run}
-                save_failed_commits(gitdir, merged_failed)
+                save_failed_commits(gitdir, merged_failed, delivery_name)
 
                 # Check if we should abort
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
@@ -343,7 +456,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                 continue
 
             # Update tracking info on success
-            ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message)
+            ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message, delivery_name=delivery_name)
             last_commit = at_commit
             if logger.isEnabledFor(logging.DEBUG):
                 msg = ls.parse_message(raw_message)
@@ -352,7 +465,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
     # Final check: if we have no failed commits at all, remove the failed commits file
     merged_failed = {**still_failed_dict, **failed_commits_this_run}
     if not merged_failed:
-        failed_file = gitdir / 'korgalore.failed'
+        failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
         if failed_file.exists():
             failed_file.unlink()
             logger.debug('Removed failed commits file as all commits succeeded')
@@ -386,7 +499,7 @@ def process_lei_list(ctx: click.Context, listname: str,
         known_epochs = lei.load_known_epoch_info(feedpath)
     except StateError:
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
-        lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git')
+        lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git', delivery_name=listname)
         logger.info('Initialized: %s.', listname)
         return 0
     logger.debug('Running lei-up on list: %s', listname)
@@ -407,19 +520,20 @@ def process_lei_list(ctx: click.Context, listname: str,
         raise ConfigurationError()
 
     # Always retry failed commits, even if there are no new commits
-    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels)
+    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=listname)
     count = retry_success if retry_success > 0 else 0
 
     if known_epochs == latest_epochs:
         logger.debug('No updates for LEI list: %s', listname)
         return count
 
-    commits = lei.get_latest_commits_in_epoch(gitdir)
+    commits = lei.get_latest_commits_in_epoch(gitdir, delivery_name=listname)
     if commits:
         logger.debug('Found %d new commits for list %s', len(commits), listname)
         new_count, last_commit = process_commits(listname=listname, commits=commits,
                                              gitdir=gitdir, ctx=ctx, max_count=max_mail,
-                                             still_failed_dict=still_failed_dict)
+                                             still_failed_dict=still_failed_dict,
+                                             delivery_name=listname)
         count += new_count
         lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
         return count
@@ -448,7 +562,7 @@ def process_lore_list(ctx: click.Context, listname: str,
 
     list_dir = data_dir / f'{listname}'
     if not list_dir.exists():
-        ls.init_list(list_name=listname, list_dir=list_dir, pi_url=feed_url)
+        ls.init_list(list_name=listname, list_dir=list_dir, pi_url=feed_url, delivery_name=listname)
         ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
         logger.info('Initialized: %s.', listname)
         return 0
@@ -461,7 +575,7 @@ def process_lore_list(ctx: click.Context, listname: str,
 
     # Pull the highest epoch we have
     logger.debug('Running git pull on list: %s', listname)
-    highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir)
+    highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir, delivery_name=listname)
 
     # Get target and labels for retry logic
     target = details.get('target', '')
@@ -473,7 +587,7 @@ def process_lore_list(ctx: click.Context, listname: str,
         raise ConfigurationError()
 
     # Always retry failed commits, even if there are no new commits
-    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels)
+    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=listname)
     if retry_success > 0:
         count = retry_success
     else:
@@ -487,7 +601,8 @@ def process_lore_list(ctx: click.Context, listname: str,
         logger.debug('Found %d new commits for list %s', len(commits), listname)
         new_count, last_commit = process_commits(listname=listname, commits=commits,
                                              gitdir=gitdir, ctx=ctx, max_count=max_mail,
-                                             still_failed_dict=still_failed_dict)
+                                             still_failed_dict=still_failed_dict,
+                                             delivery_name=listname)
         count += new_count
     else:
         last_commit = ''
@@ -516,11 +631,12 @@ def process_lore_list(ctx: click.Context, listname: str,
             # the new epoch as well
             remaining_mail = max_mail
         # For new epochs, we need to get a fresh still_failed_dict since it's a different gitdir
-        new_retry_success, new_still_failed_dict, new_newly_rejected = retry_failed_commits(tgt_dir, ls, gs, labels)
+        new_retry_success, new_still_failed_dict, new_newly_rejected = retry_failed_commits(tgt_dir, ls, gs, labels, delivery_name=listname)
         count += new_retry_success
         new_count, last_commit = process_commits(listname=listname, commits=commits,
                                                  gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail,
-                                                 still_failed_dict=new_still_failed_dict)
+                                                 still_failed_dict=new_still_failed_dict,
+                                                 delivery_name=listname)
         count += new_count
 
     ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)

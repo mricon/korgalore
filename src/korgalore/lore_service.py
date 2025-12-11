@@ -1,5 +1,5 @@
 import requests
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 from gzip import GzipFile
 from pathlib import Path
 from email import charset
@@ -104,7 +104,15 @@ class LoreService(PIService):
             epochs.append((entry['epoch'], entry['path'], entry['fpr']))
         return epochs
 
-    def init_list(self, list_name: str, list_dir: Path, pi_url: str) -> None:
+    def init_list(self, list_name: str, list_dir: Path, pi_url: str, delivery_name: Optional[str] = None) -> None:
+        """Initialize a new list.
+
+        Args:
+            list_name: Name of the list
+            list_dir: Directory to store list data
+            pi_url: Public inbox URL
+            delivery_name: Name of the delivery (for per-delivery state files)
+        """
         if not list_dir.exists():
             list_dir.mkdir(parents=True, exist_ok=True)
         epochs = self.get_epochs(pi_url)
@@ -112,9 +120,19 @@ class LoreService(PIService):
         tgt_dir = list_dir / 'git' / f'{enum}.git'
         repo_url = f"{pi_url.rstrip('/')}/git/{enum}.git"
         self.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir)
-        self.update_korgalore_info(gitdir=tgt_dir)
+        # Use delivery_name if provided, otherwise fall back to list_name
+        self.update_korgalore_info(gitdir=tgt_dir, delivery_name=delivery_name or list_name)
 
-    def pull_highest_epoch(self, list_dir: Path) -> Tuple[int, Path, List[str]]:
+    def pull_highest_epoch(self, list_dir: Path, delivery_name: Optional[str] = None) -> Tuple[int, Path, List[str]]:
+        """Pull the highest epoch and return new commits.
+
+        Args:
+            list_dir: Directory containing the list data
+            delivery_name: Name of the delivery (for per-delivery state files)
+
+        Returns:
+            Tuple of (highest_epoch, gitdir, new_commits)
+        """
         # What is our highest epoch?
         existing_epochs = self.find_epochs(list_dir)
         highest_epoch = max(existing_epochs)
@@ -126,7 +144,7 @@ class LoreService(PIService):
         retcode, output = self.run_git_command(str(tgt_dir), gitargs)
         if retcode != 0:
             raise RemoteError(f"Git remote update failed: {output.decode()}")
-        new_commits = self.get_latest_commits_in_epoch(tgt_dir)
+        new_commits = self.get_latest_commits_in_epoch(tgt_dir, delivery_name=delivery_name)
         return highest_epoch, tgt_dir, new_commits
 
     def get_msgid_from_url(self, msgid_or_url: str) -> str:
