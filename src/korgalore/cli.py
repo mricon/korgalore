@@ -277,7 +277,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
         still_failed_dict = {}
 
     # Track failed commits from this run
-    failed_commits_this_run = {}
+    failed_commits_this_run: Dict[str, int] = {}
 
     last_commit = ''
     consecutive_failures = 0
@@ -310,10 +310,13 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                 count += 1
                 consecutive_failures = 0  # Reset on success
 
-                # Remove from still_failed_dict if it was there
+                # Remove from still_failed_dict if it was there and save immediately
                 if at_commit in still_failed_dict:
                     del still_failed_dict[at_commit]
                     logger.debug('Removed successfully imported commit %s from failed list', at_commit)
+                    # Save immediately to persist the removal
+                    merged_failed = {**still_failed_dict, **failed_commits_this_run}
+                    save_failed_commits(gitdir, merged_failed)
             except RemoteError as err:
                 logger.error('Failed to upload message at commit %s: %s', at_commit, str(err))
 
@@ -321,12 +324,13 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                 failed_commits_this_run[at_commit] = 1
                 consecutive_failures += 1
 
+                # Save failed commits immediately to disk
+                merged_failed = {**still_failed_dict, **failed_commits_this_run}
+                save_failed_commits(gitdir, merged_failed)
+
                 # Check if we should abort
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     logger.critical('Aborting after %d consecutive failures', consecutive_failures)
-                    # Save failed commits before aborting
-                    merged_failed = {**still_failed_dict, **failed_commits_this_run}
-                    save_failed_commits(gitdir, merged_failed)
                     return count, last_commit
 
                 # Continue to next commit
@@ -339,10 +343,15 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
                 msg = ls.parse_message(raw_message)
                 logger.debug(' -> %s', msg.get('Subject', '(no subject)'))
 
-    # After processing all commits, merge and save failed commits
-    if failed_commits_this_run or still_failed_dict:
-        merged_failed = {**still_failed_dict, **failed_commits_this_run}
-        save_failed_commits(gitdir, merged_failed)
+    # Final check: if we have no failed commits at all, remove the failed commits file
+    merged_failed = {**still_failed_dict, **failed_commits_this_run}
+    if not merged_failed:
+        failed_file = gitdir / 'korgalore.failed'
+        if failed_file.exists():
+            failed_file.unlink()
+            logger.debug('Removed failed commits file as all commits succeeded')
+    elif failed_commits_this_run:
+        # Only log if we had new failures this run (already saved immediately)
         logger.info('%d commits failed and will be retried next run', len(merged_failed))
 
     return count, last_commit
