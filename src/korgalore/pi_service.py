@@ -21,7 +21,39 @@ class PIService:
                                          message_factory=EmailMessage)
 
     def __init__(self) -> None:
-        pass
+        self._branch_cache: Dict[str, str] = {}
+
+    def get_default_branch(self, gitdir: Path) -> str:
+        """Detect the default branch name in the repository."""
+        gitdir_str = str(gitdir)
+
+        # Check cache first
+        if gitdir_str in self._branch_cache:
+            return self._branch_cache[gitdir_str]
+
+        # Try to get the symbolic ref for HEAD
+        gitargs = ['symbolic-ref', 'refs/remotes/origin/HEAD']
+        retcode, output = self.run_git_command(gitdir_str, gitargs)
+        if retcode == 0:
+            # Output is like 'refs/remotes/origin/main' - extract the branch name
+            branch_name = output.decode().strip().split('/')[-1]
+            self._branch_cache[gitdir_str] = branch_name
+            return branch_name
+
+        # Fallback: try to find the first branch
+        gitargs = ['branch', '--format=%(refname:short)']
+        retcode, output = self.run_git_command(gitdir_str, gitargs)
+        if retcode == 0 and output:
+            # Return the first branch listed
+            branch_name = output.decode().strip().split('\n')[0]
+            self._branch_cache[gitdir_str] = branch_name
+            return branch_name
+
+        # Last fallback: assume 'master'
+        logger.warning(f"Could not detect default branch in {gitdir}, falling back to 'master'")
+        branch_name = 'master'
+        self._branch_cache[gitdir_str] = branch_name
+        return branch_name
 
     def run_git_command(self, topdir: Optional[str], args: List[str],
                         stdin: Optional[bytes] = None) -> Tuple[int, bytes]:
@@ -57,7 +89,8 @@ class PIService:
         return sorted(existing_epochs)
 
     def get_all_commits_in_epoch(self, gitdir: Path) -> List[str]:
-        gitargs = ['rev-list', '--reverse', 'master']
+        branch = self.get_default_branch(gitdir)
+        gitargs = ['rev-list', '--reverse', branch]
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise GitError(f"Git rev-list failed: {output.decode()}")
@@ -79,7 +112,8 @@ class PIService:
         logger.debug(f"Last processed commit date: {commit_date.isoformat()}")
         # Try to find the new hash of this commit in the log by matching the subject and
         # message-id.
-        gitargs = ['rev-list', '--reverse', '--since-as-filter', commit_date_str, 'master']
+        branch = self.get_default_branch(tgt_dir)
+        gitargs = ['rev-list', '--reverse', '--since-as-filter', commit_date_str, branch]
         retcode, output = self.run_git_command(str(tgt_dir), gitargs)
         if retcode != 0:
             # Not sure what happened here, just give up and return the latest commit
@@ -134,7 +168,8 @@ class PIService:
             # means.
             logger.debug(f"Since commit {since_commit} not found, trying to recover after rebase.")
             since_commit = self.recover_after_rebase(gitdir)
-        gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..master']
+        branch = self.get_default_branch(gitdir)
+        gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..{branch}']
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise GitError(f"Git rev-list failed: {output.decode()}")
@@ -160,7 +195,8 @@ class PIService:
         return msg
 
     def get_top_commit(self, gitdir: Path) -> str:
-        gitargs = ['rev-list', '-n', '1', 'master']
+        branch = self.get_default_branch(gitdir)
+        gitargs = ['rev-list', '-n', '1', branch]
         retcode, output = self.run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise GitError(f"Git rev-list failed: {output.decode()}")
