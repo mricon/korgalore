@@ -73,8 +73,8 @@ workstation.
 Configuration File Format
 =========================
 
-The configuration file uses TOML format and consists of two main sections:
-``targets`` and ``sources``.
+The configuration file uses TOML format and consists of three main sections:
+``targets``, ``feeds``, and ``sources``.
 
 Targets
 -------
@@ -99,21 +99,46 @@ Target Parameters
 * ``token``: (Optional) Path to store the OAuth token. Defaults to
   ``~/.config/korgalore/gmail-{identifier}-token.json``
 
+Feeds
+-----
+
+Feeds define reusable feed URLs that can be referenced by multiple sources.
+This is useful when you want to import the same mailing list feed into
+different Gmail accounts with different labels.
+
+.. code-block:: toml
+
+   [feeds.lkml]
+   url = 'https://lore.kernel.org/lkml'
+
+   [feeds.git]
+   url = 'https://lore.kernel.org/git'
+
+Feed Parameters
+~~~~~~~~~~~~~~~
+
+* ``url``: The URL of the feed (must start with ``https:`` for lore feeds or ``lei:`` for lei searches)
+
 Sources
 -------
 
-Sources define mailing lists or lei searches to import from.
+Sources define mailing lists or lei searches to import from. A source can
+reference a feed by name (defined in the ``feeds`` section) or use a direct URL.
 
 Lore.kernel.org Sources
 ~~~~~~~~~~~~~~~~~~~~~~~
 
+Sources can reference feeds by name or use direct URLs:
+
 .. code-block:: toml
 
+   # Using a named feed (defined in the feeds section)
    [sources.lkml]
-   feed = 'https://lore.kernel.org/lkml'
+   feed = 'lkml'
    target = 'personal'
    labels = ['Lists/LKML']
 
+   # Using a direct URL
    [sources.linux-doc]
    feed = 'https://lore.kernel.org/linux-doc'
    target = 'work'
@@ -152,7 +177,7 @@ Korgalore will run ``lei up`` automatically for you.
 Source Parameters
 ~~~~~~~~~~~~~~~~~
 
-* ``feed``: URL of the lore.kernel.org archive or lei search path (prefixed with ``lei:``)
+* ``feed``: Name of a feed defined in the ``feeds`` section, or a direct URL of a lore.kernel.org archive or lei search path (prefixed with ``lei:``)
 * ``target``: Identifier of the target Gmail account (must match a target name)
 * ``labels``: List of Gmail labels to apply to imported messages
 
@@ -182,22 +207,39 @@ Here's a complete configuration file example:
    type = 'gmail'
    credentials = '~/.config/korgalore/work-credentials.json'
 
+   ### Feeds ###
+
+   [feeds.lkml]
+   url = 'https://lore.kernel.org/lkml'
+
+   [feeds.linux-doc]
+   url = 'https://lore.kernel.org/linux-doc'
+
+   [feeds.git]
+   url = 'https://lore.kernel.org/git'
+
    ### Sources ###
 
    [sources.lkml]
-   feed = 'https://lore.kernel.org/lkml'
+   feed = 'lkml'  # References the feed defined above
    target = 'work'
    labels = ['Lists/LKML']
 
    [sources.linux-doc]
-   feed = 'https://lore.kernel.org/linux-doc'
+   feed = 'linux-doc'  # References the feed defined above
    target = 'work'
    labels = ['Lists/Docs']
 
    [sources.git]
-   feed = 'https://lore.kernel.org/git'
+   feed = 'git'  # References the feed defined above
    target = 'personal'
    labels = ['INBOX', 'UNREAD']
+
+   # Using a direct URL without a feed definition
+   # [sources.example-direct]
+   # feed = 'https://lore.kernel.org/example'
+   # target = 'work'
+   # labels = ['Lists/Example']
 
    # Lei source (commented out - requires lei setup)
    # [sources.lei-mentions]

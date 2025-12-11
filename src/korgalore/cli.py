@@ -93,6 +93,29 @@ def get_gmail_service(identifier: str, credentials_file: str,
     return gmail_service
 
 
+def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
+    # If it's already a URL, return as-is
+    if feed_value.startswith('https:') or feed_value.startswith('lei:'):
+        return feed_value
+
+    # Otherwise, look it up in the feeds section
+    feeds = config.get('feeds', {})
+    if feed_value not in feeds:
+        logger.critical('Feed "%s" not found in configuration.', feed_value)
+        logger.critical('Known feeds: %s', ', '.join(feeds.keys()))
+        raise ConfigurationError(f'Feed "{feed_value}" not found in configuration')
+
+    feed_config = feeds[feed_value]
+    feed_url: str = feed_config.get('url', '')
+
+    if not feed_url:
+        logger.critical('Feed "%s" has no URL configured.', feed_value)
+        raise ConfigurationError(f'Feed "{feed_value}" has no URL configured')
+
+    logger.debug('Resolved feed "%s" to URL: %s', feed_value, feed_url)
+    return feed_url
+
+
 def load_config(cfgfile: Path) -> Dict[str, Any]:
     config: Dict[str, Any] = dict()
 
@@ -106,8 +129,9 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
         with open(cfgfile, 'rb') as cf:
             config = tomllib.load(cf)
 
-        logger.debug('Config loaded with %s targets and %s sources',
-                     len(config.get('targets', {})), len(config.get('sources', {})))
+        logger.debug('Config loaded with %s targets, %s sources, and %s feeds',
+                     len(config.get('targets', {})), len(config.get('sources', {})),
+                     len(config.get('feeds', {})))
 
         return config
 
@@ -332,7 +356,11 @@ def process_lei_list(ctx: click.Context, listname: str,
     if lei is None:
         lei = LeiService()
         ctx.obj['lei'] = lei
-    feed = details.get('feed', '')[4:]  # Strip 'lei:' prefix
+
+    # Resolve feed URL from name or use direct URL
+    cfg = ctx.obj.get('config', {})
+    feed_url = resolve_feed_url(details.get('feed', ''), cfg)
+    feed = feed_url[4:]  # Strip 'lei:' prefix
     if feed not in lei.known_searches:
         logger.critical('LEI search "%s" not known. Please create it first.', listname)
         raise click.Abort()
@@ -393,14 +421,19 @@ def process_lore_list(ctx: click.Context, listname: str,
         data_dir = ctx.obj['data_dir']
         ls = LoreService(data_dir)
         ctx.obj['lore'] = ls
-    latest_epochs = ls.get_epochs(details['feed'])
+
+    # Resolve feed URL from name or use direct URL
+    cfg = ctx.obj.get('config', {})
+    feed_url = resolve_feed_url(details.get('feed', ''), cfg)
+
+    latest_epochs = ls.get_epochs(feed_url)
     count = 0
 
     data_dir = ctx.obj['data_dir']
 
     list_dir = data_dir / f'{listname}'
     if not list_dir.exists():
-        ls.init_list(list_name=listname, list_dir=list_dir, pi_url=details['feed'])
+        ls.init_list(list_name=listname, list_dir=list_dir, pi_url=feed_url)
         ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
         logger.info('Initialized: %s.', listname)
         return 0
@@ -456,7 +489,7 @@ def process_lore_list(ctx: click.Context, listname: str,
         # that would take ages. So for now, we just pick the highest new epoch, which
         # will be correct in vast majority of cases.
         next_epoch = max(new_epochs)
-        repo_url = f"{details['feed'].rstrip('/')}/git/{next_epoch}.git"
+        repo_url = f"{feed_url.rstrip('/')}/git/{next_epoch}.git"
         tgt_dir = list_dir / 'git' / f'{next_epoch}.git'
         logger.debug('Cloning new epoch %d for list %s', next_epoch, listname)
         ls.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir, shallow=False)
@@ -624,7 +657,11 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
     changes: List[Tuple[str, int]] = list()
     for listname, details in sources.items():
         logger.debug('Processing list: %s', listname)
-        if details.get('feed', '').startswith('https:'):
+
+        # Resolve feed URL from name or use direct URL
+        feed_url = resolve_feed_url(details.get('feed', ''), cfg)
+
+        if feed_url.startswith('https:'):
             try:
                 count = process_lore_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
             except Exception as e:
@@ -632,7 +669,7 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
                 continue
             if count > 0:
                 changes.append((listname, count))
-        elif details.get('feed', '').startswith('lei:'):
+        elif feed_url.startswith('lei:'):
             try:
                 count = process_lei_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
             except Exception as e:
@@ -641,7 +678,7 @@ def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
             if count > 0:
                 changes.append((listname, count))
         else:
-            logger.warning('Unknown feed type for list %s: %s', listname, details.get('feed'))
+            logger.warning('Unknown feed type for list %s: %s', listname, feed_url)
             continue
     if changes:
         logger.info('Pull complete with updates:')
