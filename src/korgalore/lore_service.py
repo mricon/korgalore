@@ -81,8 +81,8 @@ class LoreService(PIService):
         epochs.sort(key=lambda x: x[0])
         return epochs
 
-    def store_epochs_info(self, list_dir: Path, epochs: List[Tuple[int, str, str]]) -> None:
-        epochs_file = list_dir / 'epochs.json'
+    def store_epochs_info(self, feed_dir: Path, epochs: List[Tuple[int, str, str]]) -> None:
+        epochs_file = feed_dir / 'epochs.json'
         epochs_info = []
         for enum, epath, fpr in epochs:
             epochs_info.append({
@@ -93,8 +93,8 @@ class LoreService(PIService):
         with open(epochs_file, 'w') as ef:
             json.dump(epochs_info, ef, indent=2)
 
-    def load_epochs_info(self, list_dir: Path) -> List[Tuple[int, str, str]]:
-        epochs_file = list_dir / 'epochs.json'
+    def load_epochs_info(self, feed_dir: Path) -> List[Tuple[int, str, str]]:
+        epochs_file = feed_dir / 'epochs.json'
         if not epochs_file.exists():
             raise StateError(f"Epochs file {epochs_file} does not exist.")
         with open(epochs_file, 'r') as ef:
@@ -104,40 +104,38 @@ class LoreService(PIService):
             epochs.append((entry['epoch'], entry['path'], entry['fpr']))
         return epochs
 
-    def init_list(self, list_name: str, list_dir: Path, pi_url: str, delivery_name: Optional[str] = None) -> None:
-        """Initialize a new list.
+    def init_feed(self, delivery_name: str, feed_dir: Path, pi_url: str) -> None:
+        """Initialize a new feed.
 
         Args:
-            list_name: Name of the list
-            list_dir: Directory to store list data
+            delivery_name: Name of the delivery
+            feed_dir: Directory to store feed data
             pi_url: Public inbox URL
-            delivery_name: Name of the delivery (for per-delivery state files)
         """
-        if not list_dir.exists():
-            list_dir.mkdir(parents=True, exist_ok=True)
+        if not feed_dir.exists():
+            feed_dir.mkdir(parents=True, exist_ok=True)
         epochs = self.get_epochs(pi_url)
         enum, epath, _ = epochs[-1]
-        tgt_dir = list_dir / 'git' / f'{enum}.git'
+        tgt_dir = feed_dir / 'git' / f'{enum}.git'
         repo_url = f"{pi_url.rstrip('/')}/git/{enum}.git"
         self.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir)
-        # Use delivery_name if provided, otherwise fall back to list_name
-        self.update_korgalore_info(gitdir=tgt_dir, delivery_name=delivery_name or list_name)
+        self.update_korgalore_info(gitdir=tgt_dir, delivery_name=delivery_name)
 
-    def pull_highest_epoch(self, list_dir: Path, delivery_name: Optional[str] = None) -> Tuple[int, Path, List[str]]:
+    def pull_highest_epoch(self, feed_dir: Path, delivery_name: Optional[str] = None) -> Tuple[int, Path, List[str]]:
         """Pull the highest epoch and return new commits.
 
         Args:
-            list_dir: Directory containing the list data
+            feed_dir: Directory containing the feed data
             delivery_name: Name of the delivery (for per-delivery state files)
 
         Returns:
             Tuple of (highest_epoch, gitdir, new_commits)
         """
         # What is our highest epoch?
-        existing_epochs = self.find_epochs(list_dir)
+        existing_epochs = self.find_epochs(feed_dir)
         highest_epoch = max(existing_epochs)
         logger.debug(f"Highest epoch found: {highest_epoch}")
-        epochs_dir = list_dir / 'git'
+        epochs_dir = feed_dir / 'git'
         tgt_dir = epochs_dir / f'{highest_epoch}.git'
         # Pull the latest changes
         gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']

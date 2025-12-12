@@ -1,6 +1,8 @@
 """Command-line interface for korgalore."""
 
 import os
+import re
+import hashlib
 import click
 import tomllib
 import logging
@@ -114,6 +116,44 @@ def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
 
     logger.debug('Resolved feed "%s" to URL: %s', feed_value, feed_url)
     return feed_url
+
+
+def get_feed_identifier(feed_value: str, config: Dict[str, Any]) -> Optional[str]:
+    """Get a stable identifier for a feed to use as directory name.
+
+    Args:
+        feed_value: The feed value from delivery config (name or URL)
+        config: Full configuration dict
+
+    Returns:
+        Directory name to use for this feed, or None for LEI feeds (handled separately)
+    """
+    # Named feed: use the feed name as directory
+    if not (feed_value.startswith('https:') or feed_value.startswith('http:') or feed_value.startswith('lei:')):
+        return feed_value
+
+    # LEI path: handled separately in process_lei_delivery
+    if feed_value.startswith('lei:'):
+        return None
+
+    # Direct URL: sanitize for directory name
+    # https://lore.kernel.org/lkml → lore.kernel.org-lkml
+    url_without_scheme = feed_value.replace('https://', '').replace('http://', '')
+
+    # Replace special characters with hyphens
+    sanitized = re.sub(r'[^a-zA-Z0-9_.-]', '-', url_without_scheme)
+
+    # Remove trailing slashes, dots, and hyphens
+    sanitized = sanitized.strip('-./')
+
+    # Handle very long URLs (filesystem limit ~255 chars)
+    if len(sanitized) > 200:
+        # Use hash-based name for very long URLs
+        url_hash = hashlib.sha256(feed_value.encode()).hexdigest()[:16]
+        sanitized = f'feed-{url_hash}'
+        logger.debug('Feed URL too long, using hash-based directory name: %s', sanitized)
+
+    return sanitized
 
 
 def load_config(cfgfile: Path) -> Dict[str, Any]:
@@ -351,20 +391,18 @@ def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str], deli
     return success_count, still_failed, newly_rejected
 
 
-def process_commits(listname: str, commits: List[str], gitdir: Path,
+def process_commits(delivery_name: str, commits: List[str], gitdir: Path,
                     ctx: click.Context, max_count: int = 0,
-                    still_failed_dict: Optional[Dict[str, int]] = None,
-                    delivery_name: Optional[str] = None) -> Tuple[int, str]:
+                    still_failed_dict: Optional[Dict[str, int]] = None) -> Tuple[int, str]:
     """Process commits for a delivery.
 
     Args:
-        listname: Name of the list/delivery
+        delivery_name: Name of the delivery
         commits: List of commit hashes to process
         gitdir: Git directory path
         ctx: Click context
         max_count: Maximum number of commits to process (0 for all)
         still_failed_dict: Optional dict of previously failed commits
-        delivery_name: Name of the delivery (for per-delivery state files)
 
     Returns:
         Tuple of (count, last_commit)
@@ -381,14 +419,14 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
         ls = ctx.obj['lei']
     cfg = ctx.obj.get('config', {})
 
-    details = cfg['deliveries'][listname]
+    details = cfg['deliveries'][delivery_name]
     target = details.get('target', '')
     labels = details.get('labels', [])
 
     try:
         gs = get_target(ctx, target)
     except click.Abort:
-        logger.critical('Failed to process list "%s".', listname)
+        logger.critical('Failed to process delivery "%s".', delivery_name)
         raise ConfigurationError()
 
     # Use the passed-in still_failed_dict or create a new one
@@ -413,7 +451,7 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
 
     count = 0
     with click.progressbar(commits,
-                            label=f'Uploading {listname}',
+                            label=f'Uploading {delivery_name}',
                             show_pos=True,
                             hidden=hidden) as bar:
         for at_commit in bar:
@@ -476,9 +514,9 @@ def process_commits(listname: str, commits: List[str], gitdir: Path,
     return count, last_commit
 
 
-def process_lei_list(ctx: click.Context, listname: str,
-                     details: Dict[str, Any], max_mail: int) -> int:
-    # Make sure lei knows about this list
+def process_lei_delivery(ctx: click.Context, delivery_name: str,
+                         details: Dict[str, Any], max_mail: int) -> int:
+    # Make sure lei knows about this feed
     # Placeholder for future LEI feed processing logic
     lei = ctx.obj['lei']
     if lei is None:
@@ -490,7 +528,7 @@ def process_lei_list(ctx: click.Context, listname: str,
     feed_url = resolve_feed_url(details.get('feed', ''), cfg)
     feed = feed_url[4:]  # Strip 'lei:' prefix
     if feed not in lei.known_searches:
-        logger.critical('LEI search "%s" not known. Please create it first.', listname)
+        logger.critical('LEI search "%s" not known. Please create it first.', delivery_name)
         raise click.Abort()
     feedpath = Path(feed)
     latest_epochs = lei.get_latest_epoch_info(feedpath)
@@ -498,11 +536,11 @@ def process_lei_list(ctx: click.Context, listname: str,
     try:
         known_epochs = lei.load_known_epoch_info(feedpath)
     except StateError:
-        lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
-        lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git', delivery_name=listname)
-        logger.info('Initialized: %s.', listname)
+        lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
+        lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git', delivery_name=delivery_name)
+        logger.info('Initialized: %s.', delivery_name)
         return 0
-    logger.debug('Running lei-up on list: %s', listname)
+    logger.debug('Running lei-up on feed: %s', delivery_name)
     lei.up_search(lei_name=feed)
     latest_epochs = lei.get_latest_epoch_info(feedpath)
 
@@ -516,35 +554,34 @@ def process_lei_list(ctx: click.Context, listname: str,
     try:
         gs = get_target(ctx, target)
     except click.Abort:
-        logger.critical('Failed to get target for list "%s".', listname)
+        logger.critical('Failed to get target for delivery "%s".', delivery_name)
         raise ConfigurationError()
 
     # Always retry failed commits, even if there are no new commits
-    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=listname)
+    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=delivery_name)
     count = retry_success if retry_success > 0 else 0
 
     if known_epochs == latest_epochs:
-        logger.debug('No updates for LEI list: %s', listname)
+        logger.debug('No updates for LEI feed: %s', delivery_name)
         return count
 
-    commits = lei.get_latest_commits_in_epoch(gitdir, delivery_name=listname)
+    commits = lei.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
     if commits:
-        logger.debug('Found %d new commits for list %s', len(commits), listname)
-        new_count, last_commit = process_commits(listname=listname, commits=commits,
+        logger.debug('Found %d new commits for delivery %s', len(commits), delivery_name)
+        new_count, last_commit = process_commits(delivery_name=delivery_name, commits=commits,
                                              gitdir=gitdir, ctx=ctx, max_count=max_mail,
-                                             still_failed_dict=still_failed_dict,
-                                             delivery_name=listname)
+                                             still_failed_dict=still_failed_dict)
         count += new_count
-        lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
+        lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
         return count
     else:
-        logger.debug('No new commits to process for LEI list %s', listname)
-        lei.save_epoch_info(list_dir=feedpath, epochs=latest_epochs)
+        logger.debug('No new commits to process for LEI delivery %s', delivery_name)
+        lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
         return count
 
 
-def process_lore_list(ctx: click.Context, listname: str,
-                      details: Dict[str, Any], max_mail: int) -> int:
+def process_lore_delivery(ctx: click.Context, delivery_name: str,
+                          details: Dict[str, Any], max_mail: int) -> int:
     ls = ctx.obj['lore']
     if ls is None:
         data_dir = ctx.obj['data_dir']
@@ -560,22 +597,38 @@ def process_lore_list(ctx: click.Context, listname: str,
 
     data_dir = ctx.obj['data_dir']
 
-    list_dir = data_dir / f'{listname}'
-    if not list_dir.exists():
-        ls.init_list(list_name=listname, list_dir=list_dir, pi_url=feed_url, delivery_name=listname)
-        ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
-        logger.info('Initialized: %s.', listname)
+    # Get feed identifier for directory naming (based on feed, not delivery)
+    feed_identifier = get_feed_identifier(details.get('feed', ''), cfg)
+    feed_dir = data_dir / feed_identifier
+
+    # Migration: Check for legacy directory named after delivery
+    legacy_dir = data_dir / delivery_name
+    if legacy_dir.exists() and not feed_dir.exists() and legacy_dir != feed_dir:
+        logger.info('Migrating feed directory from %s to %s', legacy_dir.name, feed_dir.name)
+        legacy_dir.rename(feed_dir)
+    elif legacy_dir.exists() and feed_dir.exists() and legacy_dir != feed_dir:
+        logger.warning('Legacy directory %s exists alongside new feed directory %s. '
+                      'You may want to manually remove the legacy directory.',
+                      legacy_dir.name, feed_dir.name)
+
+    # Log feed directory for transparency
+    logger.debug('Using feed directory: %s for feed URL: %s', feed_identifier, feed_url)
+
+    if not feed_dir.exists():
+        ls.init_feed(delivery_name=delivery_name, feed_dir=feed_dir, pi_url=feed_url)
+        ls.store_epochs_info(feed_dir=feed_dir, epochs=latest_epochs)
+        logger.info('Initialized feed %s for delivery: %s', feed_identifier, delivery_name)
         return 0
 
     current_epochs: List[Tuple[int, str, str]] = list()
     try:
-        current_epochs = ls.load_epochs_info(list_dir=list_dir)
+        current_epochs = ls.load_epochs_info(feed_dir=feed_dir)
     except StateError:
         pass
 
     # Pull the highest epoch we have
-    logger.debug('Running git pull on list: %s', listname)
-    highest_epoch, gitdir, commits = ls.pull_highest_epoch(list_dir=list_dir, delivery_name=listname)
+    logger.debug('Running git pull on feed: %s', delivery_name)
+    highest_epoch, gitdir, commits = ls.pull_highest_epoch(feed_dir=feed_dir, delivery_name=delivery_name)
 
     # Get target and labels for retry logic
     target = details.get('target', '')
@@ -583,30 +636,29 @@ def process_lore_list(ctx: click.Context, listname: str,
     try:
         gs = get_target(ctx, target)
     except click.Abort:
-        logger.critical('Failed to get target for list "%s".', listname)
+        logger.critical('Failed to get target for delivery "%s".', delivery_name)
         raise ConfigurationError()
 
     # Always retry failed commits, even if there are no new commits
-    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=listname)
+    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=delivery_name)
     if retry_success > 0:
         count = retry_success
     else:
         count = 0
 
     if current_epochs == latest_epochs and not commits:
-        logger.debug('No updates for lore list: %s', listname)
+        logger.debug('No updates for lore feed: %s', delivery_name)
         return count
 
     if commits:
-        logger.debug('Found %d new commits for list %s', len(commits), listname)
-        new_count, last_commit = process_commits(listname=listname, commits=commits,
+        logger.debug('Found %d new commits for delivery %s', len(commits), delivery_name)
+        new_count, last_commit = process_commits(delivery_name=delivery_name, commits=commits,
                                              gitdir=gitdir, ctx=ctx, max_count=max_mail,
-                                             still_failed_dict=still_failed_dict,
-                                             delivery_name=listname)
+                                             still_failed_dict=still_failed_dict)
         count += new_count
     else:
         last_commit = ''
-        logger.debug('No new commits to process for list %s', listname)
+        logger.debug('No new commits to process for delivery %s', delivery_name)
 
     local = set(e[0] for e in current_epochs)
     remote = set(e[0] for e in latest_epochs)
@@ -620,8 +672,8 @@ def process_lore_list(ctx: click.Context, listname: str,
         # will be correct in vast majority of cases.
         next_epoch = max(new_epochs)
         repo_url = f"{feed_url.rstrip('/')}/git/{next_epoch}.git"
-        tgt_dir = list_dir / 'git' / f'{next_epoch}.git'
-        logger.debug('Cloning new epoch %d for list %s', next_epoch, listname)
+        tgt_dir = feed_dir / 'git' / f'{next_epoch}.git'
+        logger.debug('Cloning new epoch %d for delivery %s', next_epoch, delivery_name)
         ls.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir, shallow=False)
         commits = ls.get_all_commits_in_epoch(tgt_dir)
         # attempt to respect max_mail across epoch boundaries
@@ -631,15 +683,14 @@ def process_lore_list(ctx: click.Context, listname: str,
             # the new epoch as well
             remaining_mail = max_mail
         # For new epochs, we need to get a fresh still_failed_dict since it's a different gitdir
-        new_retry_success, new_still_failed_dict, new_newly_rejected = retry_failed_commits(tgt_dir, ls, gs, labels, delivery_name=listname)
+        new_retry_success, new_still_failed_dict, new_newly_rejected = retry_failed_commits(tgt_dir, ls, gs, labels, delivery_name=delivery_name)
         count += new_retry_success
-        new_count, last_commit = process_commits(listname=listname, commits=commits,
+        new_count, last_commit = process_commits(delivery_name=delivery_name, commits=commits,
                                                  gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail,
-                                                 still_failed_dict=new_still_failed_dict,
-                                                 delivery_name=listname)
+                                                 still_failed_dict=new_still_failed_dict)
         count += new_count
 
-    ls.store_epochs_info(list_dir=list_dir, epochs=latest_epochs)
+    ls.store_epochs_info(feed_dir=feed_dir, epochs=latest_epochs)
 
     return count
 
@@ -782,48 +833,48 @@ def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
 @main.command()
 @click.pass_context
 @click.option('--max-mail', '-m', default=0, help='maximum number of messages to pull (0 for all)')
-@click.argument('listname', type=str, nargs=1, default=None)
-def pull(ctx: click.Context, max_mail: int, listname: Optional[str]) -> None:
-    """Pull messages from configured lore and LEI lists."""
+@click.argument('delivery_name', type=str, nargs=1, default=None)
+def pull(ctx: click.Context, max_mail: int, delivery_name: Optional[str]) -> None:
+    """Pull messages from configured lore and LEI deliveries."""
     cfg = ctx.obj.get('config', {})
 
     deliveries = cfg.get('deliveries', {})
-    if listname:
-        if listname not in deliveries:
-            logger.critical('List "%s" not found in configuration.', listname)
+    if delivery_name:
+        if delivery_name not in deliveries:
+            logger.critical('Delivery "%s" not found in configuration.', delivery_name)
             raise click.Abort()
-        deliveries = {listname: deliveries[listname]}
+        deliveries = {delivery_name: deliveries[delivery_name]}
 
     changes: List[Tuple[str, int]] = list()
-    for listname, details in deliveries.items():
-        logger.debug('Processing list: %s', listname)
+    for delivery_name, details in deliveries.items():
+        logger.debug('Processing delivery: %s', delivery_name)
 
         # Resolve feed URL from name or use direct URL
         feed_url = resolve_feed_url(details.get('feed', ''), cfg)
 
         if feed_url.startswith('https:'):
             try:
-                count = process_lore_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+                count = process_lore_delivery(ctx=ctx, delivery_name=delivery_name, details=details, max_mail=max_mail)
             except Exception as e:
-                logger.critical('Failed to process lore list "%s": %s', listname, str(e))
+                logger.critical('Failed to process lore delivery "%s": %s', delivery_name, str(e))
                 continue
             if count > 0:
-                changes.append((listname, count))
+                changes.append((delivery_name, count))
         elif feed_url.startswith('lei:'):
             try:
-                count = process_lei_list(ctx=ctx, listname=listname, details=details, max_mail=max_mail)
+                count = process_lei_delivery(ctx=ctx, delivery_name=delivery_name, details=details, max_mail=max_mail)
             except Exception as e:
-                logger.critical('Failed to process LEI list "%s": %s', listname, str(e))
+                logger.critical('Failed to process LEI delivery "%s": %s', delivery_name, str(e))
                 continue
             if count > 0:
-                changes.append((listname, count))
+                changes.append((delivery_name, count))
         else:
-            logger.warning('Unknown feed type for list %s: %s', listname, feed_url)
+            logger.warning('Unknown feed type for delivery %s: %s', delivery_name, feed_url)
             continue
     if changes:
         logger.info('Pull complete with updates:')
-        for listname, count in changes:
-            logger.info('  %s: %d', listname, count)
+        for delivery_name, count in changes:
+            logger.info('  %s: %d', delivery_name, count)
     else:
         logger.info('Pull complete with no updates.')
 

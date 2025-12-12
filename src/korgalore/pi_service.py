@@ -225,7 +225,7 @@ class PIService:
             try:
                 info = self.load_korgalore_info(gitdir, delivery_name)
             except StateError:
-                raise StateError(f"korgalore.info not found in {gitdir}. Run init_list() first.")
+                raise StateError(f"korgalore.info not found in {gitdir}. Run init_feed() first.")
             since_commit = info.get('last')
         # is this still a valid commit?
         gitargs = ['cat-file', '-e', f'{since_commit}^']
@@ -327,7 +327,7 @@ class PIService:
         korgalore_file = self._get_state_file_path(gitdir, delivery_name, 'info')
         if not korgalore_file.exists():
             raise StateError(
-                f"korgalore.info not found in {gitdir}. Run init_list() first."
+                f"korgalore.info not found in {gitdir}. Run init_feed() first."
             )
 
         with open(korgalore_file, 'r') as gf:

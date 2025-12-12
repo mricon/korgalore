@@ -30,11 +30,11 @@ class LeiService(PIService):
             raise PublicInboxError(f"LEI command '{self.LEICMD}' not found. Is it installed?")
         return result.returncode, result.stdout.strip()
 
-    def get_latest_epoch_info(self, list_dir: Path) -> List[Tuple[int, str]]:
-        epochs = self.find_epochs(list_dir)
+    def get_latest_epoch_info(self, feed_dir: Path) -> List[Tuple[int, str]]:
+        epochs = self.find_epochs(feed_dir)
         epoch_info: List[Tuple[int, str]] = list()
         for epoch in epochs:
-            epoch_dir = list_dir / 'git' / f'{epoch}.git'
+            epoch_dir = feed_dir / 'git' / f'{epoch}.git'
             gitargs = ['show-ref']
             retcode, output = self.run_git_command(str(epoch_dir), gitargs)
             if retcode != 0:
@@ -45,8 +45,8 @@ class LeiService(PIService):
             epoch_info.append((epoch, refdata))
         return epoch_info
 
-    def load_known_epoch_info(self, list_dir: Path) -> List[Tuple[int, str]]:
-        epochs_file = list_dir / 'epochs.json'
+    def load_known_epoch_info(self, feed_dir: Path) -> List[Tuple[int, str]]:
+        epochs_file = feed_dir / 'epochs.json'
         if not epochs_file.exists():
             raise StateError(f"Epochs file {epochs_file} does not exist.")
         with open(epochs_file, 'r') as ef:
@@ -56,8 +56,8 @@ class LeiService(PIService):
             epochs.append((entry['epoch'], entry['refdata']))
         return epochs
 
-    def save_epoch_info(self, list_dir: Path, epochs: List[Tuple[int, str]]) -> None:
-        epochs_file = list_dir / 'epochs.json'
+    def save_epoch_info(self, feed_dir: Path, epochs: List[Tuple[int, str]]) -> None:
+        epochs_file = feed_dir / 'epochs.json'
         epochs_info = list()
         for enum, refdata in epochs:
             epochs_info.append({
