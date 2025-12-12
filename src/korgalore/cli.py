@@ -276,7 +276,17 @@ def migrate_legacy_state_file(gitdir: Path, delivery_name: str, suffix: str) -> 
             # For .failed and .rejected, we can just rename
             import shutil
             shutil.copy2(legacy_path, new_path)
-            logger.info('Migrated %s to per-delivery format: %s', legacy_path.name, new_path.name)
+
+            # Rename legacy file to prevent duplicate migrations
+            archived_path = gitdir / f'korgalore.{suffix}.pre-migration'
+            if not archived_path.exists():
+                legacy_path.rename(archived_path)
+                logger.info('Migrated %s to per-delivery format: %s (legacy file renamed to %s)',
+                           legacy_path.name, new_path.name, archived_path.name)
+            else:
+                logger.info('Migrated %s to per-delivery format: %s (archive already exists, legacy file kept)',
+                           legacy_path.name, new_path.name)
+
             return True
         except Exception as e:
             logger.warning('Failed to migrate %s: %s', legacy_path.name, str(e))
