@@ -138,6 +138,7 @@ class LoreService(PIService):
         epochs_dir = feed_dir / 'git'
         tgt_dir = epochs_dir / f'{highest_epoch}.git'
         # Pull the latest changes
+        logger.info('Updating feed: %s (epoch %d)', feed_dir.name, highest_epoch)
         gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
         retcode, output = self.run_git_command(str(tgt_dir), gitargs)
         if retcode != 0:

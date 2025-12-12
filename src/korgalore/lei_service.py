@@ -81,6 +81,7 @@ class LeiService(PIService):
                 self.known_searches.append(output[3:])
 
     def up_search(self, lei_name: str) -> None:
+        logger.info('Updating lei search: %s', lei_name)
         leiargs = ['up', lei_name]
         retcode, output = self.run_lei_command(leiargs)
         if retcode != 0:
