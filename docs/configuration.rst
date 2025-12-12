@@ -3,8 +3,8 @@ Configuration
 =============
 
 Korgalore uses a TOML configuration file to define targets (Gmail accounts, local
-maildirs, etc.), feeds (mailing lists or lei searches), and deliveries (which feed
-goes to which target).
+maildirs, JMAP servers, IMAP servers), feeds (mailing lists or lei searches), and
+deliveries (which feed goes to which target).
 
 Configuration File Location
 ===========================
@@ -107,6 +107,44 @@ structure (cur/, new/, tmp/ subdirectories) is handled automatically.
    labels, so any labels specified in deliveries using maildir targets will be
    silently ignored.
 
+IMAP Setup
+==========
+
+IMAP targets provide a way to deliver messages to any IMAP-compatible mail server
+(like personal email servers, Office365, generic hosting providers, etc.).
+
+Benefits of IMAP Targets
+-------------------------
+
+* **Wide compatibility**: Works with virtually any email provider supporting IMAP
+* **SSL-only security**: Always uses encrypted connections on port 993
+* **Simple authentication**: Standard password-based authentication
+* **Server-side storage**: Messages stored on your mail server
+* **Multiple client access**: Access via any IMAP-compatible mail client
+
+Configuring IMAP Targets
+-------------------------
+
+To configure an IMAP target, specify the server, credentials, and target folder:
+
+.. code-block:: toml
+
+   [targets.myserver]
+   type = 'imap'
+   server = 'imap.example.com'
+   username = 'user@example.com'
+   folder = 'INBOX'
+   password_file = '~/.config/korgalore/imap-password.txt'
+
+.. note::
+   Labels are ignored for IMAP targets. Messages are delivered to the single
+   configured folder only. Any labels specified in deliveries using IMAP targets
+   will be silently ignored.
+
+.. warning::
+   For security, use ``password_file`` instead of inline ``password`` in your
+   configuration file.
+
 Configuration File Format
 =========================
 
@@ -116,7 +154,8 @@ The configuration file uses TOML format and consists of three main sections:
 Targets
 -------
 
-Targets define where messages will be delivered (Gmail accounts, local maildirs, etc.).
+Targets define where messages will be delivered (Gmail accounts, local maildirs,
+JMAP servers, IMAP servers, etc.).
 
 .. code-block:: toml
 
@@ -204,6 +243,21 @@ JMAP Target Parameters
 * ``token_file``: (Optional*) Path to file containing bearer token
 
 *Either ``token`` or ``token_file`` must be provided.
+
+IMAP Target Parameters
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``type``: Must be ``'imap'``
+* ``server``: IMAP server hostname (e.g., ``'imap.example.com'``)
+* ``username``: Your account username or email address
+* ``folder``: Target folder for delivery (default: ``'INBOX'``)
+* ``password``: (Optional*) Password provided inline (less secure)
+* ``password_file``: (Optional*) Path to file containing password (recommended)
+
+*Either ``password`` or ``password_file`` must be provided.
+
+.. note::
+   IMAP connections always use SSL on port 993 for security.
 
 Feeds
 -----
@@ -320,6 +374,13 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    type = 'maildir'
    path = '~/Mail/archive'
 
+   [targets.myserver]
+   type = 'imap'
+   server = 'imap.example.com'
+   username = 'user@example.com'
+   folder = 'INBOX'
+   password_file = '~/.config/korgalore/imap-password.txt'
+
    ### Feeds ###
 
    [feeds.lkml]
@@ -353,6 +414,12 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    feed = 'lkml'  # Same feed as above!
    target = 'archive'  # Maildir target
    labels = []  # Ignored for maildir targets
+
+   # Deliver to IMAP server
+   [deliveries.lkml-imap]
+   feed = 'lkml'
+   target = 'myserver'
+   labels = []  # Ignored for IMAP targets
 
    # Using a direct URL without a feed definition
    # [deliveries.example-direct]

@@ -16,6 +16,7 @@ from korgalore.lore_service import LoreService
 from korgalore.lei_service import LeiService
 from korgalore.maildir_service import MaildirService
 from korgalore.jmap_service import JmapService
+from korgalore.imap_service import ImapService
 from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError
 
 logger = logging.getLogger('korgalore')
@@ -58,7 +59,7 @@ def get_xdg_config_dir() -> Path:
 def get_target(ctx: click.Context, identifier: str) -> Any:
     """Instantiate a delivery target service.
 
-    Supports target types: 'gmail', 'maildir', 'jmap'
+    Supports target types: 'gmail', 'maildir', 'jmap', 'imap'
     """
     if identifier in ctx.obj['targets']:
         return ctx.obj['targets'][identifier]
@@ -94,9 +95,18 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             token=details.get('token', None),
             token_file=details.get('token_file', None)
         )
+    elif target_type == 'imap':
+        service = get_imap_service(
+            identifier=identifier,
+            server=details.get('server', ''),
+            username=details.get('username', ''),
+            folder=details.get('folder', 'INBOX'),
+            password=details.get('password', None),
+            password_file=details.get('password_file', None)
+        )
     else:
         logger.critical('Unknown target type "%s" for target "%s".', target_type, identifier)
-        logger.critical('Supported types: gmail, maildir, jmap')
+        logger.critical('Supported types: gmail, maildir, jmap, imap')
         raise click.Abort()
 
     ctx.obj['targets'][identifier] = service
@@ -194,6 +204,54 @@ def get_jmap_service(identifier: str, server: str, username: str,
         raise click.Abort()
 
     return jmap_service
+
+
+def get_imap_service(identifier: str, server: str, username: str,
+                     folder: str, password: Optional[str],
+                     password_file: Optional[str]) -> ImapService:
+    """Factory function to create ImapService instances.
+
+    Args:
+        identifier: Target name
+        server: IMAP server hostname
+        username: Account username
+        folder: Target folder for delivery
+        password: Password (optional if password_file provided)
+        password_file: Path to password file (optional if password provided)
+
+    Returns:
+        Initialized ImapService instance
+
+    Raises:
+        click.Abort on configuration errors
+    """
+    if not server:
+        logger.critical('No server specified for IMAP target: %s', identifier)
+        raise click.Abort()
+
+    if not username:
+        logger.critical('No username specified for IMAP target: %s', identifier)
+        raise click.Abort()
+
+    if not password and not password_file:
+        logger.critical('No password or password_file specified for IMAP target: %s', identifier)
+        logger.critical('Either provide password directly or use password_file for security')
+        raise click.Abort()
+
+    try:
+        imap_service = ImapService(
+            identifier=identifier,
+            server=server,
+            username=username,
+            folder=folder,
+            password=password,
+            password_file=password_file
+        )
+    except ConfigurationError as fe:
+        logger.critical('Error: %s', str(fe))
+        raise click.Abort()
+
+    return imap_service
 
 
 def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:

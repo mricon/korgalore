@@ -32,6 +32,22 @@ token_file = '~/.config/korgalore/fastmail-token.txt'
 # username = 'user@fastmail.com'
 # token = 'your-api-token-here'
 
+# IMAP target for generic IMAP servers
+[targets.imap-server]
+type = 'imap'
+server = 'imap.example.com'
+username = 'user@example.com'
+folder = 'INBOX'  # Target folder (default: INBOX)
+password_file = '~/.config/korgalore/imap-password.txt'
+
+# Alternative: inline password (less secure, for testing only)
+# [targets.imap-inline]
+# type = 'imap'
+# server = 'imap.example.com'
+# username = 'user@example.com'
+# folder = 'Lists/LKML'
+# password = 'your-password-here'
+
 ### Feeds ###
 # Feeds can be defined here and referenced by name in deliveries
 # This allows multiple deliveries to share the same feed URL
@@ -78,6 +94,12 @@ labels = ['INBOX', 'Lists/LKML']  # Folder names or roles
 feed = 'git'  # References the feed defined above
 target = 'fastmail'
 labels = ['inbox']  # Can use lowercase role names
+
+# Example: Deliver to IMAP server
+[deliveries.lkml-imap]
+feed = 'lkml'  # References the feed defined above
+target = 'imap-server'
+labels = []  # Labels are ignored for IMAP (single folder delivery)
 
 # You can also use direct URLs without defining a feed
 # [deliveries.example-direct]

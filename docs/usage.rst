@@ -29,7 +29,7 @@ Commands
 auth
 ----
 
-Authenticate with targets that require authentication (Gmail, JMAP).
+Authenticate with targets that require authentication (Gmail, JMAP, IMAP).
 
 .. code-block:: bash
 
@@ -62,11 +62,12 @@ This command will:
 6. Skip targets that don't require authentication (e.g., maildir)
 
 .. note::
-   Maildir targets don't require authentication. JMAP targets authenticate
-   automatically using the configured token.
+   Maildir targets don't require authentication. JMAP and IMAP targets authenticate
+   automatically using the configured token or password.
 
    For Gmail targets, this will open a browser for OAuth authentication.
-   For JMAP targets, this verifies the token is valid.
+   For JMAP targets, this verifies the API token is valid.
+   For IMAP targets, this verifies the password and folder exist.
 
 edit-config
 -----------
@@ -107,7 +108,7 @@ the file path or manually create the directory structure.
 labels
 ------
 
-List labels/folders for a Gmail or JMAP target.
+List labels/folders for a Gmail, JMAP, or IMAP target.
 
 .. code-block:: bash
 
@@ -133,7 +134,7 @@ Examples:
 
 .. note::
    This command only works with targets that support folders/labels.
-   Maildir targets don't support labels.
+   Maildir targets don't support labels, and IMAP targets deliver to a single folder only.
 
 This is useful for:
 
@@ -183,7 +184,7 @@ For lore.kernel.org deliveries:
 1. Check for new epochs (git repositories)
 2. Pull latest commits from the highest epoch
 3. Extract email messages from commits
-4. Import messages into configured targets (Gmail with labels, maildir, etc.)
+4. Import messages into configured targets (Gmail with labels, JMAP folders, IMAP folder, maildir, etc.)
 5. Update tracking information
 
 For lei deliveries:
