@@ -146,6 +146,65 @@ Maildir Target Parameters
 * ``type``: Must be ``'maildir'``
 * ``path``: Path to the maildir directory (will be created if it doesn't exist)
 
+JMAP Targets
+~~~~~~~~~~~~
+
+JMAP (JSON Meta Application Protocol) is a modern email protocol that provides
+efficient, JSON-based access to mail servers. Fastmail is the primary provider
+supporting JMAP.
+
+**Benefits:**
+
+- Modern JSON API (more efficient than IMAP)
+- Native folder support
+- Unified authentication
+- Fast synchronization
+
+**Required Parameters:**
+
+- ``type``: Must be ``jmap``
+- ``server``: JMAP server URL (e.g., ``https://api.fastmail.com``)
+- ``username``: Your account email address
+- ``token`` or ``token_file``: API token for authentication
+
+**Getting a Fastmail API Token:**
+
+1. Log in to Fastmail
+2. Go to Settings → Privacy & Security → Integrations
+3. Click "New API Token"
+4. Give it a name (e.g., "korgalore")
+5. Select permissions: **Mail (read/write)**
+6. Copy the token and save it to a file
+
+**Example Configuration:**
+
+.. code-block:: toml
+
+   [targets.fastmail]
+   type = 'jmap'
+   server = 'https://api.fastmail.com'
+   username = 'user@fastmail.com'
+   token_file = '~/.config/korgalore/fastmail-token.txt'
+
+**Notes:**
+
+- Labels are mapped to JMAP mailboxes/folders
+- Folder names are case-insensitive
+- Can use folder names (e.g., "INBOX") or roles (e.g., "inbox")
+- Messages are imported with original headers preserved
+- Authentication uses API bearer tokens only (OAuth is not implemented)
+
+JMAP Target Parameters
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``type``: Must be ``'jmap'``
+* ``server``: JMAP server URL (e.g., ``'https://api.fastmail.com'``)
+* ``username``: Your account email address
+* ``token``: (Optional*) Bearer token provided inline (less secure)
+* ``token_file``: (Optional*) Path to file containing bearer token
+
+*Either ``token`` or ``token_file`` must be provided.
+
 Feeds
 -----
 

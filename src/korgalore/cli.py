@@ -15,6 +15,7 @@ from korgalore.gmail_service import GmailService
 from korgalore.lore_service import LoreService
 from korgalore.lei_service import LeiService
 from korgalore.maildir_service import MaildirService
+from korgalore.jmap_service import JmapService
 from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError
 
 logger = logging.getLogger('korgalore')
@@ -57,7 +58,7 @@ def get_xdg_config_dir() -> Path:
 def get_target(ctx: click.Context, identifier: str) -> Any:
     """Instantiate a delivery target service.
 
-    Supports target types: 'gmail', 'maildir'
+    Supports target types: 'gmail', 'maildir', 'jmap'
     """
     if identifier in ctx.obj['targets']:
         return ctx.obj['targets'][identifier]
@@ -85,9 +86,17 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             identifier=identifier,
             maildir_path=details.get('path', '')
         )
+    elif target_type == 'jmap':
+        service = get_jmap_service(
+            identifier=identifier,
+            server=details.get('server', ''),
+            username=details.get('username', ''),
+            token=details.get('token', None),
+            token_file=details.get('token_file', None)
+        )
     else:
         logger.critical('Unknown target type "%s" for target "%s".', target_type, identifier)
-        logger.critical('Supported types: gmail, maildir')
+        logger.critical('Supported types: gmail, maildir, jmap')
         raise click.Abort()
 
     ctx.obj['targets'][identifier] = service
@@ -140,6 +149,51 @@ def get_maildir_service(identifier: str, maildir_path: str) -> MaildirService:
         raise click.Abort()
 
     return maildir_service
+
+
+def get_jmap_service(identifier: str, server: str, username: str,
+                     token: Optional[str], token_file: Optional[str]) -> JmapService:
+    """Factory function to create JmapService instances.
+
+    Args:
+        identifier: Target name
+        server: JMAP server URL
+        username: Account username
+        token: Bearer token (optional if token_file provided)
+        token_file: Path to token file (optional if token provided)
+
+    Returns:
+        Initialized JmapService instance
+
+    Raises:
+        click.Abort on configuration errors
+    """
+    if not server:
+        logger.critical('No server specified for JMAP target: %s', identifier)
+        raise click.Abort()
+
+    if not username:
+        logger.critical('No username specified for JMAP target: %s', identifier)
+        raise click.Abort()
+
+    if not token and not token_file:
+        logger.critical('No token or token_file specified for JMAP target: %s', identifier)
+        logger.critical('Generate a token at your JMAP provider (e.g., Fastmail Settings → Integrations)')
+        raise click.Abort()
+
+    try:
+        jmap_service = JmapService(
+            identifier=identifier,
+            server=server,
+            username=username,
+            token=token,
+            token_file=token_file
+        )
+    except ConfigurationError as fe:
+        logger.critical('Error: %s', str(fe))
+        raise click.Abort()
+
+    return jmap_service
 
 
 def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
@@ -545,7 +599,11 @@ def process_commits(delivery_name: str, commits: List[str], gitdir: Path,
                 # Check if we should abort
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     logger.critical('Aborting after %d consecutive failures', consecutive_failures)
-                    return count, last_commit
+                    # Update .info to mark progress past this failed commit
+                    # This ensures we don't retry the same failed commits on next run
+                    ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit,
+                                             message=raw_message, delivery_name=delivery_name)
+                    return count, at_commit
 
                 # Continue to next commit
                 continue
@@ -794,9 +852,14 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
 
 
 @main.command()
+@click.argument('target', required=False)
 @click.pass_context
-def auth(ctx: click.Context) -> None:
-    """Authenticate with configured targets."""
+def auth(ctx: click.Context, target: Optional[str]) -> None:
+    """Authenticate with configured targets.
+
+    If TARGET is specified, authenticate only that target.
+    If TARGET is omitted, authenticate all targets that require authentication.
+    """
     # Target types that don't require authentication
     NO_AUTH_TARGETS = {'maildir'}
 
@@ -806,14 +869,31 @@ def auth(ctx: click.Context) -> None:
         logger.critical('No targets defined in configuration.')
         raise click.Abort()
 
-    auth_targets = []
-    for identifier, details in targets.items():
-        target_type = details.get('type', '')
+    # If specific target requested, validate it exists
+    if target:
+        if target not in targets:
+            logger.critical('Target "%s" not found in configuration.', target)
+            logger.critical('Known targets: %s', ', '.join(targets.keys()))
+            raise click.Abort()
+
+        # Check if target requires authentication
+        target_type = targets[target].get('type', '')
         if target_type in NO_AUTH_TARGETS:
-            logger.debug('Skipping target that does not require authentication: %s (type: %s)',
-                        identifier, target_type)
-            continue
-        auth_targets.append((identifier, details))
+            logger.warning('Target "%s" (type: %s) does not require authentication.', target, target_type)
+            return
+
+        # Authenticate only the specified target
+        auth_targets = [(target, targets[target])]
+    else:
+        # Authenticate all targets that require authentication
+        auth_targets = []
+        for identifier, details in targets.items():
+            target_type = details.get('type', '')
+            if target_type in NO_AUTH_TARGETS:
+                logger.debug('Skipping target that does not require authentication: %s (type: %s)',
+                            identifier, target_type)
+                continue
+            auth_targets.append((identifier, details))
 
     if not auth_targets:
         logger.warning('No targets requiring authentication found.')
@@ -821,13 +901,14 @@ def auth(ctx: click.Context) -> None:
 
     for identifier, details in auth_targets:
         target_type = details.get('type', '')
-        if target_type == 'gmail':
-            get_gmail_service(identifier=identifier,
-                              credentials_file=details.get('credentials', ''),
-                              token_file=details.get('token', None))
-        # Future: Add other target types that require auth (Outlook, IMAP, JMAP, etc.)
-        else:
-            logger.warning('Authentication not yet implemented for target type: %s', target_type)
+
+        # Instantiate target to trigger authentication
+        try:
+            get_target(ctx, identifier)
+            logger.info('Authenticated target: %s (type: %s)', identifier, target_type)
+        except click.Abort:
+            logger.error('Failed to authenticate target: %s', identifier)
+            raise
 
     logger.info('Authentication complete.')
 

@@ -18,6 +18,20 @@ path = '~/Mail/lkml'
 type = 'maildir'
 path = '/mnt/backup/mail'
 
+# JMAP target for Fastmail
+[targets.fastmail]
+type = 'jmap'
+server = 'https://api.fastmail.com'
+username = 'user@fastmail.com'
+token_file = '~/.config/korgalore/fastmail-token.txt'
+
+# Alternative: inline token (less secure, for testing)
+# [targets.fastmail-inline]
+# type = 'jmap'
+# server = 'https://api.fastmail.com'
+# username = 'user@fastmail.com'
+# token = 'your-api-token-here'
+
 ### Feeds ###
 # Feeds can be defined here and referenced by name in deliveries
 # This allows multiple deliveries to share the same feed URL
@@ -53,6 +67,17 @@ labels = ['INBOX', 'UNREAD']
 feed = 'lkml'  # Same feed as lkml delivery above
 target = 'archive'  # Maildir target
 labels = []  # Labels are ignored for maildir targets
+
+# Example: Deliver to JMAP target (e.g., Fastmail)
+[deliveries.lkml-fastmail]
+feed = 'lkml'  # References the feed defined above
+target = 'fastmail'
+labels = ['INBOX', 'Lists/LKML']  # Folder names or roles
+
+[deliveries.git-fastmail]
+feed = 'git'  # References the feed defined above
+target = 'fastmail'
+labels = ['inbox']  # Can use lowercase role names
 
 # You can also use direct URLs without defining a feed
 # [deliveries.example-direct]

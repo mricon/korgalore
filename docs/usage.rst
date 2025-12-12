@@ -29,23 +29,44 @@ Commands
 auth
 ----
 
-Authenticate with targets that require authentication (e.g., Gmail).
+Authenticate with targets that require authentication (Gmail, JMAP).
 
 .. code-block:: bash
 
+   kgl auth [TARGET]
+
+Arguments:
+
+* ``TARGET``: (Optional) Name of a specific target to authenticate. If not provided, all targets requiring authentication will be authenticated.
+
+Examples:
+
+.. code-block:: bash
+
+   # Authenticate all targets that require authentication
    kgl auth
+
+   # Authenticate only the 'fastmail' target
+   kgl auth fastmail
+
+   # Authenticate only the 'personal' Gmail target
+   kgl auth personal
 
 This command will:
 
 1. Read your configuration file
-2. For each target that requires authentication (Gmail), check for valid credentials
-3. If credentials are missing or expired, open a browser for OAuth authentication
-4. Save the authentication token for future use
-5. Skip targets that don't require authentication (e.g., maildir)
+2. If TARGET is specified, authenticate only that target
+3. If TARGET is omitted, authenticate all targets that require authentication
+4. For Gmail: open a browser for OAuth authentication if needed
+5. For JMAP: verify the API token is valid
+6. Skip targets that don't require authentication (e.g., maildir)
 
 .. note::
-   You only need to run this once per Gmail target, unless you revoke access or
-   the token expires. Maildir and other local targets don't require authentication.
+   Maildir targets don't require authentication. JMAP targets authenticate
+   automatically using the configured token.
+
+   For Gmail targets, this will open a browser for OAuth authentication.
+   For JMAP targets, this verifies the token is valid.
 
 edit-config
 -----------
@@ -86,7 +107,7 @@ the file path or manually create the directory structure.
 labels
 ------
 
-List labels for a specific Gmail target.
+List labels/folders for a Gmail or JMAP target.
 
 .. code-block:: bash
 
@@ -94,29 +115,31 @@ List labels for a specific Gmail target.
 
 Arguments:
 
-* ``TARGET``: Name of the Gmail target (as defined in your configuration file)
+* ``TARGET``: Name of the target (as defined in your configuration file)
 
 Options:
 
-* ``-i, --ids``: Include label IDs in the output (developer use, mostly)
+* ``-i, --ids``: Include label/folder IDs in the output (developer use, mostly)
 
-Example:
+Examples:
 
 .. code-block:: bash
 
-   # List labels for the "personal" Gmail target
+   # List Gmail labels
    kgl labels personal
 
+   # List JMAP mailboxes
+   kgl labels fastmail
+
 .. note::
-   This command only works with Gmail targets. Maildir targets don't support
-   labels, so running this command against a maildir target will display a
-   warning and exit.
+   This command only works with targets that support folders/labels.
+   Maildir targets don't support labels.
 
 This is useful for:
 
-* Checking which labels exist before configuring deliveries
-* Finding the exact label names to use in your configuration
-* Verifying that your Gmail target authentication is working
+* Checking which labels/folders exist before configuring deliveries
+* Finding the exact label/folder names to use in your configuration
+* Verifying that your target authentication is working
 
 pull
 ----
