@@ -655,8 +655,19 @@ def process_lei_delivery(ctx: click.Context, delivery_name: str,
         lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git', delivery_name=delivery_name)
         logger.info('Initialized: %s.', delivery_name)
         return 0
-    logger.debug('Running lei-up on feed: %s', delivery_name)
-    lei.up_search(lei_name=feed)
+
+    # Track updated feeds to avoid duplicate updates in a single run
+    if 'updated_feeds' not in ctx.obj:
+        ctx.obj['updated_feeds'] = set()
+
+    # Run lei up (only if not already updated this run)
+    if feed_url not in ctx.obj['updated_feeds']:
+        logger.debug('Running lei-up on feed: %s', delivery_name)
+        lei.up_search(lei_name=feed)
+        ctx.obj['updated_feeds'].add(feed_url)
+    else:
+        logger.debug('Feed already updated this run, skipping lei up: %s', feed_url)
+
     latest_epochs = lei.get_latest_epoch_info(feedpath)
 
     # XXX: this doesn't do the right thing with epoch rollover yet
@@ -741,9 +752,23 @@ def process_lore_delivery(ctx: click.Context, delivery_name: str,
     except StateError:
         pass
 
-    # Pull the highest epoch we have
-    logger.debug('Running git pull on feed: %s', delivery_name)
-    highest_epoch, gitdir, commits = ls.pull_highest_epoch(feed_dir=feed_dir, delivery_name=delivery_name)
+    # Track updated feeds to avoid duplicate updates in a single run
+    if 'updated_feeds' not in ctx.obj:
+        ctx.obj['updated_feeds'] = set()
+
+    # Pull the highest epoch we have (only if not already updated this run)
+    if feed_url not in ctx.obj['updated_feeds']:
+        logger.debug('Running git pull on feed: %s', delivery_name)
+        highest_epoch, gitdir, commits = ls.pull_highest_epoch(feed_dir=feed_dir, delivery_name=delivery_name)
+        ctx.obj['updated_feeds'].add(feed_url)
+    else:
+        # Feed already updated, just get the commits
+        logger.debug('Feed already updated this run, skipping pull: %s', feed_url)
+        existing_epochs = ls.find_epochs(feed_dir)
+        highest_epoch = max(existing_epochs)
+        gitdir = feed_dir / 'git' / f'{highest_epoch}.git'
+        commits = ls.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
+        latest_epochs = ls.get_epochs(feed_url)
 
     # Get target and labels for retry logic
     target = details.get('target', '')
