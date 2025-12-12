@@ -2,9 +2,9 @@
 Configuration
 =============
 
-Korgalore uses a TOML configuration file to define targets (e.g. Gmail accounts)
-feeds (mailing lists or lei searches), and deliveries (which feed goes to which
-target).
+Korgalore uses a TOML configuration file to define targets (Gmail accounts, local
+maildirs, etc.), feeds (mailing lists or lei searches), and deliveries (which feed
+goes to which target).
 
 Configuration File Location
 ===========================
@@ -71,6 +71,42 @@ headless node and modify your configuration file to point to it:
 This will let you run korgalore on a headless node as opposed to your
 workstation.
 
+Maildir Setup
+=============
+
+Maildir targets provide a simpler alternative to Gmail for local message storage.
+They deliver messages to a local maildir directory on your filesystem, which can
+be read by mail clients like mutt, thunderbird, or any other maildir-compatible
+application.
+
+Benefits of Maildir Targets
+----------------------------
+
+* **No authentication required**: Messages are written directly to your local filesystem
+* **Privacy**: All messages stay on your local machine
+* **Offline access**: No internet connection needed to read messages
+* **Standard format**: Compatible with most Unix mail clients
+* **Easy backup**: Just copy the maildir directory
+
+Configuring Maildir Targets
+----------------------------
+
+To configure a maildir target, simply specify the path where you want messages stored:
+
+.. code-block:: toml
+
+   [targets.local]
+   type = 'maildir'
+   path = '~/Mail/lkml'
+
+The maildir will be created automatically if it doesn't exist. The standard maildir
+structure (cur/, new/, tmp/ subdirectories) is handled automatically.
+
+.. note::
+   Labels are ignored for maildir targets. Maildir doesn't support Gmail-style
+   labels, so any labels specified in deliveries using maildir targets will be
+   silently ignored.
+
 Configuration File Format
 =========================
 
@@ -80,7 +116,7 @@ The configuration file uses TOML format and consists of three main sections:
 Targets
 -------
 
-Targets define Gmail accounts where messages will be imported.
+Targets define where messages will be delivered (Gmail accounts, local maildirs, etc.).
 
 .. code-block:: toml
 
@@ -92,13 +128,23 @@ Targets define Gmail accounts where messages will be imported.
    type = 'gmail'
    credentials = '/path/to/work-credentials.json'
 
-Target Parameters
-~~~~~~~~~~~~~~~~~
+   [targets.local]
+   type = 'maildir'
+   path = '~/Mail/lkml'
 
-* ``type``: Must be ``'gmail'`` (currently the only supported type)
+Gmail Target Parameters
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``type``: Must be ``'gmail'``
 * ``credentials``: Path to the OAuth credentials JSON file
 * ``token``: (Optional) Path to store the OAuth token. Defaults to
   ``~/.config/korgalore/gmail-{identifier}-token.json``
+
+Maildir Target Parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``type``: Must be ``'maildir'``
+* ``path``: Path to the maildir directory (will be created if it doesn't exist)
 
 Feeds
 -----
@@ -179,22 +225,25 @@ Delivery Parameters
 ~~~~~~~~~~~~~~~~~~~
 
 * ``feed``: Name of a feed defined in the ``feeds`` section, or a direct URL of a lore.kernel.org archive or lei search path (prefixed with ``lei:``)
-* ``target``: Identifier of the target Gmail account (must match a target name)
-* ``labels``: List of Gmail labels to apply to imported messages
+* ``target``: Identifier of the target (must match a target name defined in the ``targets`` section)
+* ``labels``: List of labels to apply to imported messages (Gmail only; ignored for maildir targets)
 
 Gmail Labels
 ------------
 
+.. note::
+   This section only applies to Gmail targets. Maildir targets ignore labels.
+
 Labels must exist in your Gmail account before importing messages,
 korgalore will not create them for you. You can list existing labels in
-your target account by using::
+your Gmail target by using::
 
     kgl labels [targetname]
 
 Complete Example
 ================
 
-Here's a complete configuration file example:
+Here's a complete configuration file example showing both Gmail and maildir targets:
 
 .. code-block:: toml
 
@@ -207,6 +256,10 @@ Here's a complete configuration file example:
    [targets.work]
    type = 'gmail'
    credentials = '~/.config/korgalore/work-credentials.json'
+
+   [targets.archive]
+   type = 'maildir'
+   path = '~/Mail/archive'
 
    ### Feeds ###
 
@@ -226,15 +279,21 @@ Here's a complete configuration file example:
    target = 'work'
    labels = ['Lists/LKML']
 
-   [sources.linux-doc]
+   [deliveries.linux-doc]
    feed = 'linux-doc'  # References the feed defined above
    target = 'work'
    labels = ['Lists/Docs']
 
-   [sources.git]
+   [deliveries.git]
    feed = 'git'  # References the feed defined above
    target = 'personal'
    labels = ['INBOX', 'UNREAD']
+
+   # Deliver the same feed to both Gmail and local maildir
+   [deliveries.lkml-archive]
+   feed = 'lkml'  # Same feed as above!
+   target = 'archive'  # Maildir target
+   labels = []  # Ignored for maildir targets
 
    # Using a direct URL without a feed definition
    # [deliveries.example-direct]

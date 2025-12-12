@@ -8,6 +8,16 @@ credentials = '/path/to/personal-credentials.json'
 type = 'gmail'
 credentials = '/path/to/work-credentials.json'
 
+# Maildir target for local delivery
+[targets.local]
+type = 'maildir'
+path = '~/Mail/lkml'
+
+# Maildir target for archiving
+[targets.archive]
+type = 'maildir'
+path = '/mnt/backup/mail'
+
 ### Feeds ###
 # Feeds can be defined here and referenced by name in deliveries
 # This allows multiple deliveries to share the same feed URL
@@ -37,6 +47,12 @@ labels = ['Lists/Docs']
 feed = 'git'  # References the feed defined above
 target = 'personal'
 labels = ['INBOX', 'UNREAD']
+
+# Example: Deliver same feed to both Gmail and local maildir archive
+[deliveries.lkml-archive]
+feed = 'lkml'  # Same feed as lkml delivery above
+target = 'archive'  # Maildir target
+labels = []  # Labels are ignored for maildir targets
 
 # You can also use direct URLs without defining a feed
 # [deliveries.example-direct]

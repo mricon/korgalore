@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from korgalore.gmail_service import GmailService
 from korgalore.lore_service import LoreService
 from korgalore.lei_service import LeiService
+from korgalore.maildir_service import MaildirService
 from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError
 
 logger = logging.getLogger('korgalore')
@@ -54,6 +55,10 @@ def get_xdg_config_dir() -> Path:
 
 
 def get_target(ctx: click.Context, identifier: str) -> Any:
+    """Instantiate a delivery target service.
+
+    Supports target types: 'gmail', 'maildir'
+    """
     if identifier in ctx.obj['targets']:
         return ctx.obj['targets'][identifier]
 
@@ -65,15 +70,28 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
         raise click.Abort()
 
     details = targets[identifier]
-    if details.get('type') != 'gmail':
-        logger.critical('Target "%s" is not a Gmail target.', identifier)
+    target_type = details.get('type', '')
+
+    # Instantiate based on type
+    service: Any
+    if target_type == 'gmail':
+        service = get_gmail_service(
+            identifier=identifier,
+            credentials_file=details.get('credentials', ''),
+            token_file=details.get('token', None)
+        )
+    elif target_type == 'maildir':
+        service = get_maildir_service(
+            identifier=identifier,
+            maildir_path=details.get('path', '')
+        )
+    else:
+        logger.critical('Unknown target type "%s" for target "%s".', target_type, identifier)
+        logger.critical('Supported types: gmail, maildir')
         raise click.Abort()
 
-    gs = get_gmail_service(identifier=identifier,
-                            credentials_file=details.get('credentials', ''),
-                            token_file=details.get('token', None))
-    ctx.obj['targets'][identifier] = gs
-    return gs
+    ctx.obj['targets'][identifier] = service
+    return service
 
 
 def get_gmail_service(identifier: str, credentials_file: str,
@@ -93,6 +111,35 @@ def get_gmail_service(identifier: str, credentials_file: str,
         raise click.Abort()
 
     return gmail_service
+
+
+def get_maildir_service(identifier: str, maildir_path: str) -> MaildirService:
+    """Factory function to create MaildirService instances.
+
+    Args:
+        identifier: Target name
+        maildir_path: Path to maildir directory
+
+    Returns:
+        Initialized MaildirService instance
+
+    Raises:
+        click.Abort on configuration errors
+    """
+    if not maildir_path:
+        logger.critical('No maildir path specified for target: %s', identifier)
+        raise click.Abort()
+
+    try:
+        maildir_service = MaildirService(
+            identifier=identifier,
+            maildir_path=maildir_path
+        )
+    except ConfigurationError as fe:
+        logger.critical('Error: %s', str(fe))
+        raise click.Abort()
+
+    return maildir_service
 
 
 def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
@@ -739,18 +786,39 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
 @main.command()
 @click.pass_context
 def auth(ctx: click.Context) -> None:
-    """Authenticate with Gmail."""
+    """Authenticate with configured targets."""
+    # Target types that don't require authentication
+    NO_AUTH_TARGETS = {'maildir'}
+
     config = ctx.obj.get('config', {})
     targets = config.get('targets', {})
     if not targets:
         logger.critical('No targets defined in configuration.')
         raise click.Abort()
+
+    auth_targets = []
     for identifier, details in targets.items():
-        if details.get('type') != 'gmail':
+        target_type = details.get('type', '')
+        if target_type in NO_AUTH_TARGETS:
+            logger.debug('Skipping target that does not require authentication: %s (type: %s)',
+                        identifier, target_type)
             continue
-        get_gmail_service(identifier=identifier,
-                          credentials_file=details.get('credentials', ''),
-                          token_file=details.get('token', None))
+        auth_targets.append((identifier, details))
+
+    if not auth_targets:
+        logger.warning('No targets requiring authentication found.')
+        return
+
+    for identifier, details in auth_targets:
+        target_type = details.get('type', '')
+        if target_type == 'gmail':
+            get_gmail_service(identifier=identifier,
+                              credentials_file=details.get('credentials', ''),
+                              token_file=details.get('token', None))
+        # Future: Add other target types that require auth (Outlook, IMAP, JMAP, etc.)
+        else:
+            logger.warning('Authentication not yet implemented for target type: %s', target_type)
+
     logger.info('Authentication complete.')
 
 
@@ -806,8 +874,14 @@ credentials = '~/.config/korgalore/credentials.json'
 @click.argument('target', type=str, nargs=1)
 @click.option('--ids', '-i', is_flag=True, help='include id values')
 def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
-    """List all available labels."""
+    """List all available labels (Gmail targets only)."""
     gs = get_target(ctx, ctx.params['target'])
+
+    # Check if target supports labels
+    if not hasattr(gs, 'list_labels'):
+        logger.warning('Target "%s" does not support labels (maildir targets ignore labels).',
+                      target)
+        return
 
     try:
         logger.debug('Fetching labels from Gmail')

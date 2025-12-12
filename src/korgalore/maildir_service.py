@@ -1,0 +1,56 @@
+"""Service for delivering messages to local maildir."""
+
+import logging
+import mailbox
+from pathlib import Path
+from typing import Any, List
+from korgalore import ConfigurationError
+
+logger = logging.getLogger('korgalore')
+
+
+class MaildirService:
+    """Service for delivering messages to a local maildir."""
+
+    def __init__(self, identifier: str, maildir_path: str) -> None:
+        """Initialize maildir service.
+
+        Args:
+            identifier: Target identifier for logging
+            maildir_path: Path to maildir directory
+
+        Raises:
+            ConfigurationError: If maildir cannot be accessed
+        """
+        self.identifier = identifier
+        self.maildir_path = Path(maildir_path).expanduser()
+
+        try:
+            # Use Python's mailbox.Maildir - creates structure if needed
+            self.maildir = mailbox.Maildir(str(self.maildir_path), create=True)
+        except Exception as e:
+            raise ConfigurationError(
+                f"Failed to initialize maildir at {self.maildir_path}: {e}"
+            ) from e
+
+    def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+        """Import message to maildir.
+
+        Args:
+            raw_message: Raw email bytes
+            labels: Ignored for maildir (Gmail-specific)
+
+        Returns:
+            Message key from maildir
+
+        Raises:
+            ConfigurationError: On delivery errors
+        """
+        try:
+            # mailbox.Maildir.add() handles atomic delivery automatically
+            # It writes to tmp/ and moves to new/
+            key = self.maildir.add(raw_message)
+            logger.debug('Delivered message to maildir with key: %s', key)
+            return key
+        except Exception as e:
+            raise ConfigurationError(f"Failed to deliver to maildir: {e}") from e

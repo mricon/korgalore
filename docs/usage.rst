@@ -29,7 +29,7 @@ Commands
 auth
 ----
 
-Authenticate with Gmail targets defined in your configuration.
+Authenticate with targets that require authentication (e.g., Gmail).
 
 .. code-block:: bash
 
@@ -38,12 +38,14 @@ Authenticate with Gmail targets defined in your configuration.
 This command will:
 
 1. Read your configuration file
-2. For each Gmail target, check for valid credentials
+2. For each target that requires authentication (Gmail), check for valid credentials
 3. If credentials are missing or expired, open a browser for OAuth authentication
 4. Save the authentication token for future use
+5. Skip targets that don't require authentication (e.g., maildir)
 
 .. note::
-   You only need to run this once per target, unless you revoke access or the token expires.
+   You only need to run this once per Gmail target, unless you revoke access or
+   the token expires. Maildir and other local targets don't require authentication.
 
 edit-config
 -----------
@@ -84,7 +86,7 @@ the file path or manually create the directory structure.
 labels
 ------
 
-List Gmail labels for a specific target.
+List labels for a specific Gmail target.
 
 .. code-block:: bash
 
@@ -92,7 +94,7 @@ List Gmail labels for a specific target.
 
 Arguments:
 
-* ``TARGET``: Name of the target (as defined in your configuration file)
+* ``TARGET``: Name of the Gmail target (as defined in your configuration file)
 
 Options:
 
@@ -102,19 +104,25 @@ Example:
 
 .. code-block:: bash
 
-   # List labels for the "personal" target
+   # List labels for the "personal" Gmail target
    kgl labels personal
+
+.. note::
+   This command only works with Gmail targets. Maildir targets don't support
+   labels, so running this command against a maildir target will display a
+   warning and exit.
 
 This is useful for:
 
 * Checking which labels exist before configuring deliveries
 * Finding the exact label names to use in your configuration
-* Verifying that your target authentication is working
+* Verifying that your Gmail target authentication is working
 
 pull
 ----
 
-Pull messages from configured deliveries and import them into Gmail.
+Pull messages from configured deliveries and import them into configured targets
+(Gmail, maildir, etc.).
 
 .. code-block:: bash
 
@@ -152,14 +160,14 @@ For lore.kernel.org deliveries:
 1. Check for new epochs (git repositories)
 2. Pull latest commits from the highest epoch
 3. Extract email messages from commits
-4. Import messages into Gmail with configured labels
+4. Import messages into configured targets (Gmail with labels, maildir, etc.)
 5. Update tracking information
 
 For lei deliveries:
 
 1. Run ``lei up`` to update the search
 2. Check for new commits in the lei repository
-3. Extract and import new messages
+3. Extract and import new messages into configured targets
 
 yank
 ----
