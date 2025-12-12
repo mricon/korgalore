@@ -336,9 +336,15 @@ class PIService:
 
         korgalore_file = self._get_state_file_path(gitdir, delivery_name, 'info')
         if not korgalore_file.exists():
-            raise StateError(
-                f"korgalore.info not found in {gitdir}. Run init_feed() first."
-            )
+            # For new deliveries on existing feeds, initialize at current HEAD
+            # instead of failing. This allows adding new deliveries without errors.
+            if delivery_name:
+                logger.info('Initializing new delivery state file: %s', korgalore_file.name)
+                self.update_korgalore_info(gitdir, delivery_name=delivery_name)
+            else:
+                raise StateError(
+                    f"korgalore.info not found in {gitdir}. Run init_feed() first."
+                )
 
         with open(korgalore_file, 'r') as gf:
             info = json.load(gf)  # type: Dict[str, Any]
