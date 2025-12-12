@@ -649,25 +649,14 @@ def process_lei_delivery(ctx: click.Context, delivery_name: str,
     latest_epochs = lei.get_latest_epoch_info(feedpath)
     latest_epoch = max(lei.find_epochs(feedpath))
     try:
-        known_epochs = lei.load_known_epoch_info(feedpath)
+        lei.load_known_epoch_info(feedpath)
     except StateError:
         lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
         lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git', delivery_name=delivery_name)
         logger.info('Initialized: %s.', delivery_name)
         return 0
 
-    # Track updated feeds to avoid duplicate updates in a single run
-    if 'updated_feeds' not in ctx.obj:
-        ctx.obj['updated_feeds'] = set()
-
-    # Run lei up (only if not already updated this run)
-    if feed_url not in ctx.obj['updated_feeds']:
-        logger.debug('Running lei-up on feed: %s', delivery_name)
-        lei.up_search(lei_name=feed)
-        ctx.obj['updated_feeds'].add(feed_url)
-    else:
-        logger.debug('Feed already updated this run, skipping lei up: %s', feed_url)
-
+    lei.up_search(lei_name=feed)
     latest_epochs = lei.get_latest_epoch_info(feedpath)
 
     # XXX: this doesn't do the right thing with epoch rollover yet
@@ -687,9 +676,9 @@ def process_lei_delivery(ctx: click.Context, delivery_name: str,
     retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=delivery_name)
     count = retry_success if retry_success > 0 else 0
 
-    if known_epochs == latest_epochs:
-        logger.debug('No updates for LEI feed: %s', delivery_name)
-        return count
+    # if known_epochs == latest_epochs:
+    #     logger.debug('No updates for LEI feed: %s', delivery_name)
+    #     return count
 
     commits = lei.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
     if commits:
@@ -752,23 +741,7 @@ def process_lore_delivery(ctx: click.Context, delivery_name: str,
     except StateError:
         pass
 
-    # Track updated feeds to avoid duplicate updates in a single run
-    if 'updated_feeds' not in ctx.obj:
-        ctx.obj['updated_feeds'] = set()
-
-    # Pull the highest epoch we have (only if not already updated this run)
-    if feed_url not in ctx.obj['updated_feeds']:
-        logger.debug('Running git pull on feed: %s', delivery_name)
-        highest_epoch, gitdir, commits = ls.pull_highest_epoch(feed_dir=feed_dir, delivery_name=delivery_name)
-        ctx.obj['updated_feeds'].add(feed_url)
-    else:
-        # Feed already updated, just get the commits
-        logger.debug('Feed already updated this run, skipping pull: %s', feed_url)
-        existing_epochs = ls.find_epochs(feed_dir)
-        highest_epoch = max(existing_epochs)
-        gitdir = feed_dir / 'git' / f'{highest_epoch}.git'
-        commits = ls.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
-        latest_epochs = ls.get_epochs(feed_url)
+    highest_epoch, gitdir, commits = ls.get_commits_in_highest_epoch(feed_dir=feed_dir, delivery_name=delivery_name)
 
     # Get target and labels for retry logic
     target = details.get('target', '')

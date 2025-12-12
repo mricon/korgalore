@@ -89,7 +89,7 @@ class PIService:
             return self._branch_cache[gitdir_str]
 
         # Try to get the symbolic ref for HEAD
-        gitargs = ['symbolic-ref', 'refs/remotes/origin/HEAD']
+        gitargs = ['symbolic-ref', '-q', 'HEAD']
         retcode, output = self.run_git_command(gitdir_str, gitargs)
         if retcode == 0:
             # Output is like 'refs/remotes/origin/main' - extract the branch name
