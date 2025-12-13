@@ -241,6 +241,7 @@ JMAP Target Parameters
 * ``username``: Your account email address
 * ``token``: (Optional*) Bearer token provided inline (less secure)
 * ``token_file``: (Optional*) Path to file containing bearer token
+* ``timeout``: (Optional) Request timeout in seconds (default: ``60``)
 
 *Either ``token`` or ``token_file`` must be provided.
 
@@ -253,6 +254,7 @@ IMAP Target Parameters
 * ``folder``: Target folder for delivery (default: ``'INBOX'``)
 * ``password``: (Optional*) Password provided inline (less secure)
 * ``password_file``: (Optional*) Path to file containing password (recommended)
+* ``timeout``: (Optional) Connection timeout in seconds (default: ``60``)
 
 *Either ``password`` or ``password_file`` must be provided.
 

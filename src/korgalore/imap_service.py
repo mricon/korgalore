@@ -15,7 +15,8 @@ class ImapService:
     def __init__(self, identifier: str, server: str, username: str,
                  folder: str = 'INBOX',
                  password: Optional[str] = None,
-                 password_file: Optional[str] = None) -> None:
+                 password_file: Optional[str] = None,
+                 timeout: int = 60) -> None:
         """Initialize IMAP service.
 
         Args:
@@ -25,6 +26,7 @@ class ImapService:
             folder: Target folder for message delivery (default: 'INBOX')
             password: Password (if provided directly)
             password_file: Path to file containing password
+            timeout: Connection timeout in seconds (default: 60)
 
         Raises:
             ConfigurationError: If configuration is invalid
@@ -62,6 +64,9 @@ class ImapService:
                 f"No password or password_file specified for IMAP target: {identifier}"
             )
 
+        # Connection timeout
+        self.timeout = timeout
+
         # Verify connection and folder existence on initialization
         self._verify_setup()
 
@@ -77,7 +82,7 @@ class ImapService:
         """
         try:
             # Connect with SSL on port 993
-            imap = imaplib.IMAP4_SSL(self.server)
+            imap = imaplib.IMAP4_SSL(self.server, timeout=self.timeout)
 
             # Authenticate
             try:
@@ -127,7 +132,7 @@ class ImapService:
         """
         try:
             # Connect with SSL on port 993
-            imap = imaplib.IMAP4_SSL(self.server)
+            imap = imaplib.IMAP4_SSL(self.server, timeout=self.timeout)
 
             # Authenticate
             try:

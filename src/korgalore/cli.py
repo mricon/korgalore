@@ -93,7 +93,8 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             server=details.get('server', ''),
             username=details.get('username', ''),
             token=details.get('token', None),
-            token_file=details.get('token_file', None)
+            token_file=details.get('token_file', None),
+            timeout=details.get('timeout', 60)
         )
     elif target_type == 'imap':
         service = get_imap_service(
@@ -102,7 +103,8 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             username=details.get('username', ''),
             folder=details.get('folder', 'INBOX'),
             password=details.get('password', None),
-            password_file=details.get('password_file', None)
+            password_file=details.get('password_file', None),
+            timeout=details.get('timeout', 60)
         )
     else:
         logger.critical('Unknown target type "%s" for target "%s".', target_type, identifier)
@@ -162,7 +164,8 @@ def get_maildir_service(identifier: str, maildir_path: str) -> MaildirService:
 
 
 def get_jmap_service(identifier: str, server: str, username: str,
-                     token: Optional[str], token_file: Optional[str]) -> JmapService:
+                     token: Optional[str], token_file: Optional[str],
+                     timeout: int) -> JmapService:
     """Factory function to create JmapService instances.
 
     Args:
@@ -171,6 +174,7 @@ def get_jmap_service(identifier: str, server: str, username: str,
         username: Account username
         token: Bearer token (optional if token_file provided)
         token_file: Path to token file (optional if token provided)
+        timeout: Request timeout in seconds
 
     Returns:
         Initialized JmapService instance
@@ -197,7 +201,8 @@ def get_jmap_service(identifier: str, server: str, username: str,
             server=server,
             username=username,
             token=token,
-            token_file=token_file
+            token_file=token_file,
+            timeout=timeout
         )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
@@ -208,7 +213,7 @@ def get_jmap_service(identifier: str, server: str, username: str,
 
 def get_imap_service(identifier: str, server: str, username: str,
                      folder: str, password: Optional[str],
-                     password_file: Optional[str]) -> ImapService:
+                     password_file: Optional[str], timeout: int) -> ImapService:
     """Factory function to create ImapService instances.
 
     Args:
@@ -218,6 +223,7 @@ def get_imap_service(identifier: str, server: str, username: str,
         folder: Target folder for delivery
         password: Password (optional if password_file provided)
         password_file: Path to password file (optional if password provided)
+        timeout: Connection timeout in seconds
 
     Returns:
         Initialized ImapService instance
@@ -245,7 +251,8 @@ def get_imap_service(identifier: str, server: str, username: str,
             username=username,
             folder=folder,
             password=password,
-            password_file=password_file
+            password_file=password_file,
+            timeout=timeout
         )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))

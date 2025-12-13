@@ -24,6 +24,7 @@ type = 'jmap'
 server = 'https://api.fastmail.com'
 username = 'user@fastmail.com'
 token_file = '~/.config/korgalore/fastmail-token.txt'
+# timeout = 60  # Optional: request timeout in seconds (default: 60)
 
 # Alternative: inline token (less secure, for testing)
 # [targets.fastmail-inline]
@@ -39,6 +40,7 @@ server = 'imap.example.com'
 username = 'user@example.com'
 folder = 'INBOX'  # Target folder (default: INBOX)
 password_file = '~/.config/korgalore/imap-password.txt'
+# timeout = 60  # Optional: connection timeout in seconds (default: 60)
 
 # Alternative: inline password (less secure, for testing only)
 # [targets.imap-inline]

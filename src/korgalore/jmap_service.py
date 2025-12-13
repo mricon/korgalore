@@ -13,7 +13,8 @@ class JmapService:
     """Service for delivering messages to JMAP mail servers (e.g., Fastmail)."""
 
     def __init__(self, identifier: str, server: str, username: str,
-                 token: Optional[str] = None, token_file: Optional[str] = None) -> None:
+                 token: Optional[str] = None, token_file: Optional[str] = None,
+                 timeout: int = 60) -> None:
         """Initialize JMAP service.
 
         Args:
@@ -22,6 +23,7 @@ class JmapService:
             username: Account username/email
             token: Bearer token (if provided directly)
             token_file: Path to file containing bearer token
+            timeout: Request timeout in seconds (default: 60)
 
         Raises:
             ConfigurationError: If configuration is invalid
@@ -46,6 +48,9 @@ class JmapService:
                 f"No token or token_file specified for JMAP target: {identifier}"
             )
 
+        # Request timeout
+        self.timeout = timeout
+
         # Session state
         self.session: Optional[Dict[str, Any]] = None
         self.account_id: Optional[str] = None
@@ -65,7 +70,8 @@ class JmapService:
         try:
             response = requests.get(
                 session_url,
-                headers={'Authorization': f'Bearer {self.token}'}
+                headers={'Authorization': f'Bearer {self.token}'},
+                timeout=self.timeout
             )
             response.raise_for_status()
             self.session = response.json()
@@ -116,7 +122,8 @@ class JmapService:
                 headers={
                     'Authorization': f'Bearer {self.token}',
                     'Content-Type': 'message/rfc822'
-                }
+                },
+                timeout=self.timeout
             )
             response.raise_for_status()
             result = response.json()
@@ -158,7 +165,8 @@ class JmapService:
             response = requests.post(
                 self.api_url,
                 json=request_body,
-                headers={'Authorization': f'Bearer {self.token}'}
+                headers={'Authorization': f'Bearer {self.token}'},
+                timeout=self.timeout
             )
             response.raise_for_status()
             result = response.json()
@@ -264,7 +272,8 @@ class JmapService:
             response = requests.post(
                 self.api_url,
                 json=request_body,
-                headers={'Authorization': f'Bearer {self.token}'}
+                headers={'Authorization': f'Bearer {self.token}'},
+                timeout=self.timeout
             )
             response.raise_for_status()
             result = response.json()
