@@ -1,5 +1,5 @@
 import requests
-from typing import List, Dict, Tuple, Any, Optional, Set
+from typing import List, Dict, Tuple, Any, Optional
 from gzip import GzipFile
 from pathlib import Path
 from email import charset
@@ -30,7 +30,6 @@ class LoreService(PIService):
         self.session.headers.update({
             'User-Agent': f'korgalore/{__version__}'
         })
-        self.updated_feeds: Set[str] = set()
         self.datadir = datadir
 
     def get_manifest(self, pi_url: str) -> Dict[str, Any]:
@@ -138,14 +137,12 @@ class LoreService(PIService):
         logger.debug(f"Highest epoch found: {highest_epoch}")
         epochs_dir = feed_dir / 'git'
         tgt_dir = epochs_dir / f'{highest_epoch}.git'
-        if str(tgt_dir) not in self.updated_feeds:
-            # Pull the latest changes
-            logger.info('Updating feed: %s (epoch %d)', feed_dir.name, highest_epoch)
-            gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
-            retcode, output = self.run_git_command(str(tgt_dir), gitargs)
-            if retcode != 0:
-                raise RemoteError(f"Git remote update failed: {output.decode()}")
-            self.updated_feeds.add(str(tgt_dir))
+        # Pull the latest changes
+        logger.info('Updating feed: %s (epoch %d)', feed_dir.name, highest_epoch)
+        gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
+        retcode, output = self.run_git_command(str(tgt_dir), gitargs)
+        if retcode != 0:
+            raise RemoteError(f"Git remote update failed: {output.decode()}")
         new_commits = self.get_latest_commits_in_epoch(tgt_dir, delivery_name=delivery_name)
         return highest_epoch, tgt_dir, new_commits
 

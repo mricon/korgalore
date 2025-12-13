@@ -10,7 +10,7 @@ from korgalore import PublicInboxError, GitError, StateError
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 charset.add_charset('utf-8', None)
 logger = logging.getLogger('korgalore')
@@ -350,4 +350,123 @@ class PIService:
             info = json.load(gf)  # type: Dict[str, Any]
 
         return info
+
+    def load_feed_state(self, feed_dir: Path) -> Dict[str, Any]:
+        """Load korgalore.feed state file.
+
+        Args:
+            feed_dir: Feed directory path
+
+        Returns:
+            Dict containing feed state information
+
+        Raises:
+            StateError: If feed state file doesn't exist
+        """
+        feed_state_file = feed_dir / 'korgalore.feed'
+
+        if not feed_state_file.exists():
+            raise StateError(f"Feed state not found: {feed_state_file}")
+
+        with open(feed_state_file, 'r') as f:
+            result = json.load(f)
+            assert isinstance(result, dict)
+            return result
+
+    def save_feed_state(self, feed_dir: Path, highest_epoch: int,
+                        latest_commit: Optional[str] = None,
+                        success: bool = True) -> None:
+        """Save korgalore.feed state file.
+
+        Args:
+            feed_dir: Feed directory path
+            highest_epoch: Current highest epoch number
+            latest_commit: Latest commit hash (optional, will be fetched if not provided)
+            success: Whether the last update was successful
+        """
+        feed_state_file = feed_dir / 'korgalore.feed'
+
+        # Get latest commit if not provided
+        if latest_commit is None:
+            gitdir = feed_dir / 'git' / f'{highest_epoch}.git'
+            latest_commit = self.get_top_commit(gitdir)
+
+        state = {
+            'last_update': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %z'),
+            'update_successful': success,
+            'latest_commit': latest_commit,
+            'highest_epoch': highest_epoch,
+        }
+
+        with open(feed_state_file, 'w') as f:
+            json.dump(state, f, indent=2)
+
+    def migrate_to_feed_state(self, feed_dir: Path) -> None:
+        """Migrate from per-delivery info files to feed-level state.
+
+        Looks for existing per-delivery info files and uses the earliest
+        (by commit date) to initialize the feed state. This ensures no
+        messages are missed during migration.
+
+        Args:
+            feed_dir: Feed directory path
+        """
+        feed_state_file = feed_dir / 'korgalore.feed'
+
+        if feed_state_file.exists():
+            return  # Already migrated
+
+        # Find all delivery info files across all epochs
+        info_files: List[Path] = []
+        git_dir = feed_dir / 'git'
+        if git_dir.exists():
+            info_files = list(git_dir.glob('*/korgalore.*.info'))
+
+        if not info_files:
+            return  # No legacy files, fresh install
+
+        # Load all info files and find earliest commit by date
+        earliest_info: Optional[Dict[str, Any]] = None
+        earliest_date: Optional[datetime] = None
+
+        for info_file in info_files:
+            try:
+                with open(info_file, 'r') as f:
+                    info = json.load(f)
+                    commit_date_str = info.get('commit_date')
+                    if commit_date_str:
+                        commit_date = datetime.strptime(commit_date_str, '%Y-%m-%d %H:%M:%S %z')
+                        if earliest_date is None or commit_date < earliest_date:
+                            earliest_date = commit_date
+                            earliest_info = info
+            except Exception as e:
+                logger.warning('Failed to read legacy info file %s: %s', info_file, e)
+                continue
+
+        if earliest_info:
+            # Detect highest epoch from directory structure
+            epochs = []
+            if git_dir.exists():
+                for item in git_dir.iterdir():
+                    if item.is_dir() and item.name.endswith('.git'):
+                        try:
+                            epoch_num = int(item.name.replace('.git', ''))
+                            epochs.append(epoch_num)
+                        except ValueError:
+                            pass
+
+            highest_epoch = max(epochs) if epochs else 0
+
+            # Initialize feed state from earliest delivery
+            state = {
+                'last_update': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %z'),
+                'update_successful': True,
+                'latest_commit': earliest_info['last'],
+                'highest_epoch': highest_epoch,
+            }
+
+            with open(feed_state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+
+            logger.info('Migrated feed state from legacy per-delivery info files: %s', feed_dir.name)
 

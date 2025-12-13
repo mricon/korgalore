@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import List, Tuple, Set
+from typing import List, Tuple
 
 from korgalore.pi_service import PIService
 from korgalore import GitError, PublicInboxError, StateError
@@ -17,7 +17,6 @@ class LeiService(PIService):
         super().__init__()
         self.known_searches: List[str] = list()
         self._load_known_searches()
-        self.updated_searches: Set[str] = set()
 
     def run_lei_command(self, args: List[str]) -> Tuple[int, bytes]:
         import subprocess
@@ -82,12 +81,8 @@ class LeiService(PIService):
                 self.known_searches.append(output[3:])
 
     def up_search(self, lei_name: str) -> None:
-        if lei_name in self.updated_searches:
-            logger.debug('LEI search %s already updated, skipping', lei_name)
-            return
         logger.info('Updating lei search: %s', lei_name)
         leiargs = ['up', lei_name]
         retcode, output = self.run_lei_command(leiargs)
         if retcode != 0:
             raise PublicInboxError(f"LEI update failed: {output.decode()}")
-        self.updated_searches.add(lei_name)
