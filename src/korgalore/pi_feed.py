@@ -353,11 +353,14 @@ class PIFeed:
         lockfh = open(lock_file_path, 'w')
         try:
             lockf(lockfh, LOCK_EX | LOCK_NB)
-            logger.debug("Acquired lock for feed '%s'.", self.feed_dir)
-            LOCKED_FEEDS[str(self.feed_dir)] = lockfh
         except BlockingIOError:
             lockfh.close()
             raise PublicInboxError(f"Feed '{self.feed_dir}' is already locked by another process.")
+        except Exception:
+            lockfh.close()
+            raise
+        logger.debug("Acquired lock for feed '%s'.", self.feed_dir)
+        LOCKED_FEEDS[str(self.feed_dir)] = lockfh
 
     def feed_unlock(self) -> None:
         global LOCKED_FEEDS
