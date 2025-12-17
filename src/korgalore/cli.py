@@ -748,25 +748,19 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
                               hidden=ctx.obj['hide_bar']) as bar:
             # We bail on a target if we have more than 5 consecutive failures
             consecutive_failures = 0
-            last_failed = False
             for delivery_name, target, feed, epoch, commit, labels in bar:
                 if consecutive_failures >= 5:
                     logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
                     break
                 success = deliver_commit(delivery_name, target, feed, epoch, commit, labels, was_failing=False)
                 if not success:
-                    if last_failed:
-                        consecutive_failures += 1
-                    else:
-                        consecutive_failures = 1
-                    last_failed = True
+                    consecutive_failures += 1
                     continue
 
+                consecutive_failures = 0
                 if delivery_name not in changes:
                     changes[delivery_name] = 0
                 changes[delivery_name] += 1
-                consecutive_failures = 0
-                last_failed = False
 
     unlock_all_feeds(ctx)
     if changes:
