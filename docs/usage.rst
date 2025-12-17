@@ -201,6 +201,12 @@ For lei deliveries:
 2. Check for new commits in the lei repository
 3. Extract and import new messages into configured targets
 
+For tracked threads (see ``track`` command):
+
+1. Update all active tracked threads via ``lei up``
+2. Deliver any new messages to their configured targets
+3. Update tracking activity timestamps
+
 yank
 ----
 
@@ -216,9 +222,14 @@ Arguments:
 
 Options:
 
-* ``-t, --target TEXT``: Target to upload the message to (required)
+* ``-t, --target TEXT``: Target to upload the message to (required if multiple targets configured)
 * ``-l, --labels TEXT``: Labels to apply to the message (can be used multiple times)
 * ``-T, --thread``: Fetch and upload the entire thread instead of just a single message
+
+.. note::
+   If only one target is configured, the ``-t`` option is not required and that
+   target will be used automatically. If no labels are specified, target-specific
+   defaults are used (e.g., ``INBOX, UNREAD`` for Gmail, ``INBOX`` for JMAP).
 
 Examples:
 
@@ -238,6 +249,126 @@ Examples:
 
    # Upload an entire thread with labels (short form)
    kgl yank -t work -T -l Lists/LKML https://lore.kernel.org/lkml/msgid@example.com/
+
+track
+-----
+
+Track email threads for ongoing updates without subscribing to entire mailing lists.
+
+This command allows you to follow specific threads of interest from lore.kernel.org.
+Unlike ``yank`` (which is a one-time fetch), tracked threads are automatically
+updated during regular ``pull`` operations. This is useful when you want to follow
+a discussion or patch series without subscribing to the full mailing list traffic.
+
+The track command uses ``lei`` (local email interface from public-inbox) to create
+persistent searches that monitor threads for new messages.
+
+Subcommands
+~~~~~~~~~~~
+
+**track add** - Start tracking a thread:
+
+.. code-block:: bash
+
+   kgl track add [OPTIONS] MSGID_OR_URL
+
+Options:
+
+* ``-t, --target TEXT``: Target for deliveries (required if multiple targets configured)
+* ``-l, --labels TEXT``: Labels to apply (can be used multiple times)
+
+**track list** - List tracked threads:
+
+.. code-block:: bash
+
+   kgl track list [OPTIONS]
+
+Options:
+
+* ``-i, --inactive``: Show only inactive or paused threads
+
+**track stop** - Stop tracking a thread:
+
+.. code-block:: bash
+
+   kgl track stop [OPTIONS] TRACK_ID
+
+Options:
+
+* ``--delete``: Also delete the lei search data (default: keep data)
+
+**track pause** - Temporarily pause tracking:
+
+.. code-block:: bash
+
+   kgl track pause TRACK_ID
+
+**track resume** - Resume a paused or expired thread:
+
+.. code-block:: bash
+
+   kgl track resume TRACK_ID
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Start tracking a thread by message-id
+   kgl track add '<20251217-feature-v3-0-abc123@kernel.org>'
+
+   # Start tracking a thread by lore URL
+   kgl track add https://lore.kernel.org/lkml/20251217-feature-v3-0-abc123@kernel.org/
+
+   # Track with specific labels
+   kgl track add -l tracked -l patches '<msgid@example.org>'
+
+   # List all tracked threads
+   kgl track list
+
+   # List only inactive/paused threads
+   kgl track list --inactive
+
+   # Pause tracking temporarily
+   kgl track pause track-a1b2c3
+
+   # Resume a paused thread
+   kgl track resume track-a1b2c3
+
+   # Stop tracking (keeps data for reference)
+   kgl track stop track-a1b2c3
+
+   # Stop tracking and delete all data
+   kgl track stop --delete track-a1b2c3
+
+How Thread Tracking Works
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. When you run ``track add``, korgalore:
+
+   * Creates a lei search for the thread using ``lei q "mid:<msgid>" --threads``
+   * Populates the search with current thread messages
+   * Delivers all existing messages to your target
+   * Saves tracking metadata in ``~/.local/share/korgalore/tracking.json``
+
+2. During ``pull``, tracked threads are:
+
+   * Updated via ``lei up`` to fetch new messages
+   * Processed alongside regular deliveries
+   * Subject to the same retry mechanism for failed deliveries
+
+3. Threads are automatically marked inactive after 30 days of no new messages.
+   Inactive threads are skipped during ``pull`` but can be resumed if needed.
+
+4. When you ``stop`` tracking:
+
+   * By default, the lei search data is preserved (you can clean it up manually)
+   * Use ``--delete`` to remove all data
+   * The command shows how to clean up with ``lei forget-search`` if data is kept
+
+.. note::
+   Thread tracking requires ``lei`` from the public-inbox project to be installed
+   and configured. See https://public-inbox.org/lei for installation instructions.
 
 
 Common Usage Patterns
@@ -267,7 +398,7 @@ Regular Use
 
 .. code-block:: bash
 
-   # Pull all new messages
+   # Pull all new messages (includes tracked threads)
    kgl pull
 
    # Pull with logging for troubleshooting
@@ -277,10 +408,19 @@ Regular Use
    kgl pull lkml
 
    # Yank a specific message you're interested in
-   kgl yank --target personal --labels INBOX some@msgid.com
+   kgl yank --labels INBOX some@msgid.com
 
    # Yank an entire thread
-   kgl yank --target personal --thread --labels INBOX some@msgid.com
+   kgl yank --thread --labels INBOX some@msgid.com
+
+   # Start tracking a thread you want to follow
+   kgl track add https://lore.kernel.org/lkml/msgid@example.com/
+
+   # List threads you're tracking
+   kgl track list
+
+   # Stop tracking when you're done following
+   kgl track stop track-abc123
 
 Automated Pulls
 ---------------
