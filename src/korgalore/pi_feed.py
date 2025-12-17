@@ -14,7 +14,6 @@ from fcntl import lockf, LOCK_EX, LOCK_UN, LOCK_NB
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from datetime import datetime, timezone
-from dateutil import tz
 
 charset.add_charset('utf-8', None)
 logger = logging.getLogger('korgalore')
@@ -453,7 +452,7 @@ class PIFeed:
         # korgalore.{delivery_name}.failed file.
         state_file = self._get_state_file_path(delivery_name, 'failed')
         failed = self._read_jsonl_file(state_file)
-        now_dt = datetime.now(tz=tz.UTC)
+        now_dt = datetime.now(timezone.utc)
         for entry in list(failed):
             if entry[0] == epoch and entry[1] == commit_hash:
                 # Has it been longer than RETRY_FAILED_INTERVAL?
