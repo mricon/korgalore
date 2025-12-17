@@ -24,6 +24,8 @@ SCOPES = [
 class GmailTarget:
     """Target class for delivering email messages to Gmail via the API."""
 
+    DEFAULT_LABELS: List[str] = ['INBOX', 'UNREAD']
+
     def __init__(self, identifier: str, credentials_file: str, token_file: str) -> None:
         """Initialize a GmailTarget instance.
 

@@ -12,6 +12,8 @@ logger = logging.getLogger('korgalore')
 class ImapTarget:
     """Target for delivering messages to IMAP mail servers."""
 
+    DEFAULT_LABELS: List[str] = []
+
     def __init__(self, identifier: str, server: str, username: str,
                  folder: str = 'INBOX',
                  password: Optional[str] = None,

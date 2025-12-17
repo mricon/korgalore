@@ -12,6 +12,8 @@ logger = logging.getLogger('korgalore')
 class MaildirTarget:
     """Service for delivering messages to a local maildir."""
 
+    DEFAULT_LABELS: List[str] = []
+
     def __init__(self, identifier: str, maildir_path: str) -> None:
         """Initialize maildir service.
 

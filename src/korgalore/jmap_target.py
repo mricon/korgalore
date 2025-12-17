@@ -12,6 +12,8 @@ logger = logging.getLogger('korgalore')
 class JmapTarget:
     """Service for delivering messages to JMAP mail servers (e.g., Fastmail)."""
 
+    DEFAULT_LABELS: List[str] = ['INBOX']
+
     def __init__(self, identifier: str, server: str, username: str,
                  token: Optional[str] = None, token_file: Optional[str] = None,
                  timeout: int = 60) -> None:

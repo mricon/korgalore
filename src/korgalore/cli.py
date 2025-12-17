@@ -17,7 +17,11 @@ from korgalore.gmail_target import GmailTarget
 from korgalore.maildir_target import MaildirTarget
 from korgalore.jmap_target import JmapTarget
 from korgalore.imap_target import ImapTarget
-from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError
+from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError, PublicInboxError
+from korgalore.tracking import (
+    TrackingManifest, TrackStatus,
+    create_lei_thread_search, update_lei_search
+)
 
 logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
@@ -704,6 +708,12 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
 
     # Collect unique feeds from all deliveries
     map_deliveries(ctx, deliveries)
+
+    # Map tracked threads as ephemeral deliveries (unless specific delivery requested)
+    tracked_ids: List[str] = []
+    if not delivery_name:
+        tracked_ids = map_tracked_threads(ctx)
+
     lock_all_feeds(ctx)
     # Retry all previously failed deliveries, if any
     retry_all_failed_deliveries(ctx)
@@ -717,14 +727,14 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
         logger.debug('Updated feeds: %s', ', '.join(updated_feeds))
         for feed_key in updated_feeds:
             # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
-            for delivery_name in ctx.obj['deliveries'].keys():
-                feed = ctx.obj['deliveries'][delivery_name][0]
+            for dname in ctx.obj['deliveries'].keys():
+                feed = ctx.obj['deliveries'][dname][0]
                 if feed.feed_key == feed_key:
-                    run_deliveries.append(delivery_name)
+                    run_deliveries.append(dname)
     else:
         # If force is specified, treat all feeds as updated
         logger.debug('Force flag set, treating all feeds as updated')
-        run_deliveries = list(deliveries.keys())
+        run_deliveries = list(ctx.obj['deliveries'].keys())
 
     logger.debug('Deliveries to run: %s', ', '.join(run_deliveries))
 
@@ -735,11 +745,11 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
 
     # Build a worklist of updates per target
     by_target: Dict[str, List[str]] = dict()
-    for delivery_name in run_deliveries:
-        target_name = ctx.obj['deliveries'][delivery_name][1].identifier
+    for dname in run_deliveries:
+        target_name = ctx.obj['deliveries'][dname][1].identifier
         if target_name not in by_target:
             by_target[target_name] = list()
-        by_target[target_name].append(delivery_name)
+        by_target[target_name].append(dname)
 
     changes: Dict[str, int] = dict()
 
@@ -747,14 +757,14 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
     for target_name, delivery_names in by_target.items():
         logger.debug('Processing deliveries for target: %s', target_name)
         run_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
-        for delivery_name in delivery_names:
-            feed, target, labels = ctx.obj['deliveries'][delivery_name]
-            commits = feed.get_latest_commits_for_delivery(delivery_name)
+        for dname in delivery_names:
+            feed, target, labels = ctx.obj['deliveries'][dname]
+            commits = feed.get_latest_commits_for_delivery(dname)
             if not commits:
-                logger.debug('No new commits for delivery: %s', delivery_name)
+                logger.debug('No new commits for delivery: %s', dname)
                 continue
             for epoch, commit in commits:
-                run_list.append((delivery_name, target, feed, epoch, commit, labels))
+                run_list.append((dname, target, feed, epoch, commit, labels))
         if not run_list:
             logger.debug('No deliveries with new commits for target: %s', target_name)
             continue
@@ -767,25 +777,32 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
                               hidden=ctx.obj['hide_bar']) as bar:
             # We bail on a target if we have more than 5 consecutive failures
             consecutive_failures = 0
-            for delivery_name, target, feed, epoch, commit, labels in bar:
+            for dname, target, feed, epoch, commit, labels in bar:
                 if consecutive_failures >= 5:
                     logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
                     break
-                success = deliver_commit(delivery_name, target, feed, epoch, commit, labels, was_failing=False)
+                success = deliver_commit(dname, target, feed, epoch, commit, labels, was_failing=False)
                 if not success:
                     consecutive_failures += 1
                     continue
 
                 consecutive_failures = 0
-                if delivery_name not in changes:
-                    changes[delivery_name] = 0
-                changes[delivery_name] += 1
+                if dname not in changes:
+                    changes[dname] = 0
+                changes[dname] += 1
 
     unlock_all_feeds(ctx)
+
+    # Update tracking manifest activity for any tracked threads that had deliveries
+    update_tracked_thread_activity(ctx, changes)
+
     if changes:
         logger.info('Pull complete with updates:')
-        for delivery_name, count in changes.items():
-            logger.info('  %s: %d', delivery_name, count)
+        for dname, count in changes.items():
+            if dname in tracked_ids:
+                logger.info('  %s (tracked): %d', dname, count)
+            else:
+                logger.info('  %s: %d', dname, count)
     else:
         logger.info('Pull complete with no updates.')
 
@@ -794,7 +811,6 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
 @click.pass_context
 @click.option('--target', '-t', default=None, help='Target to upload the message to')
 @click.option('--labels', '-l', multiple=True,
-              default=['INBOX', 'UNREAD'],
               help='Labels to apply to the message (can be used multiple times)')
 @click.option('--thread', '-T', is_flag=True, help='Fetch and upload the entire thread')
 @click.argument('msgid_or_url', type=str, nargs=1)
@@ -802,12 +818,18 @@ def yank(ctx: click.Context, target: Optional[str],
          labels: Tuple[str, ...], thread: bool, msgid_or_url: str) -> None:
     """Yank a single message or entire thread to a target."""
     # Get the target service
+    config = ctx.obj.get('config', {})
+    targets = config.get('targets', {})
+
+    # Auto-select target if only one exists
     if not target:
-        # Get the first target in the list
-        config = ctx.obj.get('config', {})
-        targets = config.get('targets', {})
-        target = list(targets.keys())[0]
-        logger.debug('No target specified, using first target: %s', target)
+        if len(targets) == 1:
+            target = list(targets.keys())[0]
+            logger.debug('Using only configured target: %s', target)
+        else:
+            logger.critical('Multiple targets configured. Please specify one with -t.')
+            logger.critical('Available targets: %s', ', '.join(targets.keys()))
+            raise click.Abort()
 
     try:
         ts = get_target(ctx, target)
@@ -815,8 +837,11 @@ def yank(ctx: click.Context, target: Optional[str],
         logger.critical('Failed to get target "%s".', target)
         raise
 
-    # Convert labels tuple to list
-    labels_list = list(labels) if labels else []
+    # Use target-specific default labels if none specified
+    if labels:
+        labels_list = list(labels)
+    else:
+        labels_list = ts.DEFAULT_LABELS
 
     if thread:
         # Fetch the entire thread
@@ -878,6 +903,320 @@ def yank(ctx: click.Context, target: Optional[str],
         except RemoteError as e:
             logger.critical('Failed to upload message: %s', str(e))
             raise click.Abort()
+
+
+def get_tracking_manifest(ctx: click.Context) -> TrackingManifest:
+    """Get or create the tracking manifest."""
+    if 'tracking_manifest' not in ctx.obj:
+        data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
+        ctx.obj['tracking_manifest'] = TrackingManifest(data_dir)
+    manifest: TrackingManifest = ctx.obj['tracking_manifest']
+    return manifest
+
+
+def map_tracked_threads(ctx: click.Context) -> List[str]:
+    """Map active tracked threads as ephemeral deliveries.
+
+    Adds tracked threads to ctx.obj['feeds'] and ctx.obj['deliveries']
+    so they are processed alongside regular deliveries.
+
+    Returns:
+        List of track_ids that were mapped.
+    """
+    manifest = get_tracking_manifest(ctx)
+
+    # Auto-expire inactive threads
+    expired = manifest.check_and_expire_threads()
+    if expired:
+        logger.info('Auto-expired %d threads with no recent activity', len(expired))
+
+    active = manifest.get_active_threads()
+    if not active:
+        logger.debug('No active tracked threads')
+        return []
+
+    logger.debug('Mapping %d tracked threads as ephemeral deliveries', len(active))
+
+    feeds = ctx.obj.get('feeds', {})
+    deliveries = ctx.obj.get('deliveries', {})
+    mapped: List[str] = []
+
+    for tracked in active:
+        lei_url = f'lei:{tracked.lei_path}'
+        try:
+            lei_feed = LeiFeed(tracked.track_id, lei_url)
+        except ConfigurationError as e:
+            logger.warning('Tracked thread %s not recognized by lei: %s',
+                          tracked.track_id, str(e))
+            continue
+
+        try:
+            target = get_target(ctx, tracked.target)
+        except click.Abort:
+            logger.warning('Target "%s" not available for tracked thread %s',
+                          tracked.target, tracked.track_id)
+            continue
+
+        # Add to feeds and deliveries
+        feeds[tracked.track_id] = lei_feed
+        deliveries[tracked.track_id] = (lei_feed, target, tracked.labels)
+        mapped.append(tracked.track_id)
+
+    return mapped
+
+
+def update_tracked_thread_activity(ctx: click.Context, changes: Dict[str, int]) -> None:
+    """Update tracking manifest activity for tracked threads that had deliveries."""
+    manifest = get_tracking_manifest(ctx)
+
+    for delivery_name, count in changes.items():
+        if delivery_name.startswith('track-'):
+            try:
+                manifest.update_activity(delivery_name, count)
+            except KeyError:
+                pass  # Not a tracked thread or already removed
+
+
+@main.group()
+@click.pass_context
+def track(ctx: click.Context) -> None:
+    """Track email threads for updates via lei queries."""
+    pass
+
+
+@track.command('add')
+@click.argument('msgid_or_url', type=str)
+@click.option('--target', '-t', default=None, help='Target for deliveries')
+@click.option('--labels', '-l', multiple=True,
+              help='Labels to apply (can be used multiple times)')
+@click.pass_context
+def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
+              labels: Tuple[str, ...]) -> None:
+    """Start tracking a thread by message ID or lore URL."""
+    config = ctx.obj.get('config', {})
+    targets = config.get('targets', {})
+
+    # Auto-select target if only one exists
+    if not target:
+        if len(targets) == 1:
+            target = list(targets.keys())[0]
+            logger.debug('Using only configured target: %s', target)
+        else:
+            logger.critical('Multiple targets configured. Please specify one with -t.')
+            logger.critical('Available targets: %s', ', '.join(targets.keys()))
+            raise click.Abort()
+    elif target not in targets:
+        logger.critical('Target "%s" not found in configuration.', target)
+        logger.critical('Known targets: %s', ', '.join(targets.keys()))
+        raise click.Abort()
+
+    # Extract message ID from URL if needed
+    msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
+    logger.debug('Extracted message ID: %s', msgid)
+
+    # Check if already tracking this message
+    manifest = get_tracking_manifest(ctx)
+    existing = manifest.get_thread_by_msgid(msgid)
+    if existing:
+        if existing.status == TrackStatus.ACTIVE:
+            logger.warning('Already tracking this thread as %s', existing.track_id)
+            return
+        else:
+            # Offer to resume
+            logger.info('Thread previously tracked as %s (status: %s)',
+                       existing.track_id, existing.status.value)
+            if click.confirm('Resume tracking?'):
+                manifest.resume_thread(existing.track_id)
+                logger.info('Resumed tracking thread %s', existing.track_id)
+                return
+            else:
+                logger.info('Aborted.')
+                return
+
+    # Create lei search directory
+    data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
+    import secrets
+    track_id = f"track-{secrets.token_hex(6)}"
+    lei_path = data_dir / 'lei' / track_id
+
+    logger.info('Creating lei search for thread: %s', msgid)
+
+    # Create the lei search
+    try:
+        retcode, output = create_lei_thread_search(msgid, lei_path)
+    except PublicInboxError as e:
+        logger.critical('Failed to create lei search: %s', str(e))
+        raise click.Abort()
+
+    if retcode != 0:
+        logger.critical('Lei query failed: %s', output.decode())
+        raise click.Abort()
+
+    # Populate the git repository with lei up
+    logger.info('Populating lei search repository...')
+    try:
+        retcode, output = update_lei_search(lei_path)
+    except PublicInboxError as e:
+        logger.critical('Failed to update lei search: %s', str(e))
+        raise click.Abort()
+
+    if retcode != 0:
+        logger.critical('Lei update failed: %s', output.decode())
+        raise click.Abort()
+
+    # Get the subject from the first message
+    subject = '(unknown subject)'
+    try:
+        raw_message = LoreFeed.get_message_by_msgid(msgid)
+        msg = LoreFeed.parse_message(raw_message)
+        subject = msg.get('Subject', '(no subject)')
+    except RemoteError:
+        logger.warning('Could not fetch message to get subject')
+
+    # Get target instance for delivery and default labels
+    target_service = get_target(ctx, target)
+
+    # Add to manifest with target-specific default labels if none specified
+    if labels:
+        labels_list = list(labels)
+    else:
+        labels_list = target_service.DEFAULT_LABELS
+
+    thread = manifest.add_thread(
+        track_id=track_id,
+        msgid=msgid,
+        subject=subject,
+        target=target,
+        labels=labels_list,
+        lei_path=lei_path
+    )
+
+    logger.info('Now tracking thread %s: %s', thread.track_id, subject)
+    logger.info('Target: %s, Labels: %s', target, ', '.join(labels_list))
+
+    # Deliver initial messages to target
+    lei_url = f'lei:{lei_path}'
+    try:
+        lei_feed = LeiFeed(thread.track_id, lei_url)
+    except ConfigurationError as e:
+        logger.warning('Could not initialize lei feed for delivery: %s', str(e))
+        return
+
+    # Get all commits in epoch 0 (lei thread searches won't exceed a single epoch)
+    commits = lei_feed.get_all_commits_in_epoch(0)
+
+    if not commits:
+        logger.info('No messages found in thread yet.')
+        return
+
+    logger.info('Delivering %d messages to target...', len(commits))
+
+    delivered = 0
+    for commit in commits:
+        success = deliver_commit(thread.track_id, target_service, lei_feed, 0, commit,
+                                labels_list, was_failing=False)
+        if success:
+            delivered += 1
+
+    # Initialize feed state so subsequent pulls don't re-initialize
+    lei_feed.init_feed()
+
+    manifest.update_activity(thread.track_id, delivered)
+    logger.info('Delivered %d messages.', delivered)
+
+
+@track.command('list')
+@click.option('--inactive', '-i', is_flag=True, help='Show only inactive/paused threads')
+@click.pass_context
+def track_list(ctx: click.Context, inactive: bool) -> None:
+    """List tracked threads."""
+    manifest = get_tracking_manifest(ctx)
+
+    if inactive:
+        threads = manifest.get_inactive_threads()
+        if not threads:
+            logger.info('No inactive or paused tracked threads.')
+            return
+        logger.info('Inactive/paused tracked threads:')
+    else:
+        threads = manifest.get_all_threads()
+        if not threads:
+            logger.info('No tracked threads.')
+            return
+        logger.info('Tracked threads:')
+
+    for thread in threads:
+        status_str = ''
+        if thread.status != TrackStatus.ACTIVE:
+            status_str = f' [{thread.status.value}]'
+
+        logger.info('')
+        logger.info('  %s%s', thread.track_id, status_str)
+        logger.info('    Subject: %s', thread.subject)
+        logger.info('    Message-ID: %s', thread.msgid)
+        logger.info('    Target: %s, Labels: %s', thread.target, ', '.join(thread.labels))
+        logger.info('    Messages: %d, Last activity: %s',
+                   thread.message_count, thread.last_new_message.strftime('%Y-%m-%d'))
+
+
+@track.command('stop')
+@click.argument('track_id', type=str)
+@click.option('--delete', is_flag=True, help='Also delete lei search data')
+@click.pass_context
+def track_stop(ctx: click.Context, track_id: str, delete: bool) -> None:
+    """Stop tracking a thread."""
+    manifest = get_tracking_manifest(ctx)
+
+    try:
+        thread = manifest.get_thread(track_id)
+    except KeyError:
+        logger.critical('Tracked thread "%s" not found.', track_id)
+        raise click.Abort()
+
+    manifest.remove_thread(track_id, delete_data=delete)
+
+    if delete:
+        logger.info('Stopped tracking and deleted data for %s', track_id)
+    else:
+        logger.info('Stopped tracking %s (data preserved at %s)', track_id, thread.lei_path)
+        logger.info('To clean up lei data, run: lei forget-search %s', thread.lei_path)
+
+
+@track.command('pause')
+@click.argument('track_id', type=str)
+@click.pass_context
+def track_pause(ctx: click.Context, track_id: str) -> None:
+    """Pause tracking for a thread (skip updates but keep data)."""
+    manifest = get_tracking_manifest(ctx)
+
+    try:
+        manifest.pause_thread(track_id)
+    except KeyError:
+        logger.critical('Tracked thread "%s" not found.', track_id)
+        raise click.Abort()
+
+    logger.info('Paused tracking for %s', track_id)
+
+
+@track.command('resume')
+@click.argument('track_id', type=str)
+@click.pass_context
+def track_resume(ctx: click.Context, track_id: str) -> None:
+    """Resume tracking for a paused or expired thread."""
+    manifest = get_tracking_manifest(ctx)
+
+    try:
+        thread = manifest.get_thread(track_id)
+    except KeyError:
+        logger.critical('Tracked thread "%s" not found.', track_id)
+        raise click.Abort()
+
+    if thread.status == TrackStatus.ACTIVE:
+        logger.warning('Thread %s is already active.', track_id)
+        return
+
+    manifest.resume_thread(track_id)
+    logger.info('Resumed tracking for %s', track_id)
 
 
 if __name__ == '__main__':
