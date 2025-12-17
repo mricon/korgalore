@@ -22,7 +22,15 @@ class LoreFeed(PIFeed):
     """Service for interacting with lore.kernel.org public-inbox archives."""
 
     def __init__(self, feed_key: str, feed_dir: Path, feed_url: str, reqsession: Optional[requests.Session] = None) -> None:
-        # do a parent init
+        """Initialize a LoreFeed instance.
+
+        Args:
+            feed_key: Unique identifier for this feed.
+            feed_dir: Local directory path for storing feed data.
+            feed_url: Base URL of the lore.kernel.org archive.
+            reqsession: Optional requests session for HTTP calls. If not provided,
+                a new session with appropriate User-Agent header will be created.
+        """
         super().__init__(feed_key, feed_dir)
         self.feed_type = 'lore'
         self.feed_url = feed_url
@@ -33,6 +41,7 @@ class LoreFeed(PIFeed):
 
     @staticmethod
     def get_reqsession() -> requests.Session:
+        """Create a requests session with korgalore User-Agent header."""
         reqsession = requests.Session()
         reqsession.headers.update({
             'User-Agent': f'korgalore/{__version__}'
@@ -40,6 +49,7 @@ class LoreFeed(PIFeed):
         return reqsession
 
     def get_manifest(self) -> Dict[str, Any]:
+        """Fetch and parse the gzipped manifest from the Lore server."""
         try:
             response = self.session.get(f"{self.feed_url.rstrip('/')}/manifest.js.gz")
             response.raise_for_status()
@@ -57,6 +67,7 @@ class LoreFeed(PIFeed):
         return manifest
 
     def clone_epoch(self, epoch: int, shallow: bool = True) -> None:
+        """Clone a git epoch repository from remote Lore server."""
         gitdir = self.get_gitdir(epoch)
         # does tgt_dir exist?
         if Path(gitdir).exists():
@@ -74,6 +85,7 @@ class LoreFeed(PIFeed):
             raise RemoteError(f"Git clone failed: {output.decode()}")
 
     def get_manifest_epochs(self) -> List[Tuple[int, str, str]]:
+        """Parse manifest to extract sorted list of (epoch, path, fingerprint) tuples."""
         manifest = self.get_manifest()
         # The keys are epoch paths, so we extract epoch numbers and paths
         epochs: List[Tuple[int, str, str]] = []
@@ -92,6 +104,7 @@ class LoreFeed(PIFeed):
         return epochs
 
     def store_epochs_info(self, epochs: List[Tuple[int, str, str]]) -> None:
+        """Save epoch information to local JSON file."""
         epochs_file = self.feed_dir / 'epochs.json'
         epochs_info = []
         for enum, epath, fpr in epochs:
@@ -104,6 +117,7 @@ class LoreFeed(PIFeed):
             json.dump(epochs_info, ef, indent=2)
 
     def load_epochs_info(self) -> List[Tuple[int, str, str]]:
+        """Load epoch information from local JSON file."""
         epochs_file = self.feed_dir / 'epochs.json'
         if not epochs_file.exists():
             raise StateError(f"Epochs file {epochs_file} does not exist.")
@@ -115,6 +129,7 @@ class LoreFeed(PIFeed):
         return epochs
 
     def init_feed(self) -> None:
+        """Initialize a new Lore feed by fetching manifest and cloning latest epoch."""
         if not self.feed_dir.exists():
             self.feed_dir.mkdir(parents=True, exist_ok=True)
         epochs = self.get_manifest_epochs()
@@ -123,6 +138,7 @@ class LoreFeed(PIFeed):
         self.save_feed_state(epoch=epoch, success=True)
 
     def update_feed(self) -> bool:
+        """Update feed by fetching new epochs and commits. Returns True if updated."""
         try:
             feed_state = self.load_feed_state()
         except StateError:
@@ -175,7 +191,7 @@ class LoreFeed(PIFeed):
 
     @staticmethod
     def get_msgid_from_url(msgid_or_url: str) -> str:
-        # Parse the input to determine if it's a URL or a msgid
+        """Extract message ID from URL or return input if already a msgid."""
         if '://' in msgid_or_url:
             # Get anything that looks like a msgid
             matches = re.search(r'^https?://[^@]+/([^/]+@[^/]+)', msgid_or_url, re.IGNORECASE)
@@ -187,7 +203,7 @@ class LoreFeed(PIFeed):
 
     @staticmethod
     def get_message_by_msgid(msgid_or_url: str) -> bytes:
-        # Parse the input to determine if it's a URL or a msgid
+        """Fetch a single raw email message from Lore by message ID or URL."""
         msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
         raw_url = f"https://lore.kernel.org/all/{msgid}/raw"
 
@@ -205,6 +221,17 @@ class LoreFeed(PIFeed):
 
     @staticmethod
     def get_thread_by_msgid(msgid_or_url: str) -> List[bytes]:
+        """Fetch all messages in a thread from Lore by message ID or URL.
+
+        Args:
+            msgid_or_url: Either a message ID or a lore.kernel.org URL.
+
+        Returns:
+            List of raw email messages as bytes, one per message in the thread.
+
+        Raises:
+            RemoteError: If fetching or decompressing the thread mbox fails.
+        """
         msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
         mbox_url = f"https://lore.kernel.org/all/{msgid}/t.mbox.gz"
         logger.debug(f"Fetching thread from: {mbox_url}")

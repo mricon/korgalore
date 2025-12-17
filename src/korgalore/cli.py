@@ -25,12 +25,14 @@ click_log.basic_config(logger)
 REQSESSION: Optional[requests.Session] = None
 
 def get_reqsession() -> requests.Session:
+    """Get or create the global requests session with korgalore User-Agent."""
     global REQSESSION
     if REQSESSION is None:
         REQSESSION = LoreFeed.get_reqsession()
     return REQSESSION
 
 def get_xdg_data_dir() -> Path:
+    """Get or create the korgalore data directory following XDG specification."""
     # Get XDG_DATA_HOME or default to ~/.local/share
     xdg_data_home = os.environ.get('XDG_DATA_HOME')
     if xdg_data_home:
@@ -48,6 +50,7 @@ def get_xdg_data_dir() -> Path:
 
 
 def get_xdg_config_dir() -> Path:
+    """Get or create the korgalore config directory following XDG specification."""
     # Get XDG_CONFIG_HOME or default to ~/.config
     xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
     if xdg_config_home:
@@ -65,6 +68,7 @@ def get_xdg_config_dir() -> Path:
 
 
 def get_target(ctx: click.Context, identifier: str) -> Any:
+    """Get or create a target service instance by identifier."""
     if identifier in ctx.obj['targets']:
         return ctx.obj['targets'][identifier]
 
@@ -121,6 +125,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
 
 def get_gmail_target(identifier: str, credentials_file: str,
                      token_file: Optional[str]) -> GmailTarget:
+    """Create a Gmail target service instance."""
     if not credentials_file:
         logger.critical('No credentials file specified for Gmail target: %s', identifier)
         raise click.Abort()
@@ -139,6 +144,7 @@ def get_gmail_target(identifier: str, credentials_file: str,
 
 
 def get_maildir_target(identifier: str, maildir_path: str) -> MaildirTarget:
+    """Create a Maildir target service instance."""
     if not maildir_path:
         logger.critical('No maildir path specified for target: %s', identifier)
         raise click.Abort()
@@ -155,6 +161,7 @@ def get_maildir_target(identifier: str, maildir_path: str) -> MaildirTarget:
 def get_jmap_target(identifier: str, server: str, username: str,
                     token: Optional[str], token_file: Optional[str],
                     timeout: int) -> JmapTarget:
+    """Create a JMAP target service instance."""
     if not server:
         logger.critical('No server specified for JMAP target: %s', identifier)
         raise click.Abort()
@@ -187,6 +194,7 @@ def get_jmap_target(identifier: str, server: str, username: str,
 def get_imap_target(identifier: str, server: str, username: str,
                     folder: str, password: Optional[str],
                     password_file: Optional[str], timeout: int) -> ImapTarget:
+    """Create an IMAP target service instance."""
     if not server:
         logger.critical('No server specified for IMAP target: %s', identifier)
         raise click.Abort()
@@ -218,6 +226,7 @@ def get_imap_target(identifier: str, server: str, username: str,
 
 
 def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
+    """Resolve a feed name or URL to its full URL."""
     # If it's already a URL, return as-is
     if feed_value.startswith('https:') or feed_value.startswith('lei:'):
         return feed_value
@@ -279,6 +288,7 @@ def get_feed_identifier(feed_value: str, config: Dict[str, Any]) -> Optional[str
 
 
 def load_config(cfgfile: Path) -> Dict[str, Any]:
+    """Load and parse the TOML configuration file."""
     config: Dict[str, Any] = dict()
 
     if not cfgfile.exists():
@@ -310,6 +320,7 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
 
 def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], target_service: Any,
                          labels: List[str], delivery_name: str) -> None:
+    """Retry previously failed message deliveries for a specific delivery."""
     failed_commits = pi_feed.get_failed_commits_for_delivery(delivery_name)
 
     if not failed_commits:
@@ -359,6 +370,7 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
 
 
 def normalize_feed_key(feed_url: str) -> str:
+    """Normalize a feed URL into a consistent key for internal tracking."""
     if feed_url.startswith('https://lore.kernel.org/'):
         # Extract list name from URL
         return feed_url.replace('https://lore.kernel.org/', '').strip('/')
@@ -370,6 +382,7 @@ def normalize_feed_key(feed_url: str) -> str:
         return feed_url
 
 def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) -> Union[LeiFeed, LoreFeed]:
+    """Get or create a feed instance for a delivery configuration."""
     config = ctx.obj.get('config', {})
     feed_value = delivery_details.get('feed', '')
     if not feed_value:
@@ -398,6 +411,7 @@ def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) 
 
 
 def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
+    """Map delivery configurations to their feed and target instances."""
     # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
     dmap: Dict[str, Tuple[Union[LeiFeed, LoreFeed], Any, List[str]]] = dict()
     logger.debug('Mapping deliveries to their feeds and targets')
@@ -417,6 +431,7 @@ def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
 
 
 def lock_all_feeds(ctx: click.Context) -> None:
+    """Acquire exclusive locks on all feeds in the context."""
     feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
     for feed_key in feeds.keys():
         feed = feeds[feed_key]
@@ -424,6 +439,7 @@ def lock_all_feeds(ctx: click.Context) -> None:
 
 
 def unlock_all_feeds(ctx: click.Context) -> None:
+    """Release exclusive locks on all feeds in the context."""
     feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
     for feed_key in feeds.keys():
         feed = feeds[feed_key]
@@ -431,6 +447,7 @@ def unlock_all_feeds(ctx: click.Context) -> None:
 
 
 def update_all_feeds(ctx: click.Context) -> List[str]:
+    """Update all feeds and return list of feed keys that had updates."""
     updated_feeds: List[str] = []
     feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
 
@@ -449,6 +466,7 @@ def update_all_feeds(ctx: click.Context) -> List[str]:
 
 
 def retry_all_failed_deliveries(ctx: click.Context) -> None:
+    """Retry all previously failed deliveries across all feeds."""
     # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
     deliveries = ctx.obj['deliveries']
     retry_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()

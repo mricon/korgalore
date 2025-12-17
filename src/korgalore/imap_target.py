@@ -69,7 +69,15 @@ class ImapTarget:
         self.timeout = timeout
 
     def connect(self) -> None:
-        # Verify connection and folder existence on initialization
+        """Establish connection to the IMAP server and verify folder exists.
+
+        Creates an SSL connection, authenticates with the server, and verifies
+        the target folder exists.
+
+        Raises:
+            RemoteError: If authentication fails.
+            ConfigurationError: If the target folder does not exist.
+        """
         if self.imap is None:
             # Connect with SSL on port 993
             self.imap = imaplib.IMAP4_SSL(self.server, timeout=self.timeout)

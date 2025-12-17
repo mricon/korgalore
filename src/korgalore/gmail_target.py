@@ -22,7 +22,19 @@ SCOPES = [
 
 
 class GmailTarget:
+    """Target class for delivering email messages to Gmail via the API."""
+
     def __init__(self, identifier: str, credentials_file: str, token_file: str) -> None:
+        """Initialize a GmailTarget instance.
+
+        Args:
+            identifier: Unique identifier for this Gmail target.
+            credentials_file: Path to the Google OAuth credentials JSON file.
+            token_file: Path to store/load the OAuth token.
+
+        Raises:
+            ConfigurationError: If credentials file is not found.
+        """
         self.identifier = identifier
         self.creds: Optional[Credentials] = None
         self.service: Optional[Any] = None
@@ -30,6 +42,18 @@ class GmailTarget:
         self._label_map: Optional[Dict[str, str]] = None
 
     def _load_credentials(self, credentials_file: str, token_file: str) -> None:
+        """Load or refresh OAuth credentials for Gmail API access.
+
+        Attempts to load existing credentials from token_file. If not present
+        or expired, initiates OAuth flow using credentials_file.
+
+        Args:
+            credentials_file: Path to the Google OAuth credentials JSON file.
+            token_file: Path to store/load the OAuth token.
+
+        Raises:
+            ConfigurationError: If credentials file is not found.
+        """
         # Expand vars and tildes on file paths
         credentials_file = os.path.expandvars(os.path.expanduser(credentials_file))
         token_file = os.path.expandvars(os.path.expanduser(token_file))
@@ -58,6 +82,10 @@ class GmailTarget:
 
 
     def connect(self) -> None:
+        """Establish connection to the Gmail API service.
+
+        Creates the Gmail API service object if not already connected.
+        """
         if self.service is None:
             logger.debug('Connecting to Gmail service for %s', self.identifier)
             self.service = build('gmail', 'v1', credentials=self.creds)
@@ -77,6 +105,17 @@ class GmailTarget:
             raise RemoteError(f'An error occurred: {error}')
 
     def translate_labels(self, labels: List[str]) -> List[str]:
+        """Translate label names to Gmail label IDs.
+
+        Args:
+            labels: List of label names to translate.
+
+        Returns:
+            List of corresponding Gmail label IDs.
+
+        Raises:
+            ConfigurationError: If any label is not found in Gmail.
+        """
         # Translate label names to their corresponding IDs
         if self._label_map is None:
             # Get all labels from Gmail
@@ -90,6 +129,18 @@ class GmailTarget:
         return translated
 
     def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+        """Import a raw email message into Gmail.
+
+        Args:
+            raw_message: The raw email message as bytes.
+            labels: List of label names to apply to the message.
+
+        Returns:
+            The Gmail API response object for the imported message.
+
+        Raises:
+            RemoteError: If the Gmail API call fails.
+        """
         try:
             import base64
 

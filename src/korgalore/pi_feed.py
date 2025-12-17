@@ -27,6 +27,13 @@ LOCKED_FEEDS: Dict[str, Any] = dict()
 RETRY_FAILED_INTERVAL = 5 * 24 * 60 * 60  # 5 days in seconds
 
 class PIFeed:
+    """Base class for public-inbox feed implementations.
+
+    Provides core functionality for interacting with public-inbox git
+    repositories, including commit traversal, message extraction, state
+    management, and delivery tracking. Subclassed by LoreFeed and LeiFeed.
+    """
+
     emlpolicy: EmailPolicy = EmailPolicy(utf8=True, cte_type='8bit', max_line_length=None,
                                          message_factory=EmailMessage)
 
@@ -78,6 +85,7 @@ class PIFeed:
             raise
 
     def get_gitdir(self, epoch: int) -> Path:
+        """Return the path to the git directory for a specific epoch."""
         return self.feed_dir / 'git' / f'{epoch}.git'
 
     def _append_to_jsonl_file(self, filepath: Path, obj: Tuple[Union[int, str], ...]) -> None:
@@ -192,6 +200,7 @@ class PIFeed:
         return branch_name
 
     def find_epochs(self) -> List[int]:
+        """Find all epoch directories in the feed and return sorted list."""
         epochs_dir = self.feed_dir / 'git'
         # List this directory for existing epochs
         existing_epochs: List[int] = list()
@@ -208,10 +217,12 @@ class PIFeed:
         return sorted(existing_epochs)
 
     def get_highest_epoch(self) -> int:
+        """Return the highest (most recent) epoch number."""
         epochs = self.find_epochs()
         return max(epochs)
 
     def get_all_commits_in_epoch(self, epoch: int) -> List[str]:
+        """Return all commits in an epoch in chronological order."""
         gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '--reverse', branch]
@@ -225,6 +236,7 @@ class PIFeed:
         return commits
 
     def recover_after_rebase(self, delivery_name: str, epoch: int) -> str:
+        """Recover delivery state after a feed rebase by matching commit metadata."""
         # Load delivery info to find last processed commit
         delivery_info = self.load_delivery_info(delivery_name)
         if str(epoch) in delivery_info.get('epochs', {}):
@@ -281,6 +293,7 @@ class PIFeed:
         return last_commit
 
     def get_latest_commits_for_delivery(self, delivery_name: str) -> List[Tuple[int, str]]:
+        """Return list of (epoch, commit) tuples for new commits since last delivery."""
         try:
             dinfo = self.load_delivery_info(delivery_name)
         except StateError:
@@ -325,6 +338,7 @@ class PIFeed:
         return new_commits
 
     def get_message_at_commit(self, epoch: int, commitish: str) -> bytes:
+        """Retrieve raw email message bytes from a specific git commit."""
         gitdir = self.get_gitdir(epoch)
         gitargs = ['show', f'{commitish}:m']
         retcode, output = run_git_command(str(gitdir), gitargs)
@@ -336,11 +350,13 @@ class PIFeed:
 
     @classmethod
     def parse_message(cls, raw_message: bytes) -> EmailMessage:
+        """Parse raw email bytes into an EmailMessage object."""
         msg: EmailMessage = BytesParser(_class=EmailMessage,
                                         policy=cls.emlpolicy).parsebytes(raw_message)  # type: ignore
         return msg
 
     def get_subject_at_commit(self, epoch: int, commitish: str) -> str:
+        """Get email subject line from a commit, with caching."""
         global COMMIT_SUBJECT_CACHE
         try:
             return COMMIT_SUBJECT_CACHE[commitish]
@@ -352,6 +368,7 @@ class PIFeed:
             return subject
 
     def get_top_commit(self, epoch: int) -> str:
+        """Get the most recent commit hash in an epoch."""
         gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '-n', '1', branch]
@@ -362,6 +379,7 @@ class PIFeed:
         return top_commit
 
     def feed_lock(self) -> None:
+        """Acquire exclusive lock on feed to prevent concurrent access."""
         # Grab an exclusive posix lock to make sure that we're not running the
         # same delivery in multiple processes at the same time.
         global LOCKED_FEEDS
@@ -379,6 +397,7 @@ class PIFeed:
         LOCKED_FEEDS[str(self.feed_dir)] = lockfh
 
     def feed_unlock(self) -> None:
+        """Release lock on feed after operations complete."""
         global LOCKED_FEEDS
         key = str(self.feed_dir)
         try:
@@ -391,7 +410,7 @@ class PIFeed:
             raise PublicInboxError(f"Feed '{key}' is not locked.")
 
     def get_failed_commits_for_delivery(self, delivery_name: str) -> List[Tuple[int, str]]:
-        # Return a list of (epoch, commit_hash)
+        """Return list of (epoch, commit) tuples that previously failed delivery."""
         state_file = self._get_state_file_path(delivery_name, 'failed')
         failed = self._read_jsonl_file(state_file)
         results: List[Tuple[int, str]] = list()
@@ -400,6 +419,7 @@ class PIFeed:
         return results
 
     def mark_successful_delivery(self, delivery_name: str, epoch: int, commit_hash: str, was_failing: bool = False) -> None:
+        """Mark a commit as successfully delivered and remove from failed list if present."""
         # We've successfully delivered a message, so remove it from the
         # korgalore.{delivery_name}.failed file if it exists there.
         if was_failing:
@@ -427,6 +447,7 @@ class PIFeed:
             logger.debug("Removed empty failed state file for delivery %s.", delivery_name)
 
     def mark_failed_delivery(self, delivery_name: str, epoch: int, commit_hash: str) -> None:
+        """Record a failed delivery attempt for later retry."""
         # We've attempted to deliver a message, but it failed. Record this in the
         # korgalore.{delivery_name}.failed file.
         state_file = self._get_state_file_path(delivery_name, 'failed')
@@ -465,6 +486,7 @@ class PIFeed:
     def save_delivery_info(self, delivery_name: str, epoch: Optional[int] = None,
                              latest_commit: Optional[str] = None,
                              message: Optional[Union[bytes, EmailMessage]] = None) -> None:
+        """Save delivery progress state to disk."""
         if not epoch:
             epoch = self.get_highest_epoch()
 
@@ -506,6 +528,7 @@ class PIFeed:
         self._atomic_write(state_file, json.dumps(state_info, indent=2))
 
     def get_delivery_info_for_epoch(self, delivery_name: str, epoch: Optional[int] = None) -> Dict[str, Any]:
+        """Retrieve saved delivery state for a specific epoch."""
         info = self.load_delivery_info(delivery_name)
         if epoch is None:
             # This is different than self.get_highest_epoch() because we want the highest
@@ -522,6 +545,7 @@ class PIFeed:
         return epoch_info
 
     def load_delivery_info(self, delivery_name: str) -> Dict[str, Any]:
+        """Load delivery progress state from disk."""
         state_file = self._get_state_file_path(delivery_name, 'info')
         if not state_file.exists():
             logger.debug('Initializing new state file for delivery: %s', delivery_name)
@@ -533,6 +557,7 @@ class PIFeed:
         return info
 
     def feed_updated(self, epoch: Optional[int] = None) -> bool:
+        """Check if feed has new commits since last recorded state."""
         try:
             feed_state = self.load_feed_state()
         except StateError:
@@ -565,6 +590,7 @@ class PIFeed:
         return False
 
     def load_feed_state(self) -> Dict[str, Any]:
+        """Load feed-level state (epochs and metadata) from disk."""
         state_file = self._get_state_file_path(delivery_name=None, suffix='feed')
 
         if not state_file.exists():
@@ -578,6 +604,7 @@ class PIFeed:
             return result
 
     def save_feed_state(self, epoch: Optional[int] = None, latest_commit: Optional[str] = None, success: bool = True) -> None:
+        """Save feed-level state to disk."""
         state_file = self._get_state_file_path(delivery_name=None, suffix='feed')
 
         # Get latest commit if not provided
@@ -608,6 +635,7 @@ class PIFeed:
 
     @staticmethod
     def mailsplit_bytes(bmbox: bytes) -> List[bytes]:
+        """Split mbox-format bytes into individual email message bytes."""
         import os
         import tempfile
         msgs: List[bytes] = list()

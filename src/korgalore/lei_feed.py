@@ -13,7 +13,15 @@ class LeiFeed(PIFeed):
     LEICMD: str = "lei"
 
     def __init__(self, feed_key: str, lei_url: str) -> None:
-        # do a parent init
+        """Initialize a LeiFeed instance.
+
+        Args:
+            feed_key: Unique identifier for this feed.
+            lei_url: LEI URL in the format 'lei:/path/to/search'.
+
+        Raises:
+            ConfigurationError: If the LEI search is not known to lei.
+        """
         self.known_searches: List[str] = list()
         self._load_known_searches()
         feed_dir = Path(lei_url[4:])  # Strip 'lei:' prefix
@@ -25,6 +33,17 @@ class LeiFeed(PIFeed):
         self.feed_url = lei_url
 
     def run_lei_command(self, args: List[str]) -> Tuple[int, bytes]:
+        """Execute a lei command with the given arguments.
+
+        Args:
+            args: List of command-line arguments to pass to lei.
+
+        Returns:
+            Tuple of (return_code, stdout_output).
+
+        Raises:
+            PublicInboxError: If the lei command is not found.
+        """
         import subprocess
 
         cmd = [self.LEICMD]
@@ -37,6 +56,14 @@ class LeiFeed(PIFeed):
         return result.returncode, result.stdout.strip()
 
     def get_latest_epoch_info(self) -> List[Tuple[int, str]]:
+        """Get current ref information for all epochs.
+
+        Returns:
+            List of (epoch_number, refdata_string) tuples for each epoch.
+
+        Raises:
+            GitError: If git show-ref fails on any epoch.
+        """
         epochs = self.find_epochs()
         epoch_info: List[Tuple[int, str]] = list()
         for epoch in epochs:
@@ -52,6 +79,13 @@ class LeiFeed(PIFeed):
         return epoch_info
 
     def _load_known_searches(self) -> None:
+        """Load the list of known lei searches into self.known_searches.
+
+        Queries lei for all searches and filters to only include v2 format searches.
+
+        Raises:
+            PublicInboxError: If the lei ls-search command fails.
+        """
         args = ['ls-search', '-l', '-f', 'json']
         retcode, output = self.run_lei_command(args)
         if retcode != 0:
@@ -65,11 +99,23 @@ class LeiFeed(PIFeed):
                 self.known_searches.append(output[3:])
 
     def init_feed(self) -> None:
+        """Initialize a new LEI feed by saving the current state."""
         logger.debug('Initializing LEI feed: %s', self.feed_dir)
         # We just need to save the feed state with the latest existing epoch
         self.save_feed_state()
 
     def update_feed(self) -> bool:
+        """Update the LEI search and check for new messages.
+
+        Runs 'lei up' to update the search, then checks for new epochs
+        or updated refs.
+
+        Returns:
+            True if updates were found, False otherwise.
+
+        Raises:
+            PublicInboxError: If the lei update command fails.
+        """
         logger.debug('Updating lei search: %s', self.feed_dir)
         leiargs = ['up', str(self.feed_dir)]
         retcode, output = self.run_lei_command(leiargs)
