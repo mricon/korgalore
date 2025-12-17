@@ -1,0 +1,244 @@
+"""Tests for PIFeed state management functions.
+
+These tests cover the delivery tracking functionality including:
+- mark_successful_delivery: removing entries from failed list
+- mark_failed_delivery: adding/updating failed entries, rejection after timeout
+- JSONL file operations
+"""
+
+import json
+import pytest
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from unittest.mock import patch
+
+from korgalore.pi_feed import PIFeed, RETRY_FAILED_INTERVAL
+
+
+class TestJSONLOperations:
+    """Tests for JSONL file read/write operations."""
+
+    def test_read_empty_file(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Reading non-existent file returns empty list."""
+        result = mock_feed._read_jsonl_file(temp_feed_dir / "nonexistent.jsonl")
+        assert result == []
+
+    def test_write_and_read_jsonl(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Write and read back JSONL data."""
+        filepath = temp_feed_dir / "test.jsonl"
+        data = [(1, "abc123", "2024-01-01T00:00:00", 1), (2, "def456", "2024-01-02T00:00:00", 2)]
+        mock_feed._write_jsonl_file(filepath, data)
+
+        result = mock_feed._read_jsonl_file(filepath)
+        assert len(result) == 2
+        assert result[0] == (1, "abc123", "2024-01-01T00:00:00", 1)
+        assert result[1] == (2, "def456", "2024-01-02T00:00:00", 2)
+
+    def test_write_empty_list_removes_file(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Writing empty list removes the file."""
+        filepath = temp_feed_dir / "test.jsonl"
+        filepath.write_text('[1, "abc"]\n')
+        assert filepath.exists()
+
+        mock_feed._write_jsonl_file(filepath, [])
+        assert not filepath.exists()
+
+    def test_append_to_jsonl(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Append entries to JSONL file."""
+        filepath = temp_feed_dir / "test.jsonl"
+        mock_feed._append_to_jsonl_file(filepath, (1, "abc123"))
+        mock_feed._append_to_jsonl_file(filepath, (2, "def456"))
+
+        result = mock_feed._read_jsonl_file(filepath)
+        assert len(result) == 2
+        assert result[0] == (1, "abc123")
+        assert result[1] == (2, "def456")
+
+
+class TestMarkSuccessfulDelivery:
+    """Tests for mark_successful_delivery function."""
+
+    def test_success_without_prior_failure(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Successful delivery without was_failing flag doesn't touch failed file."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        failed_file.write_text('[0, "abc123", "2024-01-01T00:00:00", 1]\n')
+
+        with patch.object(mock_feed, "save_delivery_info"):
+            mock_feed.mark_successful_delivery("test-delivery", 0, "abc123", was_failing=False)
+
+        # File should be unchanged
+        result = mock_feed._read_jsonl_file(failed_file)
+        assert len(result) == 1
+
+    def test_success_removes_from_failed_list(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Successful delivery with was_failing=True removes entry from failed list."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        entries = [
+            (0, "abc123", "2024-01-01T00:00:00", 1),
+            (0, "def456", "2024-01-01T00:00:00", 2),
+            (1, "ghi789", "2024-01-01T00:00:00", 1),
+        ]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        with patch.object(mock_feed, "save_delivery_info"):
+            mock_feed.mark_successful_delivery("test-delivery", 0, "def456", was_failing=True)
+
+        result = mock_feed._read_jsonl_file(failed_file)
+        assert len(result) == 2
+        assert (0, "abc123", "2024-01-01T00:00:00", 1) in result
+        assert (1, "ghi789", "2024-01-01T00:00:00", 1) in result
+        assert (0, "def456", "2024-01-01T00:00:00", 2) not in result
+
+    def test_success_entry_not_in_failed_list(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """No error if entry not in failed list."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        entries = [(0, "abc123", "2024-01-01T00:00:00", 1)]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        with patch.object(mock_feed, "save_delivery_info"):
+            mock_feed.mark_successful_delivery("test-delivery", 0, "nonexistent", was_failing=True)
+
+        result = mock_feed._read_jsonl_file(failed_file)
+        assert len(result) == 1  # Unchanged
+
+    def test_success_removes_last_entry_deletes_file(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Removing last entry from failed list deletes the file."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        entries = [(0, "abc123", "2024-01-01T00:00:00", 1)]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        with patch.object(mock_feed, "save_delivery_info"):
+            mock_feed.mark_successful_delivery("test-delivery", 0, "abc123", was_failing=True)
+
+        assert not failed_file.exists()
+
+
+class TestMarkFailedDelivery:
+    """Tests for mark_failed_delivery function."""
+
+    def test_new_failure_creates_entry(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """First failure creates new entry with retry count 1."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+
+        mock_feed.mark_failed_delivery("test-delivery", 0, "abc123")
+
+        result = mock_feed._read_jsonl_file(failed_file)
+        assert len(result) == 1
+        assert result[0][0] == 0  # epoch
+        assert result[0][1] == "abc123"  # commit hash
+        assert result[0][3] == 1  # retry count
+
+    def test_repeated_failure_increments_retry(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Repeated failure increments retry count."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        now = datetime.now(timezone.utc)
+        entries = [(0, "abc123", now.isoformat(), 3)]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        mock_feed.mark_failed_delivery("test-delivery", 0, "abc123")
+
+        result = mock_feed._read_jsonl_file(failed_file)
+        assert len(result) == 1
+        assert result[0][0] == 0
+        assert result[0][1] == "abc123"
+        assert result[0][3] == 4  # incremented from 3
+
+    def test_expired_failure_moves_to_rejected(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Failure past retry interval moves to rejected file."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        rejected_file = temp_feed_dir / "korgalore.test-delivery.rejected"
+
+        # Create failure from 6 days ago (past 5-day interval)
+        old_time = datetime.now(timezone.utc) - timedelta(seconds=RETRY_FAILED_INTERVAL + 3600)
+        entries = [(0, "abc123", old_time.isoformat(), 10)]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        mock_feed.mark_failed_delivery("test-delivery", 0, "abc123")
+
+        # Should be removed from failed
+        failed_result = mock_feed._read_jsonl_file(failed_file)
+        assert len(failed_result) == 0
+
+        # Should be in rejected
+        rejected_result = mock_feed._read_jsonl_file(rejected_file)
+        assert len(rejected_result) == 1
+        assert rejected_result[0][0] == 0
+        assert rejected_result[0][1] == "abc123"
+
+    def test_multiple_failures_only_updates_matching(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Only the matching entry is updated when multiple failures exist."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        now = datetime.now(timezone.utc)
+        entries = [
+            (0, "abc123", now.isoformat(), 1),
+            (0, "def456", now.isoformat(), 2),
+            (1, "ghi789", now.isoformat(), 3),
+        ]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        mock_feed.mark_failed_delivery("test-delivery", 0, "def456")
+
+        result = mock_feed._read_jsonl_file(failed_file)
+        assert len(result) == 3
+
+        # Find each entry and verify
+        by_commit = {r[1]: r for r in result}
+        assert by_commit["abc123"][3] == 1  # unchanged
+        assert by_commit["def456"][3] == 3  # incremented from 2
+        assert by_commit["ghi789"][3] == 3  # unchanged
+
+
+class TestGetFailedCommits:
+    """Tests for get_failed_commits_for_delivery function."""
+
+    def test_no_failed_file(self, mock_feed: PIFeed) -> None:
+        """Returns empty list when no failed file exists."""
+        result = mock_feed.get_failed_commits_for_delivery("nonexistent")
+        assert result == []
+
+    def test_returns_epoch_commit_tuples(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Returns list of (epoch, commit) tuples."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        entries = [
+            (0, "abc123", "2024-01-01T00:00:00", 1),
+            (1, "def456", "2024-01-02T00:00:00", 2),
+        ]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        result = mock_feed.get_failed_commits_for_delivery("test-delivery")
+        assert result == [(0, "abc123"), (1, "def456")]
+
+
+class TestCleanupFailedState:
+    """Tests for cleanup_failed_state function."""
+
+    def test_removes_empty_failed_file(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Removes failed file if empty."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        failed_file.write_text("")
+
+        mock_feed.cleanup_failed_state("test-delivery")
+
+        assert not failed_file.exists()
+
+    def test_keeps_nonempty_failed_file(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Keeps failed file if it has entries."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        entries = [(0, "abc123", "2024-01-01T00:00:00", 1)]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        mock_feed.cleanup_failed_state("test-delivery")
+
+        assert failed_file.exists()
+
+    def test_no_error_if_file_missing(self, mock_feed: PIFeed) -> None:
+        """No error if failed file doesn't exist."""
+        mock_feed.cleanup_failed_state("nonexistent")  # Should not raise

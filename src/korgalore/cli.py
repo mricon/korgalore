@@ -746,12 +746,13 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
     run_deliveries: List[str] = list()
     if not force:
         logger.debug('Updated feeds: %s', ', '.join(updated_feeds))
+        # Build reverse index: feed_key -> delivery names (O(m) once, instead of O(n*m) nested loop)
+        feed_to_deliveries: Dict[str, List[str]] = dict()
+        for dname, (feed, _, _) in ctx.obj['deliveries'].items():
+            feed_to_deliveries.setdefault(feed.feed_key, []).append(dname)
+        # O(1) lookup per updated feed
         for feed_key in updated_feeds:
-            # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
-            for dname in ctx.obj['deliveries'].keys():
-                feed = ctx.obj['deliveries'][dname][0]
-                if feed.feed_key == feed_key:
-                    run_deliveries.append(dname)
+            run_deliveries.extend(feed_to_deliveries.get(feed_key, []))
     else:
         # If force is specified, treat all feeds as updated
         logger.debug('Force flag set, treating all feeds as updated')

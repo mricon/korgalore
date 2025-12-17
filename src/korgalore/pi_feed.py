@@ -424,13 +424,13 @@ class PIFeed:
         if was_failing:
             state_file = self._get_state_file_path(delivery_name, 'failed')
             failed = self._read_jsonl_file(state_file)
-            for entry in list(failed):
-                if entry[0] == epoch and entry[1] == commit_hash:
-                    failed.remove(entry)
-                    self._write_jsonl_file(state_file, failed)
-                    logger.debug("Marked commit %s in epoch %d as successfully delivered for delivery %s.",
-                                commit_hash, epoch, delivery_name)
-                    break
+            original_len = len(failed)
+            # Use list comprehension instead of O(n) remove() in loop
+            failed = [e for e in failed if not (e[0] == epoch and e[1] == commit_hash)]
+            if len(failed) < original_len:
+                self._write_jsonl_file(state_file, failed)
+                logger.debug("Marked commit %s in epoch %d as successfully delivered for delivery %s.",
+                            commit_hash, epoch, delivery_name)
 
         self.save_delivery_info(delivery_name, epoch, commit_hash)
 
@@ -452,32 +452,36 @@ class PIFeed:
         state_file = self._get_state_file_path(delivery_name, 'failed')
         failed = self._read_jsonl_file(state_file)
         now_dt = datetime.now(timezone.utc)
-        for entry in list(failed):
+        # Find existing entry by index (avoids O(n) remove() in loop)
+        found_idx = None
+        for idx, entry in enumerate(failed):
             if entry[0] == epoch and entry[1] == commit_hash:
-                # Has it been longer than RETRY_FAILED_INTERVAL?
-                first_failed_dt = datetime.fromisoformat(str(entry[2]))
-                delta = now_dt - first_failed_dt
-                if delta.total_seconds() > RETRY_FAILED_INTERVAL:
-                    subject = self.get_subject_at_commit(epoch, commit_hash)
-                    logger.warning("Delivery for %s has exceeded retry interval, will not retry.", commit_hash)
-                    logger.warning(" Feed: %s", self.feed_dir)
-                    logger.warning(" Delivery: %s", delivery_name)
-                    logger.warning(" Subject: %s", subject)
-                    # Move to rejected file
-                    rejected_file = self._get_state_file_path(delivery_name, 'rejected')
-                    rejected_entry = list(entry) + [now_dt.isoformat()]
-                    self._append_to_jsonl_file(rejected_file, tuple(rejected_entry))
-                    # Remove from failed list
-                    failed.remove(entry)
-                    self._write_jsonl_file(state_file, failed)
-                    return
-                # Increment retry count
-                retry_count = int(entry[3]) + 1
-                failed.remove(entry)
-                new_entry = (epoch, commit_hash, entry[2], retry_count)
-                failed.append(new_entry)
+                found_idx = idx
+                break
+        if found_idx is not None:
+            entry = failed[found_idx]
+            # Has it been longer than RETRY_FAILED_INTERVAL?
+            first_failed_dt = datetime.fromisoformat(str(entry[2]))
+            delta = now_dt - first_failed_dt
+            if delta.total_seconds() > RETRY_FAILED_INTERVAL:
+                subject = self.get_subject_at_commit(epoch, commit_hash)
+                logger.warning("Delivery for %s has exceeded retry interval, will not retry.", commit_hash)
+                logger.warning(" Feed: %s", self.feed_dir)
+                logger.warning(" Delivery: %s", delivery_name)
+                logger.warning(" Subject: %s", subject)
+                # Move to rejected file
+                rejected_file = self._get_state_file_path(delivery_name, 'rejected')
+                rejected_entry = list(entry) + [now_dt.isoformat()]
+                self._append_to_jsonl_file(rejected_file, tuple(rejected_entry))
+                # Remove from failed list using pop (O(n) shift but only once, not inside loop)
+                failed.pop(found_idx)
                 self._write_jsonl_file(state_file, failed)
                 return
+            # Increment retry count - update entry in place
+            retry_count = int(entry[3]) + 1
+            failed[found_idx] = (epoch, commit_hash, entry[2], retry_count)
+            self._write_jsonl_file(state_file, failed)
+            return
         # New entry
         new_entry = (epoch, commit_hash, now_dt.isoformat(), 1)
         self._append_to_jsonl_file(state_file, new_entry)
