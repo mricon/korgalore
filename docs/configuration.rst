@@ -3,8 +3,8 @@ Configuration
 =============
 
 Korgalore uses a TOML configuration file to define targets (Gmail accounts, local
-maildirs, JMAP servers, IMAP servers), feeds (mailing lists or lei searches), and
-deliveries (which feed goes to which target).
+maildirs, JMAP servers, IMAP servers, pipe commands), feeds (mailing lists or lei
+searches), and deliveries (which feed goes to which target).
 
 Configuration File Location
 ===========================
@@ -145,6 +145,59 @@ To configure an IMAP target, specify the server, credentials, and target folder:
    For security, use ``password_file`` instead of inline ``password`` in your
    configuration file.
 
+Pipe Setup
+==========
+
+Pipe targets provide a way to send raw messages to any external command via stdin.
+This is useful for custom processing, filtering, or integration with other tools.
+
+Benefits of Pipe Targets
+-------------------------
+
+* **No authentication required**: Messages are piped to a local command
+* **Flexibility**: Integrate with any tool that accepts email on stdin
+* **Custom processing**: Filter, transform, or archive messages your way
+* **Scriptable**: Use shell scripts, Python scripts, or any executable
+
+Configuring Pipe Targets
+-------------------------
+
+To configure a pipe target, specify the command to pipe messages to:
+
+.. code-block:: toml
+
+   [targets.filter]
+   type = 'pipe'
+   command = '/usr/local/bin/process-email.sh'
+
+The command receives the raw email message (RFC 2822 format) on stdin. The command
+can include arguments:
+
+.. code-block:: toml
+
+   [targets.archive]
+   type = 'pipe'
+   command = 'gzip >> ~/mail-archive.gz'
+
+Labels specified in deliveries are appended as additional command line arguments:
+
+.. code-block:: toml
+
+   [targets.processor]
+   type = 'pipe'
+   command = '/usr/local/bin/process-mail.sh'
+
+   [deliveries.lkml-process]
+   feed = 'lkml'
+   target = 'processor'
+   labels = ['--list=lkml', '--priority=high']
+
+This would execute: ``/usr/local/bin/process-mail.sh --list=lkml --priority=high``
+
+.. warning::
+   Ensure the command is trusted and handles email data safely. The raw message
+   bytes are piped directly to the command's stdin.
+
 Configuration File Format
 =========================
 
@@ -155,7 +208,7 @@ Targets
 -------
 
 Targets define where messages will be delivered (Gmail accounts, local maildirs,
-JMAP servers, IMAP servers, etc.).
+JMAP servers, IMAP servers, pipe commands, etc.).
 
 .. code-block:: toml
 
@@ -260,6 +313,12 @@ IMAP Target Parameters
 
 .. note::
    IMAP connections always use SSL on port 993 for security.
+
+Pipe Target Parameters
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``type``: Must be ``'pipe'``
+* ``command``: Command to pipe messages to (can include arguments)
 
 Feeds
 -----
@@ -383,6 +442,10 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    folder = 'INBOX'
    password_file = '~/.config/korgalore/imap-password.txt'
 
+   [targets.processor]
+   type = 'pipe'
+   command = '/usr/local/bin/process-mail.sh'
+
    ### Feeds ###
 
    [feeds.lkml]
@@ -422,6 +485,12 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    feed = 'lkml'
    target = 'myserver'
    labels = []  # Ignored for IMAP targets
+
+   # Deliver to pipe command for custom processing
+   [deliveries.lkml-process]
+   feed = 'lkml'
+   target = 'processor'
+   labels = ['--list=lkml']  # Appended as command line arguments
 
    # Using a direct URL without a feed definition
    # [deliveries.example-direct]

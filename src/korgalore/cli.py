@@ -17,6 +17,7 @@ from korgalore.gmail_target import GmailTarget
 from korgalore.maildir_target import MaildirTarget
 from korgalore.jmap_target import JmapTarget
 from korgalore.imap_target import ImapTarget
+from korgalore.pipe_target import PipeTarget
 from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError, PublicInboxError
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
@@ -118,9 +119,14 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             password_file=details.get('password_file', None),
             timeout=details.get('timeout', 60)
         )
+    elif target_type == 'pipe':
+        service = get_pipe_target(
+            identifier=identifier,
+            command=details.get('command', '')
+        )
     else:
         logger.critical('Unknown target type "%s" for target "%s".', target_type, identifier)
-        logger.critical('Supported types: gmail, maildir, jmap, imap')
+        logger.critical('Supported types: gmail, maildir, jmap, imap, pipe')
         raise click.Abort()
 
     ctx.obj['targets'][identifier] = service
@@ -227,6 +233,21 @@ def get_imap_target(identifier: str, server: str, username: str,
         raise click.Abort()
 
     return it
+
+
+def get_pipe_target(identifier: str, command: str) -> PipeTarget:
+    """Create a Pipe target service instance."""
+    if not command:
+        logger.critical('No command specified for pipe target: %s', identifier)
+        raise click.Abort()
+
+    try:
+        pt = PipeTarget(identifier=identifier, command=command)
+    except ConfigurationError as fe:
+        logger.critical('Error: %s', str(fe))
+        raise click.Abort()
+
+    return pt
 
 
 def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
@@ -552,7 +573,7 @@ def auth(ctx: click.Context, target: Optional[str]) -> None:
     If TARGET is omitted, authenticate all targets that require authentication.
     """
     # Target types that don't require authentication
-    NO_AUTH_TARGETS = {'maildir'}
+    NO_AUTH_TARGETS = {'maildir', 'pipe'}
 
     config = ctx.obj.get('config', {})
     targets = config.get('targets', {})
