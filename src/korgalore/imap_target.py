@@ -9,8 +9,8 @@ from korgalore import ConfigurationError, RemoteError
 logger = logging.getLogger('korgalore')
 
 
-class ImapService:
-    """Service for delivering messages to IMAP mail servers."""
+class ImapTarget:
+    """Target for delivering messages to IMAP mail servers."""
 
     def __init__(self, identifier: str, server: str, username: str,
                  folder: str = 'INBOX',
@@ -36,6 +36,7 @@ class ImapService:
         self.server = server
         self.username = username
         self.folder = folder
+        self.imap: Optional[imaplib.IMAP4_SSL] = None
 
         # Validate required configuration
         if not server:
@@ -67,34 +68,22 @@ class ImapService:
         # Connection timeout
         self.timeout = timeout
 
+    def connect(self) -> None:
         # Verify connection and folder existence on initialization
-        self._verify_setup()
-
-        logger.debug('IMAP service initialized: server=%s, folder=%s',
-                    self.server, self.folder)
-
-    def _verify_setup(self) -> None:
-        """Verify IMAP connection and folder existence.
-
-        Raises:
-            RemoteError: If connection or authentication fails
-            ConfigurationError: If folder doesn't exist
-        """
-        try:
+        if self.imap is None:
             # Connect with SSL on port 993
-            imap = imaplib.IMAP4_SSL(self.server, timeout=self.timeout)
+            self.imap = imaplib.IMAP4_SSL(self.server, timeout=self.timeout)
 
             # Authenticate
             try:
-                imap.login(self.username, self.password)
+                self.imap.login(self.username, self.password)
             except imaplib.IMAP4.error as e:
                 raise RemoteError(
                     f"IMAP authentication failed for {self.server}: {e}"
                 ) from e
-
             # Verify folder exists (don't auto-create)
             try:
-                status, _ = imap.select(self.folder, readonly=True)
+                status, _ = self.imap.select(self.folder, readonly=True)
                 if status != 'OK':
                     raise ConfigurationError(
                         f"Folder '{self.folder}' does not exist on IMAP server {self.server}"
@@ -104,18 +93,8 @@ class ImapService:
                     f"Folder '{self.folder}' does not exist on IMAP server {self.server}: {e}"
                 ) from e
 
-            # Close connection
-            try:
-                imap.logout()
-            except Exception:
-                pass  # Ignore logout errors during verification
-
-        except (OSError, imaplib.IMAP4.error) as e:
-            if isinstance(e, (ConfigurationError, RemoteError)):
-                raise
-            raise RemoteError(
-                f"Failed to connect to IMAP server {self.server}: {e}"
-            ) from e
+            logger.debug('IMAP service initialized: server=%s, folder=%s',
+                        self.server, self.folder)
 
     def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
         """Import raw email message to IMAP server.
@@ -130,18 +109,14 @@ class ImapService:
         Raises:
             RemoteError: On delivery errors
         """
+        imap = self.imap
+        if imap is None:
+            self.connect()
+            imap = self.imap
+            if imap is None:
+                raise RemoteError("IMAP connection not established.")
+
         try:
-            # Connect with SSL on port 993
-            imap = imaplib.IMAP4_SSL(self.server, timeout=self.timeout)
-
-            # Authenticate
-            try:
-                imap.login(self.username, self.password)
-            except imaplib.IMAP4.error as e:
-                raise RemoteError(
-                    f"IMAP authentication failed for {self.server}: {e}"
-                ) from e
-
             # Normalize line endings to CRLF as required by RFC 2822/5322
             # Git stores messages with Unix LF endings, but IMAP requires CRLF
             normalized_message = raw_message.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
@@ -173,12 +148,6 @@ class ImapService:
                 raise RemoteError(
                     f"Failed to append message to folder '{self.folder}': {e}"
                 ) from e
-
-            # Close connection
-            try:
-                imap.logout()
-            except Exception:
-                pass  # Ignore logout errors
 
             return data
 

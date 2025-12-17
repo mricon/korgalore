@@ -9,7 +9,7 @@ from korgalore import ConfigurationError, RemoteError
 logger = logging.getLogger('korgalore')
 
 
-class JmapService:
+class JmapTarget:
     """Service for delivering messages to JMAP mail servers (e.g., Fastmail)."""
 
     def __init__(self, identifier: str, server: str, username: str,
@@ -60,8 +60,11 @@ class JmapService:
         # Mailbox cache
         self._mailbox_map: Optional[Dict[str, str]] = None  # name -> id
 
-        # Discover session on init
-        self._discover_session()
+    def connect(self) -> None:
+        """Connect to JMAP server and discover session."""
+        if self.session is None:
+            logger.debug('Connecting to JMAP server for %s', self.identifier)
+            self._discover_session()
 
     def _discover_session(self) -> None:
         """Discover JMAP session and API endpoints."""

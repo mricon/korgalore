@@ -9,7 +9,7 @@ from korgalore import ConfigurationError
 logger = logging.getLogger('korgalore')
 
 
-class MaildirService:
+class MaildirTarget:
     """Service for delivering messages to a local maildir."""
 
     def __init__(self, identifier: str, maildir_path: str) -> None:
@@ -32,6 +32,10 @@ class MaildirService:
             raise ConfigurationError(
                 f"Failed to initialize maildir at {self.maildir_path}: {e}"
             ) from e
+
+    def connect(self) -> None:
+        """Connect to maildir (no-op for local maildir)."""
+        logger.debug('Maildir target ready at %s', self.maildir_path)
 
     def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
         """Import message to maildir.

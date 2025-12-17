@@ -4,9 +4,9 @@ Korgalore
 =========
 
 Korgalore is a tool for feeding public-inbox git repositories directly
-into Gmail via its REST API as an alternative to subscribing. It
-provides a workaround for Gmail's notorious hostility to high-volume
-technical mailing list traffic.
+into mail targets (Gmail, JMAP, IMAP, or local maildir) as an alternative
+to subscribing. It provides a workaround for Gmail's notorious hostility
+to high-volume technical mailing list traffic.
 
 .. warning::
    This is beta-quality software. It can explode or cause you to miss mail.
@@ -22,7 +22,8 @@ of messages sitting in the kernel.org mail queue just waiting to be
 delivered.
 
 Korgalore can feed public-inbox archives and lei search results directly
-into Gmail, bypassing most of Gmail's hostile anti-features.
+into your mail system of choice, bypassing most of Gmail's hostile
+anti-features when used with Gmail targets.
 
 About the Name
 --------------
@@ -35,9 +36,14 @@ Features
 --------
 
 * Direct integration with public-inbox repositories
-* Direct Gmail API integration
 * Support for lore.kernel.org archives
 * Support for lei searches
+* Multiple delivery targets:
+
+  * Gmail (via REST API)
+  * JMAP servers (e.g., Fastmail)
+  * IMAP servers
+  * Local maildir
 
 Non-features
 ------------

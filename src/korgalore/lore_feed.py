@@ -1,0 +1,233 @@
+import requests
+from typing import List, Dict, Tuple, Any, Optional
+from gzip import GzipFile
+from pathlib import Path
+from email import charset
+import io
+import json
+import re
+import urllib.parse
+
+import logging
+
+from korgalore import __version__, run_git_command, StateError, RemoteError
+from korgalore.pi_feed import PIFeed
+
+charset.add_charset('utf-8', None)
+
+logger = logging.getLogger('korgalore')
+
+
+class LoreFeed(PIFeed):
+    """Service for interacting with lore.kernel.org public-inbox archives."""
+
+    def __init__(self, feed_key: str, feed_dir: Path, feed_url: str, reqsession: Optional[requests.Session] = None) -> None:
+        # do a parent init
+        super().__init__(feed_key, feed_dir)
+        self.feed_type = 'lore'
+        self.feed_url = feed_url
+        if reqsession:
+            self.session = reqsession
+        else:
+            self.session = LoreFeed.get_reqsession()
+
+    @staticmethod
+    def get_reqsession() -> requests.Session:
+        reqsession = requests.Session()
+        reqsession.headers.update({
+            'User-Agent': f'korgalore/{__version__}'
+        })
+        return reqsession
+
+    def get_manifest(self) -> Dict[str, Any]:
+        try:
+            response = self.session.get(f"{self.feed_url.rstrip('/')}/manifest.js.gz")
+            response.raise_for_status()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch manifest from {self.feed_url}: {e}"
+            ) from e
+        # ungzip and parse the manifest
+        manifest: Dict[str, Any] = dict()
+        with GzipFile(fileobj=io.BytesIO(response.content)) as f:
+            mf = json.load(f)
+            for key, vals in mf.items():
+                manifest[key] = vals
+
+        return manifest
+
+    def clone_epoch(self, epoch: int, shallow: bool = True) -> None:
+        gitdir = self.get_gitdir(epoch)
+        # does tgt_dir exist?
+        if Path(gitdir).exists():
+            logger.debug(f"Target directory {gitdir} already exists, skipping clone.")
+            return
+
+        gitargs = ['clone', '--mirror']
+        if shallow:
+            gitargs += ['--shallow-since=1.week.ago']
+        repo_url = f"{self.feed_url.rstrip('/')}/git/{epoch}.git"
+        gitargs += [repo_url, str(gitdir)]
+
+        retcode, output = run_git_command(None, gitargs)
+        if retcode != 0:
+            raise RemoteError(f"Git clone failed: {output.decode()}")
+
+    def get_manifest_epochs(self) -> List[Tuple[int, str, str]]:
+        manifest = self.get_manifest()
+        # The keys are epoch paths, so we extract epoch numbers and paths
+        epochs: List[Tuple[int, str, str]] = []
+        # The key ends in #.git, so grab the final path component and remove .git
+        for epoch_path in manifest.keys():
+            epoch_str = epoch_path.split('/')[-1].replace('.git', '')
+            try:
+                epoch_num = int(epoch_str)
+                fpr = str(manifest[epoch_path]['fingerprint'])
+                epochs.append((epoch_num, epoch_path, fpr))
+            except ValueError:
+                logger.warning(f"Invalid epoch string: {epoch_str} in {self.feed_url}")
+        # Sort epochs by their numeric value
+        epochs.sort(key=lambda x: x[0])
+        self.store_epochs_info(epochs)
+        return epochs
+
+    def store_epochs_info(self, epochs: List[Tuple[int, str, str]]) -> None:
+        epochs_file = self.feed_dir / 'epochs.json'
+        epochs_info = []
+        for enum, epath, fpr in epochs:
+            epochs_info.append({
+                'epoch': enum,
+                'path': epath,
+                'fpr': fpr
+            })
+        with open(epochs_file, 'w') as ef:
+            json.dump(epochs_info, ef, indent=2)
+
+    def load_epochs_info(self) -> List[Tuple[int, str, str]]:
+        epochs_file = self.feed_dir / 'epochs.json'
+        if not epochs_file.exists():
+            raise StateError(f"Epochs file {epochs_file} does not exist.")
+        with open(epochs_file, 'r') as ef:
+            epochs_data = json.load(ef)
+        epochs: List[Tuple[int, str, str]] = []
+        for entry in epochs_data:
+            epochs.append((entry['epoch'], entry['path'], entry['fpr']))
+        return epochs
+
+    def init_feed(self) -> None:
+        if not self.feed_dir.exists():
+            self.feed_dir.mkdir(parents=True, exist_ok=True)
+        epochs = self.get_manifest_epochs()
+        epoch, _, _ = epochs[-1]
+        self.clone_epoch(epoch)
+        self.save_feed_state(epoch=epoch, success=True)
+
+    def update_feed(self) -> bool:
+        try:
+            feed_state = self.load_feed_state()
+        except StateError:
+            logger.debug('No existing feed state found, initializing feed: %s', self.feed_dir)
+            self.init_feed()
+            return False
+        local_epoch_info = self.load_epochs_info()
+        remote_epoch_info = self.get_manifest_epochs()
+        if local_epoch_info == remote_epoch_info:
+            logger.debug('No new epochs found for feed: %s', self.feed_dir)
+            return False
+
+        # What is our highest epoch?
+        highest_local_epoch = max(int(e) for e in feed_state['epochs'].keys())
+        logger.debug(f"Highest local epoch: {highest_local_epoch}")
+        gitdir = self.get_gitdir(highest_local_epoch)
+        # Pull the latest changes
+        gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
+        retcode, output = run_git_command(str(gitdir), gitargs)
+        if retcode != 0:
+            raise RemoteError(f"Git remote update failed: {output.decode()}")
+
+        updated = self.feed_updated(highest_local_epoch)
+
+        self.save_feed_state(
+            epoch=highest_local_epoch,
+            success=True
+        )
+
+        # Now see if we have any new epochs on the remote
+        highest_remote_epoch = max(e[0] for e in remote_epoch_info)
+        logger.debug('Highest remote epoch: %d', highest_remote_epoch)
+        if highest_local_epoch == highest_remote_epoch:
+            logger.debug('No new epochs detected for feed %s', self.feed_dir)
+            return updated
+
+        # In theory, we could have more than one new epoch, for example if
+        # someone hasn't run korgalore in a long time. This is almost certainly
+        # not something anyone would want, because it would involve pulling a lot of data
+        # that would take ages. So for now, we just pick the highest new epoch, which
+        # will be correct in vast majority of cases.
+        logger.debug('Cloning new epoch %d for feed %s', highest_remote_epoch, self.feed_dir)
+        # We don't clone shallow for new epochs, since we want all the mail there for the initial run
+        self.clone_epoch(epoch=highest_remote_epoch, shallow=False)
+        self.save_feed_state(
+            epoch=highest_remote_epoch,
+            success=True
+        )
+        return True
+
+    @staticmethod
+    def get_msgid_from_url(msgid_or_url: str) -> str:
+        # Parse the input to determine if it's a URL or a msgid
+        if '://' in msgid_or_url:
+            # Get anything that looks like a msgid
+            matches = re.search(r'^https?://[^@]+/([^/]+@[^/]+)', msgid_or_url, re.IGNORECASE)
+            if matches:
+                chunks = matches.groups()
+                msgid = urllib.parse.unquote(chunks[0])
+                return msgid
+        return msgid_or_url.strip('<>')
+
+    @staticmethod
+    def get_message_by_msgid(msgid_or_url: str) -> bytes:
+        # Parse the input to determine if it's a URL or a msgid
+        msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
+        raw_url = f"https://lore.kernel.org/all/{msgid}/raw"
+
+        logger.debug(f"Fetching message from: {raw_url}")
+
+        try:
+            reqsession = LoreFeed.get_reqsession()
+            response = reqsession.get(raw_url)
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch message from {raw_url}: {e}"
+            ) from e
+
+    @staticmethod
+    def get_thread_by_msgid(msgid_or_url: str) -> List[bytes]:
+        msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
+        mbox_url = f"https://lore.kernel.org/all/{msgid}/t.mbox.gz"
+        logger.debug(f"Fetching thread from: {mbox_url}")
+
+        try:
+            reqsession = LoreFeed.get_reqsession()
+            response = reqsession.get(mbox_url)
+            response.raise_for_status()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch thread from {mbox_url}: {e}"
+            ) from e
+
+        # Decompress the gzipped mbox
+        try:
+            with GzipFile(fileobj=io.BytesIO(response.content)) as f:
+                mbox_content = f.read()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to decompress thread mbox: {e}"
+            ) from e
+
+        messages = PIFeed.mailsplit_bytes(mbox_content)
+        logger.debug(f"Parsed {len(messages)} messages from thread")
+
+        return messages

@@ -150,15 +150,17 @@ Pull messages from configured deliveries and import them into configured targets
 
 .. code-block:: bash
 
-   kgl pull [OPTIONS] [LISTNAME]
+   kgl pull [OPTIONS] [DELIVERY_NAME]
 
 Arguments:
 
-* ``LISTNAME``: (Optional) Name of a specific list to pull. If not provided, all configured deliveries will be processed.
+* ``DELIVERY_NAME``: (Optional) Name of a specific delivery to pull. If not provided, all configured deliveries will be processed.
 
 Options:
 
 * ``-m, --max-mail INTEGER``: Maximum number of messages to pull (0 for all, default: 0)
+* ``-n, --no-update``: Skip feed updates (useful with ``--force`` to reprocess existing commits)
+* ``-f, --force``: Run deliveries even if feeds have no apparent updates
 
 Examples:
 
@@ -175,6 +177,12 @@ Examples:
 
    # Pull only the last 10 messages from a specific delivery
    kgl pull -m 10 lkml
+
+   # Force re-run deliveries without updating feeds first
+   kgl pull --no-update --force
+
+   # Force re-run a specific delivery
+   kgl pull -n -f lkml
 
 How Pull Works
 ~~~~~~~~~~~~~~

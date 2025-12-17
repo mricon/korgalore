@@ -21,7 +21,7 @@ SCOPES = [
     ]
 
 
-class GmailService:
+class GmailTarget:
     def __init__(self, identifier: str, credentials_file: str, token_file: str) -> None:
         self.identifier = identifier
         self.creds: Optional[Credentials] = None
@@ -56,7 +56,11 @@ class GmailService:
             with open(token_file, 'w') as token:
                 token.write(self.creds.to_json())
 
-        self.service = build('gmail', 'v1', credentials=self.creds)
+
+    def connect(self) -> None:
+        if self.service is None:
+            logger.debug('Connecting to Gmail service for %s', self.identifier)
+            self.service = build('gmail', 'v1', credentials=self.creds)
 
     def list_labels(self) -> List[Dict[str, str]]:
         """List all labels in the user's mailbox.

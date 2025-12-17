@@ -7,20 +7,28 @@ import click
 import tomllib
 import logging
 import click_log
-import json
+import requests
 
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional, Set
-from korgalore.gmail_service import GmailService
-from korgalore.lore_service import LoreService
-from korgalore.lei_service import LeiService
-from korgalore.maildir_service import MaildirService
-from korgalore.jmap_service import JmapService
-from korgalore.imap_service import ImapService
-from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError, PublicInboxError
+from typing import Dict, Any, List, Tuple, Optional, Union
+from korgalore.lore_feed import LoreFeed
+from korgalore.lei_feed import LeiFeed
+from korgalore.gmail_target import GmailTarget
+from korgalore.maildir_target import MaildirTarget
+from korgalore.jmap_target import JmapTarget
+from korgalore.imap_target import ImapTarget
+from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError
 
 logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
+
+REQSESSION: Optional[requests.Session] = None
+
+def get_reqsession() -> requests.Session:
+    global REQSESSION
+    if REQSESSION is None:
+        REQSESSION = LoreFeed.get_reqsession()
+    return REQSESSION
 
 def get_xdg_data_dir() -> Path:
     # Get XDG_DATA_HOME or default to ~/.local/share
@@ -57,10 +65,6 @@ def get_xdg_config_dir() -> Path:
 
 
 def get_target(ctx: click.Context, identifier: str) -> Any:
-    """Instantiate a delivery target service.
-
-    Supports target types: 'gmail', 'maildir', 'jmap', 'imap'
-    """
     if identifier in ctx.obj['targets']:
         return ctx.obj['targets'][identifier]
 
@@ -77,18 +81,18 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
     # Instantiate based on type
     service: Any
     if target_type == 'gmail':
-        service = get_gmail_service(
+        service = get_gmail_target(
             identifier=identifier,
             credentials_file=details.get('credentials', ''),
             token_file=details.get('token', None)
         )
     elif target_type == 'maildir':
-        service = get_maildir_service(
+        service = get_maildir_target(
             identifier=identifier,
             maildir_path=details.get('path', '')
         )
     elif target_type == 'jmap':
-        service = get_jmap_service(
+        service = get_jmap_target(
             identifier=identifier,
             server=details.get('server', ''),
             username=details.get('username', ''),
@@ -97,7 +101,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             timeout=details.get('timeout', 60)
         )
     elif target_type == 'imap':
-        service = get_imap_service(
+        service = get_imap_target(
             identifier=identifier,
             server=details.get('server', ''),
             username=details.get('username', ''),
@@ -115,8 +119,8 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
     return service
 
 
-def get_gmail_service(identifier: str, credentials_file: str,
-                      token_file: Optional[str]) -> GmailService:
+def get_gmail_target(identifier: str, credentials_file: str,
+                     token_file: Optional[str]) -> GmailTarget:
     if not credentials_file:
         logger.critical('No credentials file specified for Gmail target: %s', identifier)
         raise click.Abort()
@@ -124,64 +128,33 @@ def get_gmail_service(identifier: str, credentials_file: str,
         cfgdir = get_xdg_config_dir()
         token_file = str(cfgdir / f'gmail-{identifier}-token.json')
     try:
-        gmail_service = GmailService(identifier=identifier,
-                                     credentials_file=credentials_file,
-                                     token_file=token_file)
+        gt = GmailTarget(identifier=identifier,
+                         credentials_file=credentials_file,
+                         token_file=token_file)
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort()
 
-    return gmail_service
+    return gt
 
 
-def get_maildir_service(identifier: str, maildir_path: str) -> MaildirService:
-    """Factory function to create MaildirService instances.
-
-    Args:
-        identifier: Target name
-        maildir_path: Path to maildir directory
-
-    Returns:
-        Initialized MaildirService instance
-
-    Raises:
-        click.Abort on configuration errors
-    """
+def get_maildir_target(identifier: str, maildir_path: str) -> MaildirTarget:
     if not maildir_path:
         logger.critical('No maildir path specified for target: %s', identifier)
         raise click.Abort()
 
     try:
-        maildir_service = MaildirService(
-            identifier=identifier,
-            maildir_path=maildir_path
-        )
+        mt = MaildirTarget(identifier=identifier, maildir_path=maildir_path)
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort()
 
-    return maildir_service
+    return mt
 
 
-def get_jmap_service(identifier: str, server: str, username: str,
-                     token: Optional[str], token_file: Optional[str],
-                     timeout: int) -> JmapService:
-    """Factory function to create JmapService instances.
-
-    Args:
-        identifier: Target name
-        server: JMAP server URL
-        username: Account username
-        token: Bearer token (optional if token_file provided)
-        token_file: Path to token file (optional if token provided)
-        timeout: Request timeout in seconds
-
-    Returns:
-        Initialized JmapService instance
-
-    Raises:
-        click.Abort on configuration errors
-    """
+def get_jmap_target(identifier: str, server: str, username: str,
+                    token: Optional[str], token_file: Optional[str],
+                    timeout: int) -> JmapTarget:
     if not server:
         logger.critical('No server specified for JMAP target: %s', identifier)
         raise click.Abort()
@@ -196,7 +169,7 @@ def get_jmap_service(identifier: str, server: str, username: str,
         raise click.Abort()
 
     try:
-        jmap_service = JmapService(
+        jt = JmapTarget(
             identifier=identifier,
             server=server,
             username=username,
@@ -208,29 +181,12 @@ def get_jmap_service(identifier: str, server: str, username: str,
         logger.critical('Error: %s', str(fe))
         raise click.Abort()
 
-    return jmap_service
+    return jt
 
 
-def get_imap_service(identifier: str, server: str, username: str,
-                     folder: str, password: Optional[str],
-                     password_file: Optional[str], timeout: int) -> ImapService:
-    """Factory function to create ImapService instances.
-
-    Args:
-        identifier: Target name
-        server: IMAP server hostname
-        username: Account username
-        folder: Target folder for delivery
-        password: Password (optional if password_file provided)
-        password_file: Path to password file (optional if password provided)
-        timeout: Connection timeout in seconds
-
-    Returns:
-        Initialized ImapService instance
-
-    Raises:
-        click.Abort on configuration errors
-    """
+def get_imap_target(identifier: str, server: str, username: str,
+                    folder: str, password: Optional[str],
+                    password_file: Optional[str], timeout: int) -> ImapTarget:
     if not server:
         logger.critical('No server specified for IMAP target: %s', identifier)
         raise click.Abort()
@@ -245,7 +201,7 @@ def get_imap_service(identifier: str, server: str, username: str,
         raise click.Abort()
 
     try:
-        imap_service = ImapService(
+        it = ImapTarget(
             identifier=identifier,
             server=server,
             username=username,
@@ -258,7 +214,7 @@ def get_imap_service(identifier: str, server: str, username: str,
         logger.critical('Error: %s', str(fe))
         raise click.Abort()
 
-    return imap_service
+    return it
 
 
 def resolve_feed_url(feed_value: str, config: Dict[str, Any]) -> str:
@@ -352,357 +308,57 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
         raise click.Abort()
 
 
-def get_state_file_path(gitdir: Path, delivery_name: Optional[str], suffix: str) -> Path:
-    """Get the path to a state file, supporting per-delivery naming.
-
-    Args:
-        gitdir: Git directory path
-        delivery_name: Name of the delivery (optional for backward compatibility)
-        suffix: File suffix (e.g., 'failed', 'rejected', 'info')
-
-    Returns:
-        Path to the state file
-    """
-    if delivery_name:
-        return gitdir / f'korgalore.{delivery_name}.{suffix}'
-    else:
-        return gitdir / f'korgalore.{suffix}'
-
-
-def migrate_legacy_state_file(gitdir: Path, delivery_name: str, suffix: str) -> bool:
-    """Migrate a legacy state file to the new per-delivery format.
-
-    Args:
-        gitdir: Git directory path
-        delivery_name: Name of the delivery
-        suffix: File suffix (e.g., 'failed', 'rejected', 'info')
-
-    Returns:
-        True if migration occurred, False otherwise
-    """
-    legacy_path = gitdir / f'korgalore.{suffix}'
-    new_path = gitdir / f'korgalore.{delivery_name}.{suffix}'
-
-    # If new file exists, no migration needed
-    if new_path.exists():
-        return False
-
-    # If legacy file exists, migrate it
-    if legacy_path.exists():
-        logger.debug('Migrating legacy %s file to %s', legacy_path.name, new_path.name)
-        try:
-            # For .info files, we need to preserve content as-is
-            # For .failed and .rejected, we can just rename
-            import shutil
-            shutil.copy2(legacy_path, new_path)
-
-            # Rename legacy file to prevent duplicate migrations
-            archived_path = gitdir / f'korgalore.{suffix}.pre-migration'
-            if not archived_path.exists():
-                legacy_path.rename(archived_path)
-                logger.info('Migrated %s to per-delivery format: %s (legacy file renamed to %s)',
-                           legacy_path.name, new_path.name, archived_path.name)
-            else:
-                logger.info('Migrated %s to per-delivery format: %s (archive already exists, legacy file kept)',
-                           legacy_path.name, new_path.name)
-
-            return True
-        except Exception as e:
-            logger.warning('Failed to migrate %s: %s', legacy_path.name, str(e))
-            return False
-
-    return False
-
-
-def load_failed_commits(gitdir: Path, delivery_name: Optional[str] = None) -> Dict[str, int]:
-    """Load the tracking file of failed commits.
-
-    Args:
-        gitdir: Git directory path
-        delivery_name: Name of the delivery (for per-delivery state files)
-
-    Returns a dict mapping commit hash to failure count.
-    """
-    # Try to migrate legacy file if delivery_name is provided
-    if delivery_name:
-        migrate_legacy_state_file(gitdir, delivery_name, 'failed')
-
-    failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
-    if not failed_file.exists():
-        return {}
-
-    try:
-        with open(failed_file, 'r') as f:
-            data: Dict[str, int] = json.load(f)
-            return data
-    except Exception as e:
-        logger.warning('Failed to load failed commits file: %s', str(e))
-        return {}
-
-
-def save_failed_commits(gitdir: Path, failed_commits: Dict[str, int], delivery_name: Optional[str] = None) -> None:
-    """Save the tracking file of failed commits.
-
-    Args:
-        gitdir: Git directory path
-        failed_commits: Dict mapping commit hash to failure count
-        delivery_name: Name of the delivery (for per-delivery state files)
-    """
-    failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
-    try:
-        with open(failed_file, 'w') as f:
-            json.dump(failed_commits, f, indent=2)
-    except Exception as e:
-        logger.error('Failed to save failed commits file: %s', str(e))
-
-
-def load_rejected_commits(gitdir: Path, delivery_name: Optional[str] = None) -> List[str]:
-    """Load the tracking file of rejected commits.
-
-    Args:
-        gitdir: Git directory path
-        delivery_name: Name of the delivery (for per-delivery state files)
-
-    Returns:
-        List of rejected commit hashes
-    """
-    # Try to migrate legacy file if delivery_name is provided
-    if delivery_name:
-        migrate_legacy_state_file(gitdir, delivery_name, 'rejected')
-
-    rejected_file = get_state_file_path(gitdir, delivery_name, 'rejected')
-    if not rejected_file.exists():
-        return []
-
-    try:
-        with open(rejected_file, 'r') as f:
-            data: List[str] = json.load(f)
-            return data
-    except Exception as e:
-        logger.warning('Failed to load rejected commits file: %s', str(e))
-        return []
-
-
-def save_rejected_commits(gitdir: Path, rejected_commits: List[str], delivery_name: Optional[str] = None) -> None:
-    """Save the tracking file of rejected commits.
-
-    Args:
-        gitdir: Git directory path
-        rejected_commits: List of rejected commit hashes
-        delivery_name: Name of the delivery (for per-delivery state files)
-    """
-    rejected_file = get_state_file_path(gitdir, delivery_name, 'rejected')
-    try:
-        with open(rejected_file, 'w') as f:
-            json.dump(rejected_commits, f, indent=2)
-    except Exception as e:
-        logger.error('Failed to save rejected commits file: %s', str(e))
-
-
-def retry_failed_commits(gitdir: Path, ls: Any, gs: Any, labels: List[str], delivery_name: Optional[str] = None) -> Tuple[int, Dict[str, int], List[str]]:
-    """Retry previously failed commits.
-
-    Args:
-        gitdir: Git directory path
-        ls: Lore/LEI service
-        gs: Gmail service
-        labels: Labels to apply
-        delivery_name: Name of the delivery (for per-delivery state files)
-
-    Returns:
-        Tuple of (success_count, still_failed_dict, newly_rejected_list)
-    """
-    failed_commits = load_failed_commits(gitdir, delivery_name)
-    rejected_commits = load_rejected_commits(gitdir, delivery_name)
+def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], target_service: Any,
+                         labels: List[str], delivery_name: str) -> None:
+    failed_commits = pi_feed.get_failed_commits_for_delivery(delivery_name)
 
     if not failed_commits:
-        return 0, {}, []
+        return
 
     logger.info('Retrying %d previously failed commits', len(failed_commits))
 
-    success_count = 0
-    still_failed = {}
-    newly_rejected = []
-
-    for commit_hash, fail_count in failed_commits.items():
+    for epoch, commit_hash in failed_commits:
         try:
-            raw_message = ls.get_message_at_commit(gitdir, commit_hash)
+            raw_message = pi_feed.get_message_at_commit(epoch, commit_hash)
         except (StateError, GitError) as e:
+            # XXX: did the feed get rebased? Skip for now, but handle later.
             logger.debug('Skipping retry of commit %s: %s', commit_hash, str(e))
-            # Still count this as failed
-            still_failed[commit_hash] = fail_count
             continue
 
         try:
-            gs.import_message(raw_message, labels=labels)
+            target_service.import_message(raw_message, labels=labels)
             logger.debug('Successfully retried commit %s', commit_hash)
-            success_count += 1
-            # Don't add to still_failed - it succeeded!
+            pi_feed.mark_successful_delivery(delivery_name, epoch, commit_hash)
         except RemoteError:
-            # Failed again
-            new_fail_count = fail_count + 1
-            if new_fail_count > 5:
-                logger.warning('Commit %s failed %d times, moving to rejected', commit_hash, new_fail_count)
-                newly_rejected.append(commit_hash)
-                rejected_commits.append(commit_hash)
-            else:
-                logger.debug('Commit %s failed again (attempt %d)', commit_hash, new_fail_count)
-                still_failed[commit_hash] = new_fail_count
+            pi_feed.mark_failed_delivery(delivery_name, epoch, commit_hash)
 
     # Save updated tracking files
-    if still_failed:
-        save_failed_commits(gitdir, still_failed, delivery_name)
-    else:
-        # Remove the file if all retries succeeded
-        failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
-        if failed_file.exists():
-            failed_file.unlink()
-
-    if newly_rejected:
-        save_rejected_commits(gitdir, rejected_commits, delivery_name)
-
-    if success_count > 0:
-        logger.info('Successfully retried %d commits', success_count)
-
-    return success_count, still_failed, newly_rejected
+    pi_feed.feed_unlock()
 
 
-def process_commits(delivery_name: str, commits: List[str], gitdir: Path,
-                    ctx: click.Context, max_count: int = 0,
-                    still_failed_dict: Optional[Dict[str, int]] = None) -> Tuple[int, str]:
-    """Process commits for a delivery.
-
-    Args:
-        delivery_name: Name of the delivery
-        commits: List of commit hashes to process
-        gitdir: Git directory path
-        ctx: Click context
-        max_count: Maximum number of commits to process (0 for all)
-        still_failed_dict: Optional dict of previously failed commits
-
-    Returns:
-        Tuple of (count, last_commit)
-    """
-    if max_count > 0 and len(commits) > max_count:
-        # Take the last NN messages and discard the rest
-        logger.info('Limiting to %d messages as requested', max_count)
-        commits = commits[-max_count:]
-
-    # This can be either a lore or a lei source, but it doesn't really
-    # matter, as we use the underlying pi_service class for all actions
-    ls = ctx.obj['lore']
-    if ls is None:
-        ls = ctx.obj['lei']
-    cfg = ctx.obj.get('config', {})
-
-    details = cfg['deliveries'][delivery_name]
-    target = details.get('target', '')
-    labels = details.get('labels', [])
-
+def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFeed], epoch: int, commit: str,
+                   labels: List[str], was_failing: bool = False) -> bool:
+    """Deliver a single message to the target."""
+    raw_message: Optional[bytes] = None
     try:
-        gs = get_target(ctx, target)
-    except click.Abort:
-        logger.critical('Failed to process delivery "%s".', delivery_name)
-        raise ConfigurationError()
-
-    # Use the passed-in still_failed_dict or create a new one
-    if still_failed_dict is None:
-        still_failed_dict = {}
-
-    # Track failed commits from this run
-    failed_commits_this_run: Dict[str, int] = {}
-
-    last_commit = ''
-    consecutive_failures = 0
-    # If we hit this many consecutive failures, abort, because clearly
-    # the remote is having issues.
-    MAX_CONSECUTIVE_FAILURES = 5
-
-    if logger.isEnabledFor(logging.DEBUG):
-        hidden = True
-    elif logger.isEnabledFor(logging.INFO):
-        hidden = False
-    else:
-        hidden = True
-
-    count = 0
-    with click.progressbar(commits,
-                            label=f'Uploading {delivery_name}',
-                            show_pos=True,
-                            hidden=hidden) as bar:
-        for at_commit in bar:
-            try:
-                raw_message = ls.get_message_at_commit(gitdir, at_commit)
-            except (StateError, GitError) as e:
-                logger.debug('Skipping commit %s: %s', at_commit, str(e))
-                # Assuming non-m commit, don't count as failure
-                continue
-
-            try:
-                gs.import_message(raw_message, labels=labels)
-                count += 1
-                consecutive_failures = 0  # Reset on success
-
-                # Remove from still_failed_dict if it was there and save immediately
-                if at_commit in still_failed_dict:
-                    del still_failed_dict[at_commit]
-                    logger.debug('Removed successfully imported commit %s from failed list', at_commit)
-                    # Save immediately to persist the removal
-                    merged_failed = {**still_failed_dict, **failed_commits_this_run}
-                    save_failed_commits(gitdir, merged_failed, delivery_name)
-            except RemoteError as err:
-                logger.error('Failed to upload message at commit %s: %s', at_commit, str(err))
-
-                # Track this failure
-                failed_commits_this_run[at_commit] = 1
-                consecutive_failures += 1
-
-                # Save failed commits immediately to disk
-                merged_failed = {**still_failed_dict, **failed_commits_this_run}
-                save_failed_commits(gitdir, merged_failed, delivery_name)
-
-                # Check if we should abort
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    logger.critical('Aborting after %d consecutive failures', consecutive_failures)
-                    # Update .info to mark progress past this failed commit
-                    # This ensures we don't retry the same failed commits on next run
-                    ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit,
-                                             message=raw_message, delivery_name=delivery_name)
-                    return count, at_commit
-
-                # Continue to next commit
-                continue
-
-            # Update tracking info on success
-            ls.update_korgalore_info(gitdir=gitdir, latest_commit=at_commit, message=raw_message, delivery_name=delivery_name)
-            last_commit = at_commit
-            if logger.isEnabledFor(logging.DEBUG):
-                msg = ls.parse_message(raw_message)
-                logger.debug(' -> %s', msg.get('Subject', '(no subject)'))
-
-    # Final check: if we have no failed commits at all, remove the failed commits file
-    merged_failed = {**still_failed_dict, **failed_commits_this_run}
-    if not merged_failed:
-        failed_file = get_state_file_path(gitdir, delivery_name, 'failed')
-        if failed_file.exists():
-            failed_file.unlink()
-            logger.debug('Removed failed commits file as all commits succeeded')
-    elif failed_commits_this_run:
-        # Only log if we had new failures this run (already saved immediately)
-        logger.info('%d commits failed and will be retried next run', len(merged_failed))
-
-    return count, last_commit
+        raw_message = feed.get_message_at_commit(epoch, commit)
+        target.connect()
+        if logger.isEnabledFor(logging.DEBUG):
+            subject = feed.get_subject_at_commit(epoch, commit)
+            logger.debug(' -> %s', subject)
+        target.import_message(raw_message, labels=labels)
+        feed.mark_successful_delivery(delivery_name, epoch, commit, was_failing=was_failing)
+        return True
+    except Exception as e:
+        logger.debug('Failed to deliver commit %s from epoch %d: %s', commit, epoch, str(e))
+        feed.mark_failed_delivery(delivery_name, epoch, commit)
+        # Only save delivery info if we successfully retrieved the message
+        if raw_message is not None:
+            feed.save_delivery_info(delivery_name, epoch, latest_commit=commit, message=raw_message)
+        return False
 
 
 def normalize_feed_key(feed_url: str) -> str:
-    """Normalize a feed URL to a consistent key for tracking.
-
-    Args:
-        feed_url: Feed URL (e.g., 'https://lore.kernel.org/lkml' or 'lei:/path/to/search')
-
-    Returns:
-        Normalized feed key (e.g., 'lkml' or 'lei:/path/to/search')
-    """
     if feed_url.startswith('https://lore.kernel.org/'):
         # Extract list name from URL
         return feed_url.replace('https://lore.kernel.org/', '').strip('/')
@@ -713,727 +369,106 @@ def normalize_feed_key(feed_url: str) -> str:
         # For unknown types, use URL as-is
         return feed_url
 
+def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) -> Union[LeiFeed, LoreFeed]:
+    config = ctx.obj.get('config', {})
+    feed_value = delivery_details.get('feed', '')
+    if not feed_value:
+        raise ConfigurationError('No feed specified for delivery.')
+    feed_url = resolve_feed_url(feed_value, config)
+    feed_key = normalize_feed_key(feed_url)
+    feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
+    if feed_key in feeds:
+        return feeds[feed_key]
 
-def collect_feeds_from_deliveries(deliveries: Dict[str, Dict[str, Any]],
-                                   config: Dict[str, Any]) -> Dict[str, str]:
-    """Collect unique feeds from deliveries.
+    if feed_url.startswith('https:'):
+        # Lore feed
+        data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
+        feed_dir = data_dir / feed_key
+        lore_feed = LoreFeed(feed_key, feed_dir, feed_url, reqsession=get_reqsession())
+        feeds[feed_key] = lore_feed
+        return lore_feed
+    elif feed_url.startswith('lei:'):
+        # LEI feed
+        lei_feed = LeiFeed(feed_key, feed_url)
+        feeds[feed_key] = lei_feed
+        return lei_feed
+    else:
+        logger.critical('Unknown feed type for delivery: %s', feed_url)
+        raise ConfigurationError(f'Unknown feed type for delivery: {feed_url}')
 
-    Args:
-        deliveries: Dict of delivery configurations
-        config: Full configuration dict (for resolving feed names)
 
-    Returns:
-        Dict mapping feed_key -> feed_url
-    """
-    feeds: Dict[str, str] = {}
-
+def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
+    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
+    dmap: Dict[str, Tuple[Union[LeiFeed, LoreFeed], Any, List[str]]] = dict()
+    logger.debug('Mapping deliveries to their feeds and targets')
+    # Pre-map deliveries to their feeds and targets for later use.
     for delivery_name, details in deliveries.items():
-        feed_url = resolve_feed_url(details.get('feed', ''), config)
-        feed_key = normalize_feed_key(feed_url)
-        feeds[feed_key] = feed_url
-
-    return feeds
-
-
-def filter_deliveries_by_feed_updates(
-    deliveries: Dict[str, Dict[str, Any]],
-    feeds_with_updates: Set[str],
-    config: Dict[str, Any]
-) -> Dict[str, Dict[str, Any]]:
-    """Filter deliveries to only those whose feeds had updates.
-
-    Args:
-        deliveries: Dict of delivery configurations
-        feeds_with_updates: Set of feed_keys that had updates
-        config: Full configuration dict (for resolving feed names)
-
-    Returns:
-        Filtered dict of deliveries
-    """
-    filtered: Dict[str, Dict[str, Any]] = {}
-
-    for delivery_name, details in deliveries.items():
-        feed_url = resolve_feed_url(details.get('feed', ''), config)
-        feed_key = normalize_feed_key(feed_url)
-
-        if feed_key in feeds_with_updates:
-            filtered[delivery_name] = details
-
-    return filtered
+        # Map feed
+        feed = get_feed_for_delivery(details, ctx)
+        # Map target
+        target_name = details.get('target', '')
+        if not target_name:
+            logger.critical('No target specified for delivery: %s', delivery_name)
+            raise ConfigurationError(f'No target specified for delivery: {delivery_name}')
+        target = get_target(ctx, target_name)
+        # Lock for the entire duration
+        dmap[delivery_name] = (feed, target, details.get('labels', []))
+    ctx.obj['deliveries'] = dmap
 
 
-def retry_all_failed_deliveries(ctx: click.Context, deliveries: Dict[str, Dict[str, Any]],
-                                 config: Dict[str, Any]) -> None:
-    """Retry all failed deliveries before updating feeds.
+def lock_all_feeds(ctx: click.Context) -> None:
+    feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
+    for feed_key in feeds.keys():
+        feed = feeds[feed_key]
+        feed.feed_lock()
 
-    Args:
-        ctx: Click context
-        deliveries: Dict of delivery configurations
-        config: Full configuration dict
-    """
-    for delivery_name, details in deliveries.items():
-        feed_url = resolve_feed_url(details.get('feed', ''), config)
-        feed_key = normalize_feed_key(feed_url)
 
-        # Get gitdir for this feed
-        if feed_url.startswith('https:'):
-            ls = ctx.obj.get('lore')
-            if ls is None:
-                ls = LoreService(ctx.obj['data_dir'])
-                ctx.obj['lore'] = ls
+def unlock_all_feeds(ctx: click.Context) -> None:
+    feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
+    for feed_key in feeds.keys():
+        feed = feeds[feed_key]
+        feed.feed_unlock()
 
-            feed_dir = ls.datadir / feed_key
 
-            if not feed_dir.exists():
-                continue  # No failed commits for uninitialized feeds
+def update_all_feeds(ctx: click.Context) -> List[str]:
+    updated_feeds: List[str] = []
+    feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
 
-            # Find highest epoch
-            epochs_dir = feed_dir / 'git'
-            if not epochs_dir.exists():
-                continue
+    with click.progressbar(feeds.keys(),
+                           label='Updating feeds',
+                           show_pos=True,
+                           item_show_func=lambda x: x in feeds and str(feeds[x].feed_url) or x,
+                           hidden=ctx.obj['hide_bar']) as bar:
+        for feed_key in bar:
+            feed = feeds[feed_key]
+            updated = feed.update_feed()
+            if updated:
+                updated_feeds.append(feed_key)
 
-            epochs = [int(p.name.replace('.git', ''))
-                     for p in epochs_dir.iterdir()
-                     if p.is_dir() and p.name.endswith('.git')]
+    return updated_feeds
 
-            if not epochs:
-                continue
 
-            gitdir = epochs_dir / f'{max(epochs)}.git'
-
-        elif feed_url.startswith('lei:'):
-            lei = ctx.obj.get('lei')
-            if lei is None:
-                lei = LeiService()
-                ctx.obj['lei'] = lei
-
-            feed = feed_url[4:]  # Strip 'lei:' prefix
-            if feed not in lei.known_searches:
-                continue  # Unknown LEI search
-
-            feedpath = Path(feed)
-            if not feedpath.exists():
-                continue
-
-            try:
-                latest_epoch = max(lei.find_epochs(feedpath))
-                gitdir = feedpath / 'git' / f'{latest_epoch}.git'
-            except (PublicInboxError, ValueError):
-                continue
-
-            ls = lei  # Use lei service for git operations
-
-        else:
-            logger.warning('Unknown feed type for delivery %s: %s', delivery_name, feed_url)
+def retry_all_failed_deliveries(ctx: click.Context) -> None:
+    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
+    deliveries = ctx.obj['deliveries']
+    retry_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
+    for delivery_name, (feed, target, labels) in deliveries.items():
+        to_retry = feed.get_failed_commits_for_delivery(delivery_name)
+        if not to_retry:
+            logger.debug('No failed commits to retry for delivery: %s', delivery_name)
             continue
-
-        # Retry failed commits
-        try:
-            gs = get_target(ctx, details['target'])
-            labels = details.get('labels', [])
-
-            retry_success, still_failed, newly_rejected = retry_failed_commits(
-                gitdir, ls, gs, labels, delivery_name=delivery_name
-            )
-
-            if retry_success > 0:
-                logger.info('Delivery %s: retried %d failed commits successfully',
-                           delivery_name, retry_success)
-        except Exception as e:
-            logger.warning('Failed to retry commits for delivery %s: %s', delivery_name, e)
-            continue
-
-
-def update_all_feeds(ctx: click.Context, feeds: Dict[str, str]) -> Set[str]:
-    """Update all feeds and return set of feed_keys that had updates.
-
-    Args:
-        ctx: Click context
-        feeds: Dict mapping feed_key -> feed_url
-
-    Returns:
-        Set of feed_keys that had new commits
-    """
-    feeds_with_updates: Set[str] = set()
-
-    for feed_key, feed_url in feeds.items():
-        try:
-            if feed_url.startswith('https:'):
-                had_updates = update_lore_feed(ctx, feed_key, feed_url)
-            elif feed_url.startswith('lei:'):
-                had_updates = update_lei_feed(ctx, feed_key, feed_url)
-            else:
-                logger.warning('Unknown feed type: %s', feed_url)
-                continue
-
-            if had_updates:
-                feeds_with_updates.add(feed_key)
-        except Exception as e:
-            logger.error('Failed to update feed %s: %s', feed_key, e)
-            continue
-
-    return feeds_with_updates
-
-
-def process_deliveries_with_updates(
-    ctx: click.Context,
-    deliveries: Dict[str, Dict[str, Any]],
-    max_mail: int,
-    config: Dict[str, Any]
-) -> List[Tuple[str, int]]:
-    """Process deliveries that have feed updates.
-
-    Args:
-        ctx: Click context
-        deliveries: Dict of delivery configurations
-        max_mail: Maximum messages to process per delivery
-        config: Full configuration dict
-
-    Returns:
-        List of (delivery_name, count) tuples
-    """
-    changes: List[Tuple[str, int]] = []
-
-    for delivery_name, details in deliveries.items():
-        feed_url = resolve_feed_url(details.get('feed', ''), config)
-
-        try:
-            if feed_url.startswith('https:'):
-                count = process_lore_delivery(ctx, delivery_name, details, max_mail)
-            elif feed_url.startswith('lei:'):
-                count = process_lei_delivery(ctx, delivery_name, details, max_mail)
-            else:
-                logger.warning('Unknown feed type for delivery %s: %s', delivery_name, feed_url)
-                continue
-
-            if count > 0:
-                changes.append((delivery_name, count))
-        except Exception as e:
-            logger.error('Failed to process delivery %s: %s', delivery_name, e)
-            continue
-
-    return changes
-
-
-def update_lore_feed(ctx: click.Context, feed_key: str, feed_url: str) -> bool:
-    """Update a lore feed and return whether there were updates.
-
-    Args:
-        ctx: Click context
-        feed_key: Normalized feed key
-        feed_url: Full feed URL
-
-    Returns:
-        True if feed had new commits, False otherwise
-    """
-    ls = ctx.obj.get('lore')
-    if ls is None:
-        ls = LoreService(ctx.obj['data_dir'])
-        ctx.obj['lore'] = ls
-
-    feed_dir = ls.datadir / feed_key
-
-    # Migrate legacy state if needed
-    if feed_dir.exists():
-        ls.migrate_to_feed_state(feed_dir)
-
-    # Get remote epochs
-    latest_epochs = ls.get_epochs(feed_url)
-    highest_epoch = max(e[0] for e in latest_epochs)
-
-    # Initialize if needed
-    if not feed_dir.exists():
-        logger.info('Initializing new feed: %s', feed_key)
-        # TODO: Implement init_feed_at_head or use existing init_feed
-        # For now, return False to skip first-time init
-        return False
-
-    # Load current feed state
-    try:
-        feed_state = ls.load_feed_state(feed_dir)
-    except StateError:
-        # No feed state yet, treat as no updates
-        logger.warning('Feed state not found for %s, treating as no updates', feed_key)
-        return False
-
-    # Check for new epochs
-    epochs_dir = feed_dir / 'git'
-    current_epochs = set(int(p.name.replace('.git', ''))
-                        for p in epochs_dir.iterdir()
-                        if p.is_dir() and p.name.endswith('.git'))
-
-    latest_epoch_nums = set(e[0] for e in latest_epochs)
-    new_epochs = latest_epoch_nums - current_epochs
-
-    # Update highest epoch (always do git fetch)
-    gitdir = epochs_dir / f'{highest_epoch}.git'
-
-    # Perform git fetch
-    logger.info('Updating feed: %s (epoch %d)', feed_key, highest_epoch)
-    gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
-    retcode, output = ls.run_git_command(str(gitdir), gitargs)
-
-    if retcode != 0:
-        logger.warning('Failed to update feed: %s', feed_key)
-        ls.save_feed_state(feed_dir, highest_epoch, success=False)
-        return False
-
-    # Check if there are new commits since last feed state
-    old_commit = feed_state.get('latest_commit')
-    new_commit = ls.get_top_commit(gitdir)
-
-    had_updates: bool = (old_commit != new_commit) or bool(new_epochs)
-
-    # Clone new epochs if any
-    for epoch in sorted(new_epochs):
-        repo_url = f"{feed_url}/git/{epoch}.git"
-        tgt_dir = epochs_dir / f'{epoch}.git'
-        logger.info('Cloning new epoch: %s (epoch %d)', feed_key, epoch)
-        ls.clone_epoch(repo_url, tgt_dir, shallow=False)
-
-    # Update feed state
-    ls.save_feed_state(feed_dir, highest_epoch, latest_commit=new_commit, success=True)
-
-    return had_updates
-
-
-def update_lei_feed(ctx: click.Context, feed_key: str, feed_url: str) -> bool:
-    """Update a lei feed and return whether there were updates.
-
-    Args:
-        ctx: Click context
-        feed_key: Normalized feed key
-        feed_url: Full feed URL
-
-    Returns:
-        True if feed had new commits, False otherwise
-    """
-    lei = ctx.obj.get('lei')
-    if lei is None:
-        lei = LeiService()
-        ctx.obj['lei'] = lei
-
-    feed = feed_url[4:]  # Strip 'lei:' prefix
-    if feed not in lei.known_searches:
-        logger.warning('LEI search not known: %s', feed_key)
-        return False
-
-    feedpath = Path(feed)
-    if not feedpath.exists():
-        logger.warning('LEI search path does not exist: %s', feed)
-        return False
-
-    # Migrate legacy state if needed
-    lei.migrate_to_feed_state(feedpath)
-
-    try:
-        latest_epoch = max(lei.find_epochs(feedpath))
-    except (PublicInboxError, ValueError) as e:
-        logger.warning('Failed to get epoch info for %s: %s', feed_key, e)
-        return False
-
-    # Load current feed state
-    try:
-        feed_state = lei.load_feed_state(feedpath)
-    except StateError:
-        # No feed state yet, initialize
-        lei.save_feed_state(feedpath, latest_epoch)
-        return False
-
-    # Update LEI search
-    logger.info('Updating LEI feed: %s', feed_key)
-    lei.up_search(lei_name=feed)
-
-    # Check for updates
-    gitdir = feedpath / 'git' / f'{latest_epoch}.git'
-    old_commit = feed_state.get('latest_commit')
-    new_commit = lei.get_top_commit(gitdir)
-
-    had_updates: bool = (old_commit != new_commit)
-
-    # Update feed state
-    lei.save_feed_state(feedpath, latest_epoch, latest_commit=new_commit, success=True)
-
-    return had_updates
-
-
-def process_lei_delivery(ctx: click.Context, delivery_name: str,
-                         details: Dict[str, Any], max_mail: int) -> int:
-    # Make sure lei knows about this feed
-    # Placeholder for future LEI feed processing logic
-    lei = ctx.obj['lei']
-    if lei is None:
-        lei = LeiService()
-        ctx.obj['lei'] = lei
-
-    # Resolve feed URL from name or use direct URL
-    cfg = ctx.obj.get('config', {})
-    feed_url = resolve_feed_url(details.get('feed', ''), cfg)
-    feed = feed_url[4:]  # Strip 'lei:' prefix
-    if feed not in lei.known_searches:
-        logger.critical('LEI search "%s" not known. Please create it first.', delivery_name)
-        raise click.Abort()
-    feedpath = Path(feed)
-    latest_epochs = lei.get_latest_epoch_info(feedpath)
-    latest_epoch = max(lei.find_epochs(feedpath))
-    try:
-        lei.load_known_epoch_info(feedpath)
-    except StateError:
-        lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
-        lei.update_korgalore_info(gitdir=feedpath / 'git' / f'{latest_epoch}.git', delivery_name=delivery_name)
-        logger.info('Initialized: %s.', delivery_name)
-        return 0
-
-    lei.up_search(lei_name=feed)
-    latest_epochs = lei.get_latest_epoch_info(feedpath)
-
-    # XXX: this doesn't do the right thing with epoch rollover yet
-    gitdir = feedpath / 'git' / f'{latest_epoch}.git'
-
-    # Get target and labels for retry logic
-    ls = ctx.obj['lore']
-    target = details.get('target', '')
-    labels = details.get('labels', [])
-    try:
-        gs = get_target(ctx, target)
-    except click.Abort:
-        logger.critical('Failed to get target for delivery "%s".', delivery_name)
-        raise ConfigurationError()
-
-    # Always retry failed commits, even if there are no new commits
-    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=delivery_name)
-    count = retry_success if retry_success > 0 else 0
-
-    # if known_epochs == latest_epochs:
-    #     logger.debug('No updates for LEI feed: %s', delivery_name)
-    #     return count
-
-    commits = lei.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
-    if commits:
-        logger.debug('Found %d new commits for delivery %s', len(commits), delivery_name)
-        new_count, last_commit = process_commits(delivery_name=delivery_name, commits=commits,
-                                             gitdir=gitdir, ctx=ctx, max_count=max_mail,
-                                             still_failed_dict=still_failed_dict)
-        count += new_count
-        lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
-        return count
-    else:
-        logger.debug('No new commits to process for LEI delivery %s', delivery_name)
-        lei.save_epoch_info(feed_dir=feedpath, epochs=latest_epochs)
-        return count
-
-
-def process_lei_delivery_post_update(ctx: click.Context, delivery_name: str,
-                                     details: Dict[str, Any], max_mail: int) -> int:
-    """Process a LEI delivery after feed has been updated.
-
-    This function assumes the feed has already been updated via update_lei_feed().
-    It only processes new commits for this specific delivery.
-    """
-    lei = ctx.obj['lei']
-    if lei is None:
-        lei = LeiService()
-        ctx.obj['lei'] = lei
-
-    # Resolve feed URL from name or use direct URL
-    cfg = ctx.obj.get('config', {})
-    feed_url = resolve_feed_url(details.get('feed', ''), cfg)
-    feed = feed_url[4:]  # Strip 'lei:' prefix
-
-    if feed not in lei.known_searches:
-        logger.critical('LEI search "%s" not known. Please create it first.', delivery_name)
-        raise click.Abort()
-
-    feedpath = Path(feed)
-
-    # Get latest epochs (should already be updated)
-    try:
-        latest_epochs = lei.load_known_epoch_info(feedpath)
-    except StateError:
-        logger.error('No epoch info found for LEI feed: %s (should have been created in update phase)',
-                    feed)
-        return 0
-
-    # Find latest epoch
-    epoch_nums = lei.find_epochs(feedpath)
-    if not epoch_nums:
-        logger.error('No epochs found for LEI feed: %s', feed)
-        return 0
-
-    latest_epoch = max(epoch_nums)
-    gitdir = feedpath / 'git' / f'{latest_epoch}.git'
-
-    if not gitdir.exists():
-        logger.error('Epoch gitdir does not exist: %s', gitdir)
-        return 0
-
-    # Get target and labels
-    ls = ctx.obj['lore']
-    target = details.get('target', '')
-    labels = details.get('labels', [])
-    try:
-        gs = get_target(ctx, target)
-    except click.Abort:
-        logger.critical('Failed to get target for delivery "%s".', delivery_name)
-        raise ConfigurationError()
-
-    # Get commits for this delivery (skips lei up since already done)
-    commits = lei.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
-
-    count = 0
-    if commits:
-        logger.debug('Found %d new commits for delivery %s', len(commits), delivery_name)
-        # Get still_failed_dict for this delivery
-        still_failed_dict = ls.load_failed_commits(gitdir, delivery_name)
-
-        new_count, last_commit = process_commits(
-            delivery_name=delivery_name,
-            commits=commits,
-            gitdir=gitdir,
-            ctx=ctx,
-            max_count=max_mail,
-            still_failed_dict=still_failed_dict
-        )
-        count += new_count
-    else:
-        logger.debug('No new commits to process for LEI delivery %s', delivery_name)
-
-    return count
-
-
-def process_lore_delivery(ctx: click.Context, delivery_name: str,
-                          details: Dict[str, Any], max_mail: int) -> int:
-    ls = ctx.obj['lore']
-    if ls is None:
-        data_dir = ctx.obj['data_dir']
-        ls = LoreService(data_dir)
-        ctx.obj['lore'] = ls
-
-    # Resolve feed URL from name or use direct URL
-    cfg = ctx.obj.get('config', {})
-    feed_url = resolve_feed_url(details.get('feed', ''), cfg)
-
-    latest_epochs = ls.get_epochs(feed_url)
-    count = 0
-
-    data_dir = ctx.obj['data_dir']
-
-    # Get feed identifier for directory naming (based on feed, not delivery)
-    feed_identifier = get_feed_identifier(details.get('feed', ''), cfg)
-    feed_dir = data_dir / feed_identifier
-
-    # Migration: Check for legacy directory named after delivery
-    legacy_dir = data_dir / delivery_name
-    if legacy_dir.exists() and not feed_dir.exists() and legacy_dir != feed_dir:
-        logger.info('Migrating feed directory from %s to %s', legacy_dir.name, feed_dir.name)
-        legacy_dir.rename(feed_dir)
-    elif legacy_dir.exists() and feed_dir.exists() and legacy_dir != feed_dir:
-        logger.warning('Legacy directory %s exists alongside new feed directory %s. '
-                      'You may want to manually remove the legacy directory.',
-                      legacy_dir.name, feed_dir.name)
-
-    # Log feed directory for transparency
-    logger.debug('Using feed directory: %s for feed URL: %s', feed_identifier, feed_url)
-
-    if not feed_dir.exists():
-        ls.init_feed(delivery_name=delivery_name, feed_dir=feed_dir, pi_url=feed_url)
-        ls.store_epochs_info(feed_dir=feed_dir, epochs=latest_epochs)
-        logger.info('Initialized feed %s for delivery: %s', feed_identifier, delivery_name)
-        return 0
-
-    current_epochs: List[Tuple[int, str, str]] = list()
-    try:
-        current_epochs = ls.load_epochs_info(feed_dir=feed_dir)
-    except StateError:
-        pass
-
-    highest_epoch, gitdir, commits = ls.get_commits_in_highest_epoch(feed_dir=feed_dir, delivery_name=delivery_name)
-
-    # Get target and labels for retry logic
-    target = details.get('target', '')
-    labels = details.get('labels', [])
-    try:
-        gs = get_target(ctx, target)
-    except click.Abort:
-        logger.critical('Failed to get target for delivery "%s".', delivery_name)
-        raise ConfigurationError()
-
-    # Always retry failed commits, even if there are no new commits
-    retry_success, still_failed_dict, newly_rejected = retry_failed_commits(gitdir, ls, gs, labels, delivery_name=delivery_name)
-    if retry_success > 0:
-        count = retry_success
-    else:
-        count = 0
-
-    if current_epochs == latest_epochs and not commits:
-        logger.debug('No updates for lore feed: %s', delivery_name)
-        return count
-
-    if commits:
-        logger.debug('Found %d new commits for delivery %s', len(commits), delivery_name)
-        new_count, last_commit = process_commits(delivery_name=delivery_name, commits=commits,
-                                             gitdir=gitdir, ctx=ctx, max_count=max_mail,
-                                             still_failed_dict=still_failed_dict)
-        count += new_count
-    else:
-        last_commit = ''
-        logger.debug('No new commits to process for delivery %s', delivery_name)
-
-    local = set(e[0] for e in current_epochs)
-    remote = set(e[0] for e in latest_epochs)
-
-    new_epochs = remote - local
-    if new_epochs:
-        # In theory, we could have more than one new epoch, for example if
-        # someone hasn't run korgalore in a long time. This is almost certainly
-        # not something anyone would want, because it would involve pulling a lot of data
-        # that would take ages. So for now, we just pick the highest new epoch, which
-        # will be correct in vast majority of cases.
-        next_epoch = max(new_epochs)
-        repo_url = f"{feed_url.rstrip('/')}/git/{next_epoch}.git"
-        tgt_dir = feed_dir / 'git' / f'{next_epoch}.git'
-        logger.debug('Cloning new epoch %d for delivery %s', next_epoch, delivery_name)
-        ls.clone_epoch(repo_url=repo_url, tgt_dir=tgt_dir, shallow=False)
-        commits = ls.get_all_commits_in_epoch(tgt_dir)
-        # attempt to respect max_mail across epoch boundaries
-        remaining_mail = max_mail - count if max_mail > 0 else 0
-        if remaining_mail <= 0:
-            # Not clear what to do in this case, so we're just going to do max_mail for
-            # the new epoch as well
-            remaining_mail = max_mail
-        # For new epochs, we need to get a fresh still_failed_dict since it's a different gitdir
-        new_retry_success, new_still_failed_dict, new_newly_rejected = retry_failed_commits(tgt_dir, ls, gs, labels, delivery_name=delivery_name)
-        count += new_retry_success
-        new_count, last_commit = process_commits(delivery_name=delivery_name, commits=commits,
-                                                 gitdir=tgt_dir, ctx=ctx, max_count=remaining_mail,
-                                                 still_failed_dict=new_still_failed_dict)
-        count += new_count
-
-    ls.store_epochs_info(feed_dir=feed_dir, epochs=latest_epochs)
-
-    return count
-
-
-def process_lore_delivery_post_update(ctx: click.Context, delivery_name: str,
-                                       details: Dict[str, Any], max_mail: int) -> int:
-    """Process a lore delivery after feed has been updated.
-
-    This function assumes the feed has already been updated via update_lore_feed().
-    It only processes new commits for this specific delivery.
-    """
-    ls = ctx.obj['lore']
-    if ls is None:
-        data_dir = ctx.obj['data_dir']
-        ls = LoreService(data_dir)
-        ctx.obj['lore'] = ls
-
-    # Resolve feed URL from name or use direct URL
-    cfg = ctx.obj.get('config', {})
-    feed_url = resolve_feed_url(details.get('feed', ''), cfg)
-
-    data_dir = ctx.obj['data_dir']
-
-    # Get feed identifier for directory naming (based on feed, not delivery)
-    feed_identifier = get_feed_identifier(details.get('feed', ''), cfg)
-    feed_dir = data_dir / feed_identifier
-
-    if not feed_dir.exists():
-        logger.error('Feed directory does not exist: %s (should have been created in update phase)',
-                    feed_identifier)
-        return 0
-
-    # Get latest epochs (should already be stored)
-    try:
-        latest_epochs = ls.load_epochs_info(feed_dir=feed_dir)
-    except StateError:
-        logger.error('No epoch info found for feed: %s (should have been created in update phase)',
-                    feed_identifier)
-        return 0
-
-    # Find highest epoch gitdir
-    epochs_dir = feed_dir / 'git'
-    epoch_nums = [int(p.name.replace('.git', ''))
-                  for p in epochs_dir.iterdir()
-                  if p.is_dir() and p.name.endswith('.git')]
-
-    if not epoch_nums:
-        logger.error('No epochs found in feed directory: %s', feed_identifier)
-        return 0
-
-    highest_epoch = max(epoch_nums)
-    gitdir = epochs_dir / f'{highest_epoch}.git'
-
-    # Get target and labels
-    target = details.get('target', '')
-    labels = details.get('labels', [])
-    try:
-        gs = get_target(ctx, target)
-    except click.Abort:
-        logger.critical('Failed to get target for delivery "%s".', delivery_name)
-        raise ConfigurationError()
-
-    # Get commits for this delivery (skips git fetch since already done)
-    commits = ls.get_latest_commits_in_epoch(gitdir, delivery_name=delivery_name)
-
-    count = 0
-    if commits:
-        logger.debug('Found %d new commits for delivery %s', len(commits), delivery_name)
-        # Get still_failed_dict for this delivery
-        still_failed_dict = ls.load_failed_commits(gitdir, delivery_name)
-
-        new_count, last_commit = process_commits(
-            delivery_name=delivery_name,
-            commits=commits,
-            gitdir=gitdir,
-            ctx=ctx,
-            max_count=max_mail,
-            still_failed_dict=still_failed_dict
-        )
-        count += new_count
-    else:
-        logger.debug('No new commits to process for delivery %s', delivery_name)
-
-    # Check for new epochs that need processing
-    current_epochs = set(e[0] for e in latest_epochs)
-
-    # Get epochs this delivery has processed (from its info file)
-    try:
-        delivery_info = ls.load_korgalore_info(gitdir, delivery_name)
-        delivery_last_epoch = delivery_info.get('epoch', highest_epoch)
-    except (FileNotFoundError, StateError):
-        delivery_last_epoch = highest_epoch
-
-    # If there are newer epochs than what this delivery has seen, process them
-    unprocessed_epochs = [e for e in sorted(current_epochs) if e > delivery_last_epoch]
-
-    for epoch in unprocessed_epochs:
-        tgt_dir = epochs_dir / f'{epoch}.git'
-        if not tgt_dir.exists():
-            logger.warning('Epoch %d directory missing for delivery %s', epoch, delivery_name)
-            continue
-
-        logger.debug('Processing new epoch %d for delivery %s', epoch, delivery_name)
-        commits = ls.get_all_commits_in_epoch(tgt_dir)
-
-        # Respect max_mail across epoch boundaries
-        remaining_mail = max_mail - count if max_mail > 0 else 0
-        if remaining_mail <= 0:
-            remaining_mail = max_mail
-
-        # Get still_failed_dict for this epoch
-        new_still_failed_dict = ls.load_failed_commits(tgt_dir, delivery_name)
-
-        new_count, last_commit = process_commits(
-            delivery_name=delivery_name,
-            commits=commits,
-            gitdir=tgt_dir,
-            ctx=ctx,
-            max_count=remaining_mail,
-            still_failed_dict=new_still_failed_dict
-        )
-        count += new_count
-
-    return count
+        for epoch, commit in to_retry:
+            retry_list.append((delivery_name, target, feed, epoch, commit, labels))
+    if not retry_list:
+        logger.debug('No failed commits to retry for any delivery.')
+        return
+
+    with click.progressbar(retry_list,
+                           label='Reattempting delivery',
+                           show_pos=True,
+                           hidden=ctx.obj['hide_bar']) as bar:
+        for (delivery_name, target, feed, epoch, commit, labels) in bar:
+            deliver_commit(delivery_name, target, feed, epoch, commit, labels, was_failing=True)
 
 
 @click.group()
@@ -1470,11 +505,19 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
 
     logger.debug('Data directory: %s', data_dir)
 
-    # We lazy-load these services as needed
+    # We lazy-load these
+    # 'targets' is a mapping: target identifier -> target instance
     ctx.obj['targets'] = dict()
+    # 'feeds' is a mapping: feed_key -> feed instance
+    ctx.obj['feeds'] = dict()
+    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
+    ctx.obj['deliveries'] = dict()
 
-    ctx.obj['lore'] = None
-    ctx.obj['lei'] = None
+    # Hide progress bar at the DEBUG level
+    if logger.isEnabledFor(logging.DEBUG):
+        ctx.obj['hide_bar'] = True
+    else:
+        ctx.obj['hide_bar'] = False
 
 
 @main.command()
@@ -1530,7 +573,8 @@ def auth(ctx: click.Context, target: Optional[str]) -> None:
 
         # Instantiate target to trigger authentication
         try:
-            get_target(ctx, identifier)
+            ts = get_target(ctx, identifier)
+            ts.connect()
             logger.info('Authenticated target: %s (type: %s)', identifier, target_type)
         except click.Abort:
             logger.error('Failed to authenticate target: %s', identifier)
@@ -1624,12 +668,14 @@ def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
 @main.command()
 @click.pass_context
 @click.option('--max-mail', '-m', default=0, help='maximum number of messages to pull (0 for all)')
+@click.option('--no-update', '-n', is_flag=True, help='skip feed updates (useful with --force)')
+@click.option('--force', '-f', is_flag=True, help='run deliveries even if no apparent updates')
 @click.argument('delivery_name', type=str, nargs=1, default=None)
-def pull(ctx: click.Context, max_mail: int, delivery_name: Optional[str]) -> None:
+def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delivery_name: Optional[str]) -> None:
     """Pull messages from configured lore and LEI deliveries."""
     cfg = ctx.obj.get('config', {})
 
-    # 1. Load deliveries to process
+    # Load deliveries to process
     deliveries = cfg.get('deliveries', {})
     if delivery_name:
         if delivery_name not in deliveries:
@@ -1637,42 +683,95 @@ def pull(ctx: click.Context, max_mail: int, delivery_name: Optional[str]) -> Non
             raise click.Abort()
         deliveries = {delivery_name: deliveries[delivery_name]}
 
-    logger.info('Processing %d deliveries...', len(deliveries))
+    # Collect unique feeds from all deliveries
+    map_deliveries(ctx, deliveries)
+    lock_all_feeds(ctx)
+    # Retry all previously failed deliveries, if any
+    retry_all_failed_deliveries(ctx)
+    if no_update:
+        logger.debug('No-update flag set, skipping feed updates')
+        updated_feeds = list()
+    else:
+        updated_feeds = update_all_feeds(ctx)
+    run_deliveries: List[str] = list()
+    if not force:
+        logger.debug('Updated feeds: %s', ', '.join(updated_feeds))
+        for feed_key in updated_feeds:
+            # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
+            for delivery_name in ctx.obj['deliveries'].keys():
+                feed = ctx.obj['deliveries'][delivery_name][0]
+                if feed.feed_key == feed_key:
+                    run_deliveries.append(delivery_name)
+    else:
+        # If force is specified, treat all feeds as updated
+        logger.debug('Force flag set, treating all feeds as updated')
+        run_deliveries = list(deliveries.keys())
 
-    # 2. PHASE 1: Retry failed deliveries FIRST
-    logger.info('Phase 1: Retrying failed deliveries...')
-    retry_all_failed_deliveries(ctx, deliveries, cfg)
+    logger.debug('Deliveries to run: %s', ', '.join(run_deliveries))
 
-    # 3. PHASE 2: Collect unique feeds from all deliveries
-    feeds_to_update = collect_feeds_from_deliveries(deliveries, cfg)
-    logger.info('Phase 2: Updating %d unique feeds...', len(feeds_to_update))
-
-    # 4. PHASE 3: Update all feeds, track which had updates
-    feeds_with_updates = update_all_feeds(ctx, feeds_to_update)
-
-    if not feeds_with_updates:
-        logger.info('No feed updates available')
+    if not run_deliveries:
+        logger.info('No feed updates available.')
+        unlock_all_feeds(ctx)
         return
 
-    logger.info('Found updates in %d feeds', len(feeds_with_updates))
+    # Build a worklist of updates per target
+    by_target: Dict[str, List[str]] = dict()
+    for delivery_name in run_deliveries:
+        target_name = ctx.obj['deliveries'][delivery_name][1].identifier
+        if target_name not in by_target:
+            by_target[target_name] = list()
+        by_target[target_name].append(delivery_name)
 
-    # 5. PHASE 4: Filter deliveries to only those with feed updates
-    deliveries_with_updates = filter_deliveries_by_feed_updates(
-        deliveries, feeds_with_updates, cfg
-    )
+    changes: Dict[str, int] = dict()
 
-    if not deliveries_with_updates:
-        logger.info('No deliveries with feed updates')
-        return
+    # Process deliveries now
+    for target_name, delivery_names in by_target.items():
+        logger.debug('Processing deliveries for target: %s', target_name)
+        run_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
+        for delivery_name in delivery_names:
+            feed, target, labels = ctx.obj['deliveries'][delivery_name]
+            commits = feed.get_latest_commits_for_delivery(delivery_name)
+            if not commits:
+                logger.debug('No new commits for delivery: %s', delivery_name)
+                continue
+            for epoch, commit in commits:
+                run_list.append((delivery_name, target, feed, epoch, commit, labels))
+        if not run_list:
+            logger.debug('No deliveries with new commits for target: %s', target_name)
+            continue
+        logger.debug('Delivering %d messages to target: %s', len(run_list), target_name)
 
-    # 6. PHASE 5: Process deliveries with updates
-    logger.info('Phase 3: Processing %d deliveries with updates...', len(deliveries_with_updates))
-    changes = process_deliveries_with_updates(ctx, deliveries_with_updates, max_mail, cfg)
+        with click.progressbar(run_list,
+                              label='Delivering to ' + target_name,
+                              show_pos=True,
+                              item_show_func=lambda x: x is not None and x[0] or None,
+                              hidden=ctx.obj['hide_bar']) as bar:
+            # We bail on a target if we have more than 5 consecutive failures
+            consecutive_failures = 0
+            last_failed = False
+            for delivery_name, target, feed, epoch, commit, labels in bar:
+                if consecutive_failures >= 5:
+                    logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
+                    break
+                success = deliver_commit(delivery_name, target, feed, epoch, commit, labels, was_failing=False)
+                if not success:
+                    if last_failed:
+                        consecutive_failures += 1
+                    else:
+                        consecutive_failures = 1
+                    last_failed = True
+                    continue
 
-    # 7. Summary
+                if delivery_name not in changes:
+                    changes[delivery_name] = 0
+                changes[delivery_name] += 1
+                consecutive_failures = 0
+                last_failed = False
+
+    unlock_all_feeds(ctx)
     if changes:
         logger.info('Pull complete with updates:')
-        for delivery_name, count in changes:
+        for delivery_name, count in changes.items():
             logger.info('  %s: %d', delivery_name, count)
     else:
         logger.info('Pull complete with no updates.')
@@ -1688,15 +787,8 @@ def pull(ctx: click.Context, max_mail: int, delivery_name: Optional[str]) -> Non
 @click.argument('msgid_or_url', type=str, nargs=1)
 def yank(ctx: click.Context, target: Optional[str],
          labels: Tuple[str, ...], thread: bool, msgid_or_url: str) -> None:
-    """Yank a single message or entire thread to a Gmail target."""
-    # Get the lore service
-    ls = ctx.obj.get('lore')
-    if ls is None:
-        data_dir = ctx.obj['data_dir']
-        ls = LoreService(data_dir)
-        ctx.obj['lore'] = ls
-
-    # Get the target Gmail service
+    """Yank a single message or entire thread to a target."""
+    # Get the target service
     if not target:
         # Get the first target in the list
         config = ctx.obj.get('config', {})
@@ -1705,7 +797,7 @@ def yank(ctx: click.Context, target: Optional[str],
         logger.debug('No target specified, using first target: %s', target)
 
     try:
-        gs = get_target(ctx, target)
+        ts = get_target(ctx, target)
     except click.Abort:
         logger.critical('Failed to get target "%s".', target)
         raise
@@ -1717,7 +809,7 @@ def yank(ctx: click.Context, target: Optional[str],
         # Fetch the entire thread
         logger.debug('Fetching thread: %s', msgid_or_url)
         try:
-            messages = ls.get_thread_by_msgid(msgid_or_url)
+            messages = LoreFeed.get_thread_by_msgid(msgid_or_url)
         except RemoteError as e:
             logger.critical('Failed to fetch thread: %s', str(e))
             raise click.Abort()
@@ -1728,23 +820,17 @@ def yank(ctx: click.Context, target: Optional[str],
         uploaded = 0
         failed = 0
 
-        if logger.isEnabledFor(logging.DEBUG):
-            hidden = True
-        elif logger.isEnabledFor(logging.INFO):
-            hidden = False
-        else:
-            hidden = True
-
+        ts.connect()
         with click.progressbar(messages,
                               label='Uploading thread',
                               show_pos=True,
-                              hidden=hidden) as bar:
+                              hidden=ctx.obj['hide_bar']) as bar:
             for raw_message in bar:
                 try:
-                    msg = ls.parse_message(raw_message)
+                    msg = LoreFeed.parse_message(raw_message)
                     subject = msg.get('Subject', '(no subject)')
                     logger.debug('Uploading: %s', subject)
-                    gs.import_message(raw_message, labels=labels_list)
+                    ts.import_message(raw_message, labels=labels_list)
                     uploaded += 1
                 except RemoteError as e:
                     logger.error('Failed to upload message: %s', str(e))
@@ -1759,13 +845,13 @@ def yank(ctx: click.Context, target: Optional[str],
         # Fetch a single message
         logger.debug('Fetching message: %s', msgid_or_url)
         try:
-            raw_message = ls.get_message_by_msgid(msgid_or_url)
+            raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
         except RemoteError as e:
             logger.critical('Failed to fetch message: %s', str(e))
             raise click.Abort()
 
         # Parse to get the subject for logging
-        msg = ls.parse_message(raw_message)
+        msg = LoreFeed.parse_message(raw_message)
         subject = msg.get('Subject', '(no subject)')
         logger.debug('Message subject: %s', subject)
 
@@ -1773,7 +859,8 @@ def yank(ctx: click.Context, target: Optional[str],
         logger.info('Uploading to target "%s"', target)
         logger.debug('Uploading: %s', subject)
         try:
-            gs.import_message(raw_message, labels=labels_list)
+            ts.connect()
+            ts.import_message(raw_message, labels=labels_list)
             logger.info('Successfully uploaded message.')
         except RemoteError as e:
             logger.critical('Failed to upload message: %s', str(e))
