@@ -653,7 +653,7 @@ credentials = '~/.config/korgalore/credentials.json'
 @click.argument('target', type=str, nargs=1)
 @click.option('--ids', '-i', is_flag=True, help='include id values')
 def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
-    """List all available labels (Gmail targets only)."""
+    """List all available labels/folders for a target."""
     gs = get_target(ctx, ctx.params['target'])
 
     # Check if target supports labels
@@ -663,7 +663,8 @@ def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
         return
 
     try:
-        logger.debug('Fetching labels from Gmail')
+        gs.connect()
+        logger.debug('Fetching labels from target')
         labels_list = gs.list_labels()
 
         if not labels_list:
