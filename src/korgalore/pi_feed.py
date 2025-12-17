@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import tempfile
 
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -56,10 +58,24 @@ class PIFeed:
             if filepath.exists():
                 filepath.unlink()
             return
-        with open(filepath, 'w') as f:
-            for obj in data:
-                line = json.dumps(obj)
-                f.write(line + '\n' )
+        content = ''.join(json.dumps(obj) + '\n' for obj in data)
+        self._atomic_write(filepath, content)
+
+    def _atomic_write(self, filepath: Path, content: str) -> None:
+        """Write content to file atomically using temp file and rename."""
+        dirpath = filepath.parent
+        fd, tmp_path = tempfile.mkstemp(dir=dirpath, prefix='.tmp_')
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(content)
+            os.replace(tmp_path, filepath)
+        except Exception:
+            # Clean up temp file on error
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get_gitdir(self, epoch: int) -> Path:
         return self.feed_dir / 'git' / f'{epoch}.git'
@@ -487,8 +503,7 @@ class PIFeed:
             'commit_date': commit_date,
         }
 
-        with open(state_file, 'w') as gf:
-            json.dump(state_info, gf, indent=2)
+        self._atomic_write(state_file, json.dumps(state_info, indent=2))
 
     def get_delivery_info_for_epoch(self, delivery_name: str, epoch: Optional[int] = None) -> Dict[str, Any]:
         info = self.load_delivery_info(delivery_name)
@@ -589,8 +604,7 @@ class PIFeed:
             'latest_commit': latest_commit,
         }
 
-        with open(state_file, 'w') as f:
-            json.dump(state, f, indent=2)
+        self._atomic_write(state_file, json.dumps(state, indent=2))
 
     @staticmethod
     def mailsplit_bytes(bmbox: bytes) -> List[bytes]:
