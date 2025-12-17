@@ -298,7 +298,7 @@ class PIFeed:
             dinfo = self.load_delivery_info(delivery_name)
         except StateError:
             # XXX: currently, assuming a brand new delivery and not some other kind of error
-            logger.debug(f"No delivery info found for delivery {delivery_name}, assuming new delivery.")
+            logger.info('Initializing new delivery: %s', delivery_name)
             self.save_delivery_info(delivery_name)
             return list()
 

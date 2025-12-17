@@ -142,7 +142,7 @@ class LoreFeed(PIFeed):
         try:
             feed_state = self.load_feed_state()
         except StateError:
-            logger.debug('No existing feed state found, initializing feed: %s', self.feed_dir)
+            logger.info('Initializing new feed: %s', self.feed_key)
             self.init_feed()
             return False
         local_epoch_info = self.load_epochs_info()
