@@ -384,6 +384,7 @@ class PIFeed:
         # same delivery in multiple processes at the same time.
         global LOCKED_FEEDS
         lock_file_path = self._get_state_file_path(delivery_name=None, suffix='lock')
+        lock_file_path.parent.mkdir(parents=True, exist_ok=True)
         lockfh = open(lock_file_path, 'w')
         try:
             lockf(lockfh, LOCK_EX | LOCK_NB)
