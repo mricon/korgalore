@@ -474,6 +474,7 @@ def unlock_all_feeds(ctx: click.Context) -> None:
 def update_all_feeds(ctx: click.Context) -> List[str]:
     """Update all feeds and return list of feed keys that had updates."""
     updated_feeds: List[str] = []
+    initialized_feeds: List[str] = []
     feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
 
     with click.progressbar(feeds.keys(),
@@ -483,9 +484,15 @@ def update_all_feeds(ctx: click.Context) -> List[str]:
                            hidden=ctx.obj['hide_bar']) as bar:
         for feed_key in bar:
             feed = feeds[feed_key]
-            updated = feed.update_feed()
-            if updated:
+            status = feed.update_feed()
+            if status & feed.STATUS_UPDATED:
                 updated_feeds.append(feed_key)
+            if status & feed.STATUS_INITIALIZED:
+                initialized_feeds.append(feed_key)
+
+    # Log initialization messages after progressbar completes
+    for feed_key in initialized_feeds:
+        logger.info('Initialized new feed: %s', feed_key)
 
     return updated_feeds
 

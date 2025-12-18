@@ -104,14 +104,14 @@ class LeiFeed(PIFeed):
         # We just need to save the feed state with the latest existing epoch
         self.save_feed_state()
 
-    def update_feed(self) -> bool:
+    def update_feed(self) -> int:
         """Update the LEI search and check for new messages.
 
         Runs 'lei up' to update the search, then checks for new epochs
         or updated refs.
 
         Returns:
-            True if updates were found, False otherwise.
+            Status constant: STATUS_NOCHANGE, STATUS_UPDATED, or STATUS_INITIALIZED.
 
         Raises:
             PublicInboxError: If the lei update command fails.
@@ -125,9 +125,8 @@ class LeiFeed(PIFeed):
         try:
             finfo = self.load_feed_state()
         except StateError:
-            logger.info('Initializing new feed: %s', self.feed_key)
             self.init_feed()
-            return False
+            return self.STATUS_INITIALIZED
 
         known_epochs = [int(e) for e in finfo['epochs'].keys()]
         highest_known_epoch = max(known_epochs)
@@ -148,6 +147,6 @@ class LeiFeed(PIFeed):
                 epoch=highest_existing_epoch,
                 success=True
             )
-            return True
+            return self.STATUS_UPDATED
 
-        return updated
+        return self.STATUS_UPDATED if updated else self.STATUS_NOCHANGE

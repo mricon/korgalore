@@ -36,6 +36,11 @@ class PIFeed:
     emlpolicy: EmailPolicy = EmailPolicy(utf8=True, cte_type='8bit', max_line_length=None,
                                          message_factory=EmailMessage)
 
+    # Status constants for update_feed() return value
+    STATUS_NOCHANGE: int = 0
+    STATUS_UPDATED: int = 1
+    STATUS_INITIALIZED: int = 4
+
     def __init__(self, feed_key: str, feed_dir: Path) -> None:
         self._branch_cache: Dict[str, str] = dict()
         self.feed_key: str = feed_key

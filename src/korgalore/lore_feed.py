@@ -137,19 +137,22 @@ class LoreFeed(PIFeed):
         self.clone_epoch(epoch)
         self.save_feed_state(epoch=epoch, success=True)
 
-    def update_feed(self) -> bool:
-        """Update feed by fetching new epochs and commits. Returns True if updated."""
+    def update_feed(self) -> int:
+        """Update feed by fetching new epochs and commits.
+
+        Returns:
+            Status constant: STATUS_NOCHANGE, STATUS_UPDATED, or STATUS_INITIALIZED.
+        """
         try:
             feed_state = self.load_feed_state()
         except StateError:
-            logger.info('Initializing new feed: %s', self.feed_key)
             self.init_feed()
-            return False
+            return self.STATUS_INITIALIZED
         local_epoch_info = self.load_epochs_info()
         remote_epoch_info = self.get_manifest_epochs()
         if local_epoch_info == remote_epoch_info:
             logger.debug('No new epochs found for feed: %s', self.feed_dir)
-            return False
+            return self.STATUS_NOCHANGE
 
         # What is our highest epoch?
         highest_local_epoch = max(int(e) for e in feed_state['epochs'].keys())
@@ -173,7 +176,7 @@ class LoreFeed(PIFeed):
         logger.debug('Highest remote epoch: %d', highest_remote_epoch)
         if highest_local_epoch == highest_remote_epoch:
             logger.debug('No new epochs detected for feed %s', self.feed_dir)
-            return updated
+            return self.STATUS_UPDATED if updated else self.STATUS_NOCHANGE
 
         # In theory, we could have more than one new epoch, for example if
         # someone hasn't run korgalore in a long time. This is almost certainly
@@ -187,7 +190,7 @@ class LoreFeed(PIFeed):
             epoch=highest_remote_epoch,
             success=True
         )
-        return True
+        return self.STATUS_UPDATED
 
     @staticmethod
     def get_msgid_from_url(msgid_or_url: str) -> str:
