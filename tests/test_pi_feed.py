@@ -242,3 +242,96 @@ class TestCleanupFailedState:
     def test_no_error_if_file_missing(self, mock_feed: PIFeed) -> None:
         """No error if failed file doesn't exist."""
         mock_feed.cleanup_failed_state("nonexistent")  # Should not raise
+
+
+class TestFeedLocking:
+    """Tests for feed_lock and feed_unlock functions."""
+
+    def test_lock_creates_directory_if_missing(self, tmp_path: Path) -> None:
+        """Locking a feed creates the parent directory if it doesn't exist."""
+        from korgalore.pi_feed import PIFeed, LOCKED_FEEDS
+
+        # Create a feed pointing to a non-existent directory
+        nonexistent_dir = tmp_path / "nonexistent" / "feed" / "path"
+        assert not nonexistent_dir.exists()
+
+        class TestPIFeed(PIFeed):
+            def __init__(self, feed_dir: Path) -> None:
+                super().__init__(feed_key="test-feed", feed_dir=feed_dir)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+            def get_highest_epoch(self) -> int:
+                return 0
+
+            def get_top_commit(self, epoch: int) -> str:
+                return "abc123"
+
+        feed = TestPIFeed(nonexistent_dir)
+
+        # This should not raise FileNotFoundError
+        feed.feed_lock()
+
+        try:
+            # Directory should now exist
+            assert nonexistent_dir.exists()
+            # Lock file should exist
+            lock_file = nonexistent_dir / "korgalore.lock"
+            assert lock_file.exists()
+        finally:
+            # Clean up
+            feed.feed_unlock()
+
+    def test_lock_and_unlock_cycle(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Lock and unlock cycle works correctly."""
+        lock_file = temp_feed_dir / "korgalore.lock"
+
+        # Lock the feed
+        mock_feed.feed_lock()
+        assert lock_file.exists()
+
+        # Unlock the feed
+        mock_feed.feed_unlock()
+
+    def test_lock_is_stored_in_global_dict(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Lock file handle is stored in LOCKED_FEEDS for later unlock."""
+        from korgalore.pi_feed import LOCKED_FEEDS
+
+        key = str(temp_feed_dir)
+        assert key not in LOCKED_FEEDS
+
+        mock_feed.feed_lock()
+        try:
+            assert key in LOCKED_FEEDS
+            assert LOCKED_FEEDS[key] is not None
+        finally:
+            mock_feed.feed_unlock()
+            assert key not in LOCKED_FEEDS
+
+    def test_unlock_without_lock_raises_error(self, tmp_path: Path) -> None:
+        """Attempting to unlock a feed that isn't locked raises an error."""
+        from korgalore.pi_feed import PIFeed
+        from korgalore import PublicInboxError
+
+        class TestPIFeed(PIFeed):
+            def __init__(self, feed_dir: Path) -> None:
+                super().__init__(feed_key="unlocked-feed", feed_dir=feed_dir)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+            def get_highest_epoch(self) -> int:
+                return 0
+
+            def get_top_commit(self, epoch: int) -> str:
+                return "abc123"
+
+        feed_dir = tmp_path / "unlocked-feed"
+        feed_dir.mkdir()
+        feed = TestPIFeed(feed_dir)
+
+        with pytest.raises(PublicInboxError, match="is not locked"):
+            feed.feed_unlock()
