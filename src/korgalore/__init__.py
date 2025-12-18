@@ -4,7 +4,7 @@ import subprocess
 
 from typing import List, Optional, Tuple
 
-__version__ = "0.2"
+__version__ = "0.2.1"
 __author__ = "Konstantin Ryabitsev"
 __email__ = "konstantin@linuxfoundation.org"
 
