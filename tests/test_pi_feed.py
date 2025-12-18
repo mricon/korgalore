@@ -335,3 +335,29 @@ class TestFeedLocking:
 
         with pytest.raises(PublicInboxError, match="is not locked"):
             feed.feed_unlock()
+
+
+class TestLegacyMigration:
+    """Tests for legacy state migration."""
+
+    def test_migration_skips_when_no_git_directory(self, tmp_path: Path) -> None:
+        """Legacy migration does not crash when git directory doesn't exist."""
+        from korgalore.pi_feed import PIFeed
+
+        class TestPIFeed(PIFeed):
+            def __init__(self, feed_dir: Path) -> None:
+                super().__init__(feed_key="new-feed", feed_dir=feed_dir)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+        # Create feed directory without git subdirectory
+        feed_dir = tmp_path / "new-feed"
+        feed_dir.mkdir()
+        # Do NOT create feed_dir / "git"
+
+        feed = TestPIFeed(feed_dir)
+
+        # This should not raise an error - it should just return early
+        feed._perform_legacy_migration()  # Should not crash

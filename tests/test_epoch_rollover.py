@@ -88,6 +88,17 @@ class TestFindEpochs:
             feed.find_epochs()
         assert "No existing epochs" in str(exc_info.value)
 
+    def test_missing_git_directory_raises(self, tmp_path: Path) -> None:
+        """Missing git directory raises PublicInboxError."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        # Do not create the git subdirectory
+        feed = MockPIFeed(feed_dir)
+
+        with pytest.raises(PublicInboxError) as exc_info:
+            feed.find_epochs()
+        assert "No existing epochs" in str(exc_info.value)
+
     def test_ignores_non_epoch_directories(self, tmp_path: Path) -> None:
         """Non-epoch directories are ignored."""
         feed = create_feed_with_epochs(tmp_path, [0, 1])

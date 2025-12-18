@@ -132,6 +132,11 @@ class PIFeed:
         Since version 0.1 only supported a single delivery per feed, we assume that the config
         file was not modified between version upgrades, so we only perform this migration once.
         """
+        # Check if the git directory exists - if not, there's nothing to migrate
+        epochs_dir = self.feed_dir / 'git'
+        if not epochs_dir.exists():
+            return  # New feed, nothing to migrate
+
         # Check if there is a legacy korgalore.info file
         highest_epoch = self.get_highest_epoch()
         legacy_info_path = self.feed_dir / 'git' / f'{highest_epoch}.git' / 'korgalore.info'
@@ -201,6 +206,8 @@ class PIFeed:
     def find_epochs(self) -> List[int]:
         """Find all epoch directories in the feed and return sorted list."""
         epochs_dir = self.feed_dir / 'git'
+        if not epochs_dir.exists():
+            raise PublicInboxError(f"No existing epochs found in {epochs_dir}.")
         # List this directory for existing epochs
         existing_epochs: List[int] = list()
         for item in epochs_dir.iterdir():
