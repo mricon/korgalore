@@ -8,9 +8,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow # type: ignore
 from googleapiclient.discovery import build # type: ignore
 from googleapiclient.errors import HttpError # type: ignore
 
+from google.auth.exceptions import RefreshError
+
 from korgalore import ConfigurationError, RemoteError
 
 logger = logging.getLogger('korgalore')
+
 
 # If modifying these scopes, delete the file token.json.
 # We need scopes for reading and inserting new emails, but not
@@ -66,7 +69,18 @@ class GmailTarget:
         # If there are no (valid) credentials available, let the user log in
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())  # type: ignore
+                try:
+                    self.creds.refresh(Request())  # type: ignore
+                except RefreshError:
+                    logger.warning('Gmail token has expired or been revoked.')
+                    invalid_token_file = token_file + '.invalid'
+                    if os.path.exists(invalid_token_file):
+                        os.remove(invalid_token_file)
+                    os.rename(token_file, invalid_token_file)
+                    raise ConfigurationError(
+                        f"Token in {token_file} is invalid. Moved to {invalid_token_file}. "
+                        f"Please re-authenticate."
+                    )
             elif os.path.exists(credentials_file):
                 logger.critical('Log in to Gmail account for %s', self.identifier)
 
