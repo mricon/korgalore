@@ -5,9 +5,9 @@ import time
 import logging
 import click
 import signal
-import sys
+import subprocess
 import math
-from typing import Optional, Dict, Any, cast
+from typing import Optional, Any
 
 # We use GTK 3 as it's the most stable binding for AppIndicator3
 try:
@@ -19,7 +19,7 @@ except (ValueError, ImportError):
     # Fallback/Mock for type checking or if imports fail late
     pass
 
-from korgalore.cli import perform_pull
+from korgalore.cli import perform_pull, get_xdg_config_dir
 from korgalore import AuthenticationError
 from korgalore.gmail_target import GmailTarget
 
@@ -93,6 +93,11 @@ class KorgaloreApp:
         # Separator
         menu.append(Gtk.SeparatorMenuItem())
 
+        # Edit Config
+        item_edit_config = Gtk.MenuItem(label="Edit Config...")
+        item_edit_config.connect("activate", self.on_edit_config)
+        menu.append(item_edit_config)
+
         # Quit
         item_quit = Gtk.MenuItem(label="Quit")
         item_quit.connect("activate", self.quit)
@@ -159,6 +164,15 @@ class KorgaloreApp:
             return
         # Run sync in a separate thread to not block UI
         threading.Thread(target=self.run_sync, daemon=True).start()
+
+    def on_edit_config(self, source: Any) -> None:
+        """Open the configuration file in the user's preferred editor."""
+        cfgpath = get_xdg_config_dir() / 'korgalore.toml'
+        logger.info("Opening configuration file: %s", cfgpath)
+        try:
+            subprocess.Popen(['xdg-open', str(cfgpath)])
+        except Exception as e:
+            logger.error("Failed to open config file: %s", str(e))
 
     def background_worker(self) -> None:
         """Periodically run sync."""
