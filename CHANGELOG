@@ -1,0 +1,81 @@
+Korgalore Changelog
+===================
+
+v0.3 (unreleased)
+-----------------
+
+New Features
+~~~~~~~~~~~~
+
+* GNOME Taskbar Application (``kgl gui``)
+
+  - System tray status indicator with automatic background syncing
+  - Configurable sync interval via ``[gui] sync_interval`` config option
+  - Real-time status updates showing current feed/delivery being processed
+  - "Sync Now" menu item for manual sync triggering
+  - "Edit Config..." menu item to edit configuration in preferred editor
+  - Automatic TOML validation after config edits with live reload on success
+  - Gmail re-authentication support: detects expired tokens and shows
+    "Authenticate..." menu item to re-auth via browser without terminal
+  - Deduplicates message count by Message-ID for accurate reporting
+  - Desktop entry file (korgalore.desktop) for application menu integration
+
+* Thread Tracking (``kgl track``)
+
+  - Track specific email threads for ongoing updates without full list subscription
+  - Subcommands: add, list, stop, pause, resume
+  - Uses lei to create persistent searches that monitor threads
+  - Tracked threads automatically updated during regular ``pull`` operations
+  - Threads auto-expire after 30 days of inactivity (can be resumed)
+
+* Pipe Target
+
+  - New target type for delivering messages to external commands
+  - Labels passed as command-line arguments to the pipe command
+  - Useful for custom processing pipelines
+
+* TOML Validation
+
+  - ``edit-config`` command now validates syntax after editor closes
+  - Reports errors with line numbers for easy debugging
+
+Improvements
+~~~~~~~~~~~~
+
+* Gmail token handling: gracefully handle expired/revoked tokens instead of
+  crashing, with clear error messages guiding re-authentication
+
+* Suppress googleapiclient discovery cache warning by disabling file_cache
+
+* Defer feed initialization messages until after progressbar completes for
+  cleaner output
+
+* Add comprehensive test suite with 200+ tests
+
+* Optimize delivery lookup algorithms for better performance
+
+Bug Fixes
+~~~~~~~~~
+
+* Fix crash when initializing a new feed for the first time
+
+* Fix feed_lock failing when feed directory does not exist
+
+* Drop dependency on python-dateutil (use stdlib datetime instead)
+
+Documentation
+~~~~~~~~~~~~~
+
+* Add documentation for thread tracking feature
+
+* Add comprehensive GUI documentation covering installation, usage,
+  configuration, and systemd service setup
+
+v0.2
+----
+
+Initial public release with support for:
+
+* Gmail, JMAP, IMAP, and Maildir targets
+* Lore.kernel.org and lei feed sources
+* Basic pull and yank commands
