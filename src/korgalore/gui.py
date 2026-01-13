@@ -19,7 +19,7 @@ except (ValueError, ImportError):
     # Fallback/Mock for type checking or if imports fail late
     pass
 
-from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file
+from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file, load_config
 from korgalore import AuthenticationError
 from korgalore.gmail_target import GmailTarget
 
@@ -181,7 +181,16 @@ class KorgaloreApp:
             # Validate after editor closes
             is_valid, error_msg = validate_config_file(cfgpath)
             if is_valid:
-                logger.info("Configuration file is valid.")
+                logger.info("Configuration file is valid, reloading...")
+                # Reload config and clear cached instances
+                self.ctx.obj['config'] = load_config(cfgpath)
+                self.ctx.obj['targets'] = dict()
+                self.ctx.obj['feeds'] = dict()
+                self.ctx.obj['deliveries'] = dict()
+                # Update sync interval if changed
+                gui_config = self.ctx.obj['config'].get('gui', {})
+                self.sync_interval = gui_config.get('sync_interval', 300)
+                logger.info("Configuration reloaded successfully.")
             else:
                 logger.error("Configuration file has errors: %s", error_msg)
                 self.update_status("Config error - see logs", "dialog-warning-symbolic")
