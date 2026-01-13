@@ -20,7 +20,7 @@ from korgalore.imap_target import ImapTarget
 from korgalore.pipe_target import PipeTarget
 from korgalore import (
     __version__, ConfigurationError, StateError, GitError,
-    RemoteError, PublicInboxError, format_key_for_display
+    RemoteError, PublicInboxError, AuthenticationError, format_key_for_display
 )
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
@@ -91,12 +91,15 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
     target_type = details.get('type', '')
 
     # Instantiate based on type
+    # In GUI mode, don't run interactive OAuth flows
+    interactive = not ctx.obj.get('gui_mode', False)
     service: Any
     if target_type == 'gmail':
         service = get_gmail_target(
             identifier=identifier,
             credentials_file=details.get('credentials', ''),
-            token_file=details.get('token', None)
+            token_file=details.get('token', None),
+            interactive=interactive
         )
     elif target_type == 'maildir':
         service = get_maildir_target(
@@ -133,11 +136,20 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
         raise click.Abort()
 
     ctx.obj['targets'][identifier] = service
+
+    # Check if Gmail target needs authentication (in non-interactive/GUI mode)
+    if target_type == 'gmail' and service.needs_auth:
+        raise AuthenticationError(
+            f"Gmail target '{identifier}' requires authentication.",
+            target_id=identifier,
+            target_type='gmail'
+        )
+
     return service
 
 
 def get_gmail_target(identifier: str, credentials_file: str,
-                     token_file: Optional[str]) -> GmailTarget:
+                     token_file: Optional[str], interactive: bool = True) -> GmailTarget:
     """Create a Gmail target service instance."""
     if not credentials_file:
         logger.critical('No credentials file specified for Gmail target: %s', identifier)
@@ -148,7 +160,8 @@ def get_gmail_target(identifier: str, credentials_file: str,
     try:
         gt = GmailTarget(identifier=identifier,
                          credentials_file=credentials_file,
-                         token_file=token_file)
+                         token_file=token_file,
+                         interactive=interactive)
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort()
@@ -1291,6 +1304,8 @@ def gui(ctx: click.Context) -> None:
         logger.critical('You may also need system packages: libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1')
         raise click.Abort()
 
+    # Set GUI mode to disable interactive OAuth flows
+    ctx.obj['gui_mode'] = True
     start_gui(ctx)
 
 

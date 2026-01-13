@@ -150,7 +150,7 @@ class TestGmailTargetConnect:
         target = GmailTarget("test", "/path/to/creds.json", "/path/to/token.json")
         target.connect()
 
-        mock_build.assert_called_once_with('gmail', 'v1', credentials=mock_creds)
+        mock_build.assert_called_once_with('gmail', 'v1', credentials=mock_creds, cache_discovery=False)
         assert target.service is mock_service
 
     @patch('korgalore.gmail_target.build')

@@ -20,6 +20,8 @@ except (ValueError, ImportError):
     pass
 
 from korgalore.cli import perform_pull
+from korgalore import AuthenticationError
+from korgalore.gmail_target import GmailTarget
 
 logger = logging.getLogger('korgalore.gui')
 
@@ -47,6 +49,7 @@ class KorgaloreApp:
         self.last_sync_time = 0.0
         self.next_sync_time = 0.0
         self.error_state = False
+        self.auth_needed_target: Optional[str] = None  # Target ID needing re-auth
         
         self.ind.set_menu(self.build_menu())
         
@@ -67,6 +70,12 @@ class KorgaloreApp:
         self.item_sync = Gtk.MenuItem(label="Sync Now")
         self.item_sync.connect("activate", self.on_sync_now)
         menu.append(self.item_sync)
+
+        # Authenticate (hidden by default, shown when auth is needed)
+        self.item_auth = Gtk.MenuItem(label="Authenticate...")
+        self.item_auth.connect("activate", self.on_authenticate)
+        self.item_auth.set_no_show_all(True)  # Don't show in show_all()
+        menu.append(self.item_auth)
 
         # Separator
         menu.append(Gtk.SeparatorMenuItem())
@@ -209,6 +218,12 @@ class KorgaloreApp:
                 logger.info("Sync complete: no new messages")
                 self.update_status("Idle", "mail-read-symbolic")
                 
+        except AuthenticationError as e:
+            logger.error("Authentication required for %s: %s", e.target_id, str(e))
+            self.error_state = True
+            self.auth_needed_target = e.target_id
+            self.update_status(f"Auth required: {e.target_id}", "dialog-password-symbolic")
+            GLib.idle_add(self._show_auth_button)
         except Exception as e:
             logger.error("Sync failed: %s", str(e))
             self.error_state = True
@@ -216,6 +231,67 @@ class KorgaloreApp:
         finally:
             self.is_syncing = False
             GLib.idle_add(lambda: self.item_sync.set_sensitive(True))
+
+    def _show_auth_button(self) -> bool:
+        """Show the authenticate button (called from GLib.idle_add)."""
+        self.item_auth.show()
+        return False
+
+    def _hide_auth_button(self) -> bool:
+        """Hide the authenticate button (called from GLib.idle_add)."""
+        self.item_auth.hide()
+        return False
+
+    def on_authenticate(self, source: Any) -> None:
+        """Handle authenticate menu item click."""
+        if not self.auth_needed_target:
+            return
+        # Run authentication in a separate thread to not block UI
+        threading.Thread(target=self._run_authenticate, daemon=True).start()
+
+    def _run_authenticate(self) -> None:
+        """Execute the re-authentication flow."""
+        target_id = self.auth_needed_target
+        if not target_id:
+            return
+
+        self.update_status(f"Authenticating {target_id}...", "system-run-symbolic")
+        GLib.idle_add(lambda: self.item_auth.set_sensitive(False))
+
+        try:
+            # Find the target in our context
+            targets = self.ctx.obj.get('targets', {})
+            target = targets.get(target_id)
+
+            if target is None:
+                logger.error("Target %s not found in context", target_id)
+                self.update_status("Error: Target not found", "dialog-error-symbolic")
+                return
+
+            if not isinstance(target, GmailTarget):
+                logger.error("Target %s is not a GmailTarget", target_id)
+                self.update_status("Error: Not a Gmail target", "dialog-error-symbolic")
+                return
+
+            # Run the re-authentication flow (this opens a browser)
+            target.reauthenticate()
+
+            # Success - clear the auth needed state
+            self.auth_needed_target = None
+            self.error_state = False
+            GLib.idle_add(self._hide_auth_button)
+            logger.info("Re-authentication successful for %s", target_id)
+
+            # Automatically start sync after successful authentication
+            GLib.idle_add(lambda: self.item_auth.set_sensitive(True))
+            self.run_sync()
+            return
+
+        except Exception as e:
+            logger.error("Re-authentication failed: %s", str(e))
+            self.update_status(f"Auth failed: {target_id}", "dialog-error-symbolic")
+        finally:
+            GLib.idle_add(lambda: self.item_auth.set_sensitive(True))
 
 
 def start_gui(ctx: click.Context) -> None:

@@ -42,6 +42,13 @@ class DeliveryError(KorgaloreError):
     """Raised when there is an error during message delivery."""
     pass
 
+class AuthenticationError(KorgaloreError):
+    """Raised when authentication fails and re-authentication is required."""
+    def __init__(self, message: str, target_id: str, target_type: str = 'gmail') -> None:
+        super().__init__(message)
+        self.target_id = target_id
+        self.target_type = target_type
+
 def run_git_command(gitdir: Optional[str], args: List[str],
                     stdin: Optional[bytes] = None) -> Tuple[int, bytes]:
     """Run a git command in the specified topdir and return (returncode, output)."""
