@@ -83,6 +83,7 @@ This command will:
 1. Locate your configuration file (default: ``~/.config/korgalore/korgalore.toml``)
 2. If the file doesn't exist, create it with example configuration
 3. Open it in your default editor (as specified by ``$EDITOR`` or ``$VISUAL``)
+4. Validate the TOML syntax after you close the editor
 
 You can also specify a custom config file path:
 
@@ -369,6 +370,85 @@ How Thread Tracking Works
 .. note::
    Thread tracking requires ``lei`` from the public-inbox project to be installed
    and configured. See https://public-inbox.org/lei for installation instructions.
+
+
+gui
+---
+
+Launch a GNOME taskbar status indicator application for background syncing.
+
+.. code-block:: bash
+
+   kgl gui
+
+The GUI provides:
+
+* **System tray icon** with status indication (idle/syncing/error)
+* **Automatic background sync** at configurable intervals (default: 5 minutes)
+* **Menu options**:
+
+  * Sync Now - trigger an immediate sync
+  * Authenticate - re-authenticate Gmail targets when tokens expire (appears only when needed)
+  * Edit Config - open the configuration file in your preferred editor
+  * Quit - exit the application
+
+Features
+~~~~~~~~
+
+**Gmail Re-authentication**
+
+When a Gmail token expires or is revoked, the GUI detects this and shows an
+"Authenticate..." menu item. Clicking it opens a browser for OAuth re-authentication.
+After successful authentication, sync runs automatically.
+
+**Configuration Editing**
+
+The "Edit Config..." menu item opens your configuration file using ``xdg-open``.
+After you close the editor, the file is validated for TOML syntax errors. If valid,
+the new configuration is loaded immediately without restarting the GUI.
+
+**Status Display**
+
+The tray icon and menu show current status:
+
+* **Idle** - waiting for next sync
+* **Idle (N new)** - last sync delivered N unique messages
+* **Syncing...** - sync in progress with current feed/delivery shown
+* **Auth required: target** - Gmail authentication needed
+* **Error: See logs** - sync failed, check logs for details
+
+**Desktop Integration**
+
+To launch the GUI from your application menu instead of the terminal, install
+the desktop file (see :doc:`installation`).
+
+Running as a Background Service
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The GUI can be started automatically at login. On GNOME, add it to your startup
+applications, or create a systemd user service:
+
+Create ``~/.config/systemd/user/korgalore-gui.service``:
+
+.. code-block:: ini
+
+   [Unit]
+   Description=Korgalore GUI
+   After=graphical-session.target
+
+   [Service]
+   Type=simple
+   ExecStart=%h/.local/bin/kgl gui
+
+   [Install]
+   WantedBy=default.target
+
+Enable and start:
+
+.. code-block:: bash
+
+   systemctl --user enable korgalore-gui.service
+   systemctl --user start korgalore-gui.service
 
 
 Common Usage Patterns

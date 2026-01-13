@@ -44,6 +44,9 @@ Features
   * JMAP servers (e.g., Fastmail)
   * IMAP servers
   * Local maildir
+  * Pipe commands
+
+* GNOME taskbar application for background syncing
 
 Non-features
 ------------

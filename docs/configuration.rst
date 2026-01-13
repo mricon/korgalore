@@ -498,11 +498,34 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    # target = 'work'
    # labels = ['Lists/Example']
 
+   ### GUI ###
+
+   [gui]
+   sync_interval = 300  # Sync every 5 minutes
+
    # Lei source (commented out - requires lei setup)
    # [deliveries.lei-mentions]
    # feed = 'lei:/home/user/lei/mentions'
    # target = 'work'
    # labels = ['INBOX', 'UNREAD']
+
+GUI Configuration
+=================
+
+The ``[gui]`` section configures the GNOME taskbar application (``kgl gui``).
+
+.. code-block:: toml
+
+   [gui]
+   sync_interval = 300
+
+Parameters
+----------
+
+* ``sync_interval``: Time in seconds between automatic syncs (default: 300, i.e., 5 minutes)
+
+The GUI automatically reloads the configuration when you edit it via the
+"Edit Config..." menu item, so changes take effect without restarting.
 
 Data Directory
 ==============
