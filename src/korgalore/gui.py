@@ -1,0 +1,228 @@
+"""GNOME Taskbar Application for Korgalore."""
+
+import threading
+import time
+import logging
+import click
+import signal
+import sys
+import math
+from typing import Optional, Dict, Any, cast
+
+# We use GTK 3 as it's the most stable binding for AppIndicator3
+try:
+    import gi  # type: ignore
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('AppIndicator3', '0.1')
+    from gi.repository import Gtk, GLib, AppIndicator3, GObject  # type: ignore
+except (ValueError, ImportError):
+    # Fallback/Mock for type checking or if imports fail late
+    pass
+
+from korgalore.cli import perform_pull
+
+logger = logging.getLogger('korgalore.gui')
+
+class KorgaloreApp:
+    """Korgalore Taskbar Application."""
+
+    def __init__(self, ctx: click.Context):
+        self.ctx = ctx
+        self.ind = AppIndicator3.Indicator.new(
+            "korgalore-indicator",
+            "mail-read-symbolic",
+            AppIndicator3.IndicatorCategory.APPLICATION_STATUS
+        )
+        self.ind.set_title("Korgalore")
+        self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        
+        # Load config
+        config = ctx.obj.get('config', {})
+        gui_config = config.get('gui', {})
+        self.sync_interval = gui_config.get('sync_interval', 300)
+        logger.info('Auto-sync interval set to %d seconds', self.sync_interval)
+        
+        # State
+        self.is_syncing = False
+        self.last_sync_time = 0.0
+        self.next_sync_time = 0.0
+        self.error_state = False
+        
+        self.ind.set_menu(self.build_menu())
+        
+        self.sync_thread: Optional[threading.Thread] = None
+        self.stop_event = threading.Event()
+
+    def build_menu(self) -> Any:
+        menu = Gtk.Menu()
+
+        # Header
+        item_header = Gtk.MenuItem(label="Korgalore")
+        item_header.set_sensitive(False)
+        menu.append(item_header)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Sync Now
+        self.item_sync = Gtk.MenuItem(label="Sync Now")
+        self.item_sync.connect("activate", self.on_sync_now)
+        menu.append(self.item_sync)
+
+        # Separator
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Status Label (Disabled item acting as status)
+        self.item_status = Gtk.MenuItem(label="Idle")
+        self.item_status.set_sensitive(False)
+        menu.append(self.item_status)
+
+        # Next Sync Info
+        self.item_next_sync = Gtk.MenuItem(label="Next sync: --:--")
+        self.item_next_sync.set_sensitive(False)
+        menu.append(self.item_next_sync)
+
+        # Separator
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Quit
+        item_quit = Gtk.MenuItem(label="Quit")
+        item_quit.connect("activate", self.quit)
+        menu.append(item_quit)
+
+        menu.show_all()
+        return menu
+
+    def run(self) -> None:
+        """Start the application."""
+        # Start background sync thread
+        self.sync_thread = threading.Thread(target=self.background_worker, daemon=True)
+        self.sync_thread.start()
+        
+        # Start timer update loop (every 1 second)
+        GLib.timeout_add_seconds(1, self.update_timers)
+        
+        # Handle Ctrl+C
+        signal.signal(signal.SIGINT, lambda *args: self.quit())
+        
+        # Start GTK loop
+        Gtk.main()
+
+    def quit(self, source: Any = None) -> None:
+        logger.info("Quitting Korgalore GUI...")
+        self.stop_event.set()
+        Gtk.main_quit()
+
+    def update_status(self, text: str, icon_name: Optional[str] = None) -> None:
+        """Update UI status (thread-safe)."""
+        def _update() -> bool:
+            self.item_status.set_label(text)
+            if icon_name:
+                self.ind.set_icon(icon_name)
+            return False
+        GLib.idle_add(_update)
+
+    def update_timers(self) -> bool:
+        """Update last/next sync timers in menu."""
+        now = time.time()
+        
+        # Next Sync
+        if self.is_syncing:
+             self.item_next_sync.set_label("Next sync: In progress...")
+        elif self.next_sync_time > now:
+            diff = int(self.next_sync_time - now)
+            if diff > 60:
+                mins = round(diff / 60)
+                text = f"Next sync: ~{mins} min"
+            elif diff >= 10:
+                secs = math.ceil(diff / 10) * 10
+                text = f"Next sync: ~{secs} sec"
+            else:
+                text = f"Next sync: in {diff}s"
+            self.item_next_sync.set_label(text)
+        else:
+            # Should be syncing soon or now
+            self.item_next_sync.set_label("Next sync: Soon...")
+
+        return True  # Keep calling this
+
+    def on_sync_now(self, source: Any) -> None:
+        if self.is_syncing:
+            return
+        # Run sync in a separate thread to not block UI
+        threading.Thread(target=self.run_sync, daemon=True).start()
+
+    def background_worker(self) -> None:
+        """Periodically run sync."""
+        logger.info("Background worker started")
+        # Initial sync after a short delay
+        time.sleep(2)
+        if not self.stop_event.is_set():
+            self.run_sync()
+
+        while not self.stop_event.is_set():
+            # Set next sync time for UI
+            self.next_sync_time = time.time() + self.sync_interval
+            
+            # Sleep in chunks to be responsive to stop_event
+            for _ in range(self.sync_interval):
+                if self.stop_event.is_set():
+                    return
+                # Check if next_sync_time got bumped (e.g. if we implemented manual reset)
+                # For now just sleep
+                time.sleep(1)
+            
+            self.run_sync()
+
+    def run_sync(self) -> None:
+        """Execute the pull logic."""
+        if self.is_syncing:
+            return
+
+        self.is_syncing = True
+        GLib.idle_add(lambda: self.item_sync.set_sensitive(False))
+        self.update_status("Syncing...", "system-run-symbolic")
+        # Ensure next sync shows as processing
+        self.next_sync_time = 0
+        
+        try:
+            logger.info("Starting sync...")
+            
+            # Run the pull command logic
+            # We wrap this to catch any exceptions and update UI
+            changes = perform_pull(
+                self.ctx, 
+                no_update=False, 
+                force=False, 
+                delivery_name=None,
+                status_callback=lambda s: self.update_status(s, "system-run-symbolic")
+            )
+            
+            self.last_sync_time = time.time()
+            self.error_state = False
+            
+            count = sum(changes.values()) if changes else 0
+            
+            if count > 0:
+                logger.info("Sync complete: %d new messages", count)
+                self.update_status(f"Idle ({count} new)", "mail-unread-symbolic")
+            else:
+                logger.info("Sync complete: no new messages")
+                self.update_status("Idle", "mail-read-symbolic")
+                
+        except Exception as e:
+            logger.error("Sync failed: %s", str(e))
+            self.error_state = True
+            self.update_status("Error: See logs", "dialog-error-symbolic")
+        finally:
+            self.is_syncing = False
+            GLib.idle_add(lambda: self.item_sync.set_sensitive(True))
+
+
+def start_gui(ctx: click.Context) -> None:
+    """Entry point for the GUI."""
+    # Ensure logging is configured (Click log might catch this, but just in case)
+    if not logger.handlers:
+        logging.basicConfig(level=logging.INFO)
+    
+    app = KorgaloreApp(ctx)
+    app.run()

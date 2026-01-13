@@ -37,6 +37,9 @@ dev = [
     "pytest>=7.0.0",
     "mypy>=1.0.0",
 ]
+gui = [
+    "PyGObject>=3.42.0",
+]
 
 [project.scripts]
 kgl = "korgalore.cli:main"

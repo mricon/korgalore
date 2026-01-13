@@ -104,7 +104,7 @@ class GmailTarget:
         """
         if self.service is None:
             logger.debug('Connecting to Gmail service for %s', self.identifier)
-            self.service = build('gmail', 'v1', credentials=self.creds)
+            self.service = build('gmail', 'v1', credentials=self.creds, cache_discovery=False)
 
     def list_labels(self) -> List[Dict[str, str]]:
         """List all labels in the user's mailbox.

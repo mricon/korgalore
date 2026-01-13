@@ -1,6 +1,7 @@
 """Korgalore - A command-line tool to put public-inbox sources directly into Gmail."""
 import logging
 import subprocess
+from pathlib import Path
 
 from typing import List, Optional, Tuple
 
@@ -55,3 +56,15 @@ def run_git_command(gitdir: Optional[str], args: List[str],
     except FileNotFoundError:
         raise GitError(f"Git command '{GITCMD}' not found. Is it installed?")
     return result.returncode, result.stdout.strip()
+
+
+def format_key_for_display(key: Optional[str]) -> str:
+    """Format a key (feed or delivery) for user-facing display by trimming lei paths."""
+    if key is None:
+        return ""
+    if key.startswith('lei:'):
+        try:
+            return f"lei:{Path(key[4:]).name}"
+        except Exception:
+            return key
+    return key

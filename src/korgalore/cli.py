@@ -10,7 +10,7 @@ import click_log
 import requests
 
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional, Union
+from typing import Dict, Any, List, Tuple, Optional, Union, Callable
 from korgalore.lore_feed import LoreFeed
 from korgalore.lei_feed import LeiFeed
 from korgalore.gmail_target import GmailTarget
@@ -18,7 +18,10 @@ from korgalore.maildir_target import MaildirTarget
 from korgalore.jmap_target import JmapTarget
 from korgalore.imap_target import ImapTarget
 from korgalore.pipe_target import PipeTarget
-from korgalore import __version__, ConfigurationError, StateError, GitError, RemoteError, PublicInboxError
+from korgalore import (
+    __version__, ConfigurationError, StateError, GitError,
+    RemoteError, PublicInboxError, format_key_for_display
+)
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
     create_lei_thread_search, update_lei_search
@@ -406,6 +409,7 @@ def normalize_feed_key(feed_url: str) -> str:
         # For unknown types, use URL as-is
         return feed_url
 
+
 def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) -> Union[LeiFeed, LoreFeed]:
     """Get or create a feed instance for a delivery configuration."""
     config = ctx.obj.get('config', {})
@@ -471,18 +475,23 @@ def unlock_all_feeds(ctx: click.Context) -> None:
         feed.feed_unlock()
 
 
-def update_all_feeds(ctx: click.Context) -> List[str]:
+def update_all_feeds(ctx: click.Context, status_callback: Optional[Callable[[str], None]] = None) -> List[str]:
     """Update all feeds and return list of feed keys that had updates."""
     updated_feeds: List[str] = []
     initialized_feeds: List[str] = []
     feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
 
+    if status_callback:
+        status_callback("Querying feeds...")
+
     with click.progressbar(feeds.keys(),
                            label='Updating feeds',
                            show_pos=True,
-                           item_show_func=lambda x: x in feeds and str(feeds[x].feed_url) or x,
+                           item_show_func=lambda x: format_key_for_display(x in feeds and str(feeds[x].feed_url) or x),
                            hidden=ctx.obj['hide_bar']) as bar:
         for feed_key in bar:
+            if status_callback:
+                status_callback(f"Querying {format_key_for_display(feed_key)}...")
             feed = feeds[feed_key]
             status = feed.update_feed()
             if status & feed.STATUS_UPDATED:
@@ -661,6 +670,11 @@ credentials = '~/.config/korgalore/credentials.json'
 # feed = 'https://lore.kernel.org/lkml'
 # target = 'personal'
 # labels = ['INBOX', 'UNREAD']
+
+### GUI ###
+
+[gui]
+# sync_interval = 300
 """
         cfgpath.parent.mkdir(parents=True, exist_ok=True)
         cfgpath.write_text(example_config)
@@ -716,14 +730,10 @@ def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
         raise click.Abort()
 
 
-@main.command()
-@click.pass_context
-@click.option('--max-mail', '-m', default=0, help='maximum number of messages to pull (0 for all)')
-@click.option('--no-update', '-n', is_flag=True, help='skip feed updates (useful with --force)')
-@click.option('--force', '-f', is_flag=True, help='run deliveries even if no apparent updates')
-@click.argument('delivery_name', type=str, nargs=1, default=None)
-def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delivery_name: Optional[str]) -> None:
-    """Pull messages from configured lore and LEI deliveries."""
+def perform_pull(ctx: click.Context, no_update: bool, force: bool,
+                 delivery_name: Optional[str],
+                 status_callback: Optional[Callable[[str], None]] = None) -> Dict[str, int]:
+    """Execute the pull logic and return a dictionary of changes."""
     cfg = ctx.obj.get('config', {})
 
     # Load deliveries to process
@@ -749,7 +759,7 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
         logger.debug('No-update flag set, skipping feed updates')
         updated_feeds = list()
     else:
-        updated_feeds = update_all_feeds(ctx)
+        updated_feeds = update_all_feeds(ctx, status_callback=status_callback)
     run_deliveries: List[str] = list()
     if not force:
         logger.debug('Updated feeds: %s', ', '.join(updated_feeds))
@@ -768,9 +778,8 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
     logger.debug('Deliveries to run: %s', ', '.join(run_deliveries))
 
     if not run_deliveries:
-        logger.info('No feed updates available.')
         unlock_all_feeds(ctx)
-        return
+        return {}
 
     # Build a worklist of updates per target
     by_target: Dict[str, List[str]] = dict()
@@ -787,6 +796,8 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
         logger.debug('Processing deliveries for target: %s', target_name)
         run_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
         for dname in delivery_names:
+            if status_callback:
+                status_callback(f"Delivering {format_key_for_display(dname)}...")
             feed, target, labels = ctx.obj['deliveries'][dname]
             commits = feed.get_latest_commits_for_delivery(dname)
             if not commits:
@@ -802,7 +813,7 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
         with click.progressbar(run_list,
                               label='Delivering to ' + target_name,
                               show_pos=True,
-                              item_show_func=lambda x: x is not None and x[0] or None,
+                              item_show_func=lambda x: x is not None and format_key_for_display(x[0]) or None,
                               hidden=ctx.obj['hide_bar']) as bar:
             # We bail on a target if we have more than 5 consecutive failures
             consecutive_failures = 0
@@ -825,8 +836,28 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
     # Update tracking manifest activity for any tracked threads that had deliveries
     update_tracked_thread_activity(ctx, changes)
 
+    return changes
+
+
+@main.command()
+@click.pass_context
+@click.option('--max-mail', '-m', default=0, help='maximum number of messages to pull (0 for all)')
+@click.option('--no-update', '-n', is_flag=True, help='skip feed updates (useful with --force)')
+@click.option('--force', '-f', is_flag=True, help='run deliveries even if no apparent updates')
+@click.argument('delivery_name', type=str, nargs=1, default=None)
+def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delivery_name: Optional[str]) -> None:
+    """Pull messages from configured lore and LEI deliveries."""
+    changes = perform_pull(ctx, no_update, force, delivery_name)
+
     if changes:
         logger.info('Pull complete with updates:')
+        tracked_ids = []
+        if not delivery_name:
+             # We need to re-fetch tracked IDs to identify them in output
+             # This is a bit inefficient but safe
+             manifest = get_tracking_manifest(ctx)
+             tracked_ids = [t.track_id for t in manifest.get_active_threads()]
+
         for dname, count in changes.items():
             if dname in tracked_ids:
                 logger.info('  %s (tracked): %d', dname, count)
@@ -1246,6 +1277,21 @@ def track_resume(ctx: click.Context, track_id: str) -> None:
 
     manifest.resume_thread(track_id)
     logger.info('Resumed tracking for %s', track_id)
+
+
+@main.command()
+@click.pass_context
+def gui(ctx: click.Context) -> None:
+    """Launch the GNOME taskbar application."""
+    try:
+        from korgalore.gui import start_gui
+    except ImportError as e:
+        logger.critical('GUI dependencies not found: %s', str(e))
+        logger.critical('Please install the "gui" extra: pip install ".[gui]"')
+        logger.critical('You may also need system packages: libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1')
+        raise click.Abort()
+
+    start_gui(ctx)
 
 
 if __name__ == '__main__':
