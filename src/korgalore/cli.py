@@ -328,6 +328,28 @@ def get_feed_identifier(feed_value: str, config: Dict[str, Any]) -> Optional[str
     return sanitized
 
 
+def validate_config_file(cfgpath: Path) -> Tuple[bool, str]:
+    """Validate a TOML configuration file.
+
+    Args:
+        cfgpath: Path to the configuration file.
+
+    Returns:
+        A tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    if not cfgpath.exists():
+        return False, f"Configuration file not found: {cfgpath}"
+
+    try:
+        with open(cfgpath, 'rb') as cf:
+            tomllib.load(cf)
+        return True, ""
+    except tomllib.TOMLDecodeError as e:
+        return False, f"TOML syntax error: {e}"
+    except Exception as e:
+        return False, f"Error reading config: {e}"
+
+
 def load_config(cfgfile: Path) -> Dict[str, Any]:
     """Load and parse the TOML configuration file."""
     config: Dict[str, Any] = dict()
@@ -710,7 +732,13 @@ credentials = '~/.config/korgalore/credentials.json'
     # Open in editor
     logger.info('Editing configuration file: %s', cfgpath)
     click.edit(filename=str(cfgpath))
-    logger.debug('Configuration file closed.')
+
+    # Validate the config file after editing
+    is_valid, error_msg = validate_config_file(cfgpath)
+    if is_valid:
+        logger.info('Configuration file is valid.')
+    else:
+        logger.error('Configuration file has errors: %s', error_msg)
 
 
 @main.command()

@@ -19,7 +19,7 @@ except (ValueError, ImportError):
     # Fallback/Mock for type checking or if imports fail late
     pass
 
-from korgalore.cli import perform_pull, get_xdg_config_dir
+from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file
 from korgalore import AuthenticationError
 from korgalore.gmail_target import GmailTarget
 
@@ -167,10 +167,24 @@ class KorgaloreApp:
 
     def on_edit_config(self, source: Any) -> None:
         """Open the configuration file in the user's preferred editor."""
+        # Run in background thread to not block UI while waiting for editor
+        threading.Thread(target=self._run_edit_config, daemon=True).start()
+
+    def _run_edit_config(self) -> None:
+        """Execute config editing and validate after editor closes."""
         cfgpath = get_xdg_config_dir() / 'korgalore.toml'
         logger.info("Opening configuration file: %s", cfgpath)
         try:
-            subprocess.Popen(['xdg-open', str(cfgpath)])
+            proc = subprocess.Popen(['xdg-open', str(cfgpath)])
+            proc.wait()
+
+            # Validate after editor closes
+            is_valid, error_msg = validate_config_file(cfgpath)
+            if is_valid:
+                logger.info("Configuration file is valid.")
+            else:
+                logger.error("Configuration file has errors: %s", error_msg)
+                self.update_status("Config error - see logs", "dialog-warning-symbolic")
         except Exception as e:
             logger.error("Failed to open config file: %s", str(e))
 
