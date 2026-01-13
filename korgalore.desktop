@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Korgalore
+GenericName=Mailing List Sync
+Comment=Sync public-inbox mailing lists to email targets
+Exec=kgl gui
+Icon=mail-read
+Categories=Email;Network;GTK;
+Terminal=false
+StartupNotify=false
+Keywords=email;mail;lore;kernel;mailing list;sync;
