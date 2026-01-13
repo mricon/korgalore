@@ -10,7 +10,7 @@ import click_log
 import requests
 
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional, Union, Callable
+from typing import Dict, Any, List, Tuple, Optional, Union, Callable, Set
 from korgalore.lore_feed import LoreFeed
 from korgalore.lei_feed import LeiFeed
 from korgalore.gmail_target import GmailTarget
@@ -389,25 +389,31 @@ def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], targ
 
 
 def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFeed], epoch: int, commit: str,
-                   labels: List[str], was_failing: bool = False) -> bool:
-    """Deliver a single message to the target."""
+                   labels: List[str], was_failing: bool = False) -> Optional[str]:
+    """Deliver a single message to the target.
+
+    Returns:
+        The Message-ID of the delivered message on success, None on failure.
+    """
     raw_message: Optional[bytes] = None
     try:
         raw_message = feed.get_message_at_commit(epoch, commit)
         target.connect()
+        msg = feed.parse_message(raw_message)
+        msgid = msg.get('Message-ID', '')
         if logger.isEnabledFor(logging.DEBUG):
-            subject = feed.get_subject_at_commit(epoch, commit)
+            subject = msg.get('Subject', '(no subject)')
             logger.debug(' -> %s', subject)
         target.import_message(raw_message, labels=labels)
         feed.mark_successful_delivery(delivery_name, epoch, commit, was_failing=was_failing)
-        return True
+        return msgid
     except Exception as e:
         logger.debug('Failed to deliver commit %s from epoch %d: %s', commit, epoch, str(e))
         feed.mark_failed_delivery(delivery_name, epoch, commit)
         # Only save delivery info if we successfully retrieved the message
         if raw_message is not None:
             feed.save_delivery_info(delivery_name, epoch, latest_commit=commit, message=raw_message)
-        return False
+        return None
 
 
 def normalize_feed_key(feed_url: str) -> str:
@@ -745,8 +751,12 @@ def labels(ctx: click.Context, target: str, ids: bool = False) -> None:
 
 def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                  delivery_name: Optional[str],
-                 status_callback: Optional[Callable[[str], None]] = None) -> Dict[str, int]:
-    """Execute the pull logic and return a dictionary of changes."""
+                 status_callback: Optional[Callable[[str], None]] = None) -> Tuple[Dict[str, int], Set[str]]:
+    """Execute the pull logic and return changes.
+
+    Returns:
+        A tuple of (per-delivery counts dict, set of unique message-ids delivered).
+    """
     cfg = ctx.obj.get('config', {})
 
     # Load deliveries to process
@@ -792,7 +802,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
 
     if not run_deliveries:
         unlock_all_feeds(ctx)
-        return {}
+        return {}, set()
 
     # Build a worklist of updates per target
     by_target: Dict[str, List[str]] = dict()
@@ -803,6 +813,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
         by_target[target_name].append(dname)
 
     changes: Dict[str, int] = dict()
+    unique_msgids: Set[str] = set()
 
     # Process deliveries now
     for target_name, delivery_names in by_target.items():
@@ -834,8 +845,8 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                 if consecutive_failures >= 5:
                     logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
                     break
-                success = deliver_commit(dname, target, feed, epoch, commit, labels, was_failing=False)
-                if not success:
+                msgid = deliver_commit(dname, target, feed, epoch, commit, labels, was_failing=False)
+                if msgid is None:
                     consecutive_failures += 1
                     continue
 
@@ -843,13 +854,15 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                 if dname not in changes:
                     changes[dname] = 0
                 changes[dname] += 1
+                if msgid:
+                    unique_msgids.add(msgid)
 
     unlock_all_feeds(ctx)
 
     # Update tracking manifest activity for any tracked threads that had deliveries
     update_tracked_thread_activity(ctx, changes)
 
-    return changes
+    return changes, unique_msgids
 
 
 @main.command()
@@ -860,7 +873,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
 @click.argument('delivery_name', type=str, nargs=1, default=None)
 def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delivery_name: Optional[str]) -> None:
     """Pull messages from configured lore and LEI deliveries."""
-    changes = perform_pull(ctx, no_update, force, delivery_name)
+    changes, _ = perform_pull(ctx, no_update, force, delivery_name)
 
     if changes:
         logger.info('Pull complete with updates:')

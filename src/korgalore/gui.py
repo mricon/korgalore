@@ -198,19 +198,19 @@ class KorgaloreApp:
             
             # Run the pull command logic
             # We wrap this to catch any exceptions and update UI
-            changes = perform_pull(
-                self.ctx, 
-                no_update=False, 
-                force=False, 
+            _, unique_msgids = perform_pull(
+                self.ctx,
+                no_update=False,
+                force=False,
                 delivery_name=None,
                 status_callback=lambda s: self.update_status(s, "system-run-symbolic")
             )
-            
+
             self.last_sync_time = time.time()
             self.error_state = False
-            
-            count = sum(changes.values()) if changes else 0
-            
+
+            count = len(unique_msgids)
+
             if count > 0:
                 logger.info("Sync complete: %d new messages", count)
                 self.update_status(f"Idle ({count} new)", "mail-unread-symbolic")
