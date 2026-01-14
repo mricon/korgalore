@@ -402,7 +402,7 @@ def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], targ
         try:
             target_service.import_message(raw_message, labels=labels)
             logger.debug('Successfully retried commit %s', commit_hash)
-            pi_feed.mark_successful_delivery(delivery_name, epoch, commit_hash)
+            pi_feed.mark_successful_delivery(delivery_name, epoch, commit_hash, message=raw_message)
         except RemoteError:
             pi_feed.mark_failed_delivery(delivery_name, epoch, commit_hash)
 
@@ -427,7 +427,7 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
             subject = msg.get('Subject', '(no subject)')
             logger.debug(' -> %s', subject)
         target.import_message(raw_message, labels=labels)
-        feed.mark_successful_delivery(delivery_name, epoch, commit, was_failing=was_failing)
+        feed.mark_successful_delivery(delivery_name, epoch, commit, message=raw_message, was_failing=was_failing)
         return msgid
     except Exception as e:
         logger.debug('Failed to deliver commit %s from epoch %d: %s', commit, epoch, str(e))

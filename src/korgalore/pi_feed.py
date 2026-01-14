@@ -430,7 +430,8 @@ class PIFeed:
             results.append((int(entry[0]), str(entry[1])))
         return results
 
-    def mark_successful_delivery(self, delivery_name: str, epoch: int, commit_hash: str, was_failing: bool = False) -> None:
+    def mark_successful_delivery(self, delivery_name: str, epoch: int, commit_hash: str,
+                                   message: Optional[bytes] = None, was_failing: bool = False) -> None:
         """Mark a commit as successfully delivered and remove from failed list if present."""
         # We've successfully delivered a message, so remove it from the
         # korgalore.{delivery_name}.failed file if it exists there.
@@ -445,7 +446,7 @@ class PIFeed:
                 logger.debug("Marked commit %s in epoch %d as successfully delivered for delivery %s.",
                             commit_hash, epoch, delivery_name)
 
-        self.save_delivery_info(delivery_name, epoch, commit_hash)
+        self.save_delivery_info(delivery_name, epoch, commit_hash, message=message)
 
     def cleanup_failed_state(self, delivery_name: str) -> None:
         # Remove the failed state file if it's empty
