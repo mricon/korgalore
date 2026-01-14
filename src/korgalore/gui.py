@@ -206,18 +206,13 @@ class KorgaloreApp:
             self.run_sync()
 
         while not self.stop_event.is_set():
-            # Set next sync time for UI
-            self.next_sync_time = time.time() + self.sync_interval
-            
-            # Sleep in chunks to be responsive to stop_event
-            for _ in range(self.sync_interval):
-                if self.stop_event.is_set():
-                    return
-                # Check if next_sync_time got bumped (e.g. if we implemented manual reset)
-                # For now just sleep
-                time.sleep(1)
-            
-            self.run_sync()
+            # Sleep in 1-second chunks, checking if it's time to sync
+            # This handles both the regular interval and manual sync resets
+            time.sleep(1)
+            if self.stop_event.is_set():
+                return
+            if time.time() >= self.next_sync_time and not self.is_syncing:
+                self.run_sync()
 
     def run_sync(self) -> None:
         """Execute the pull logic."""
@@ -267,6 +262,8 @@ class KorgaloreApp:
             self.update_status("Error: See logs", "dialog-error-symbolic")
         finally:
             self.is_syncing = False
+            # Reset countdown timer after sync completes
+            self.next_sync_time = time.time() + self.sync_interval
             GLib.idle_add(lambda: self.item_sync.set_sensitive(True))
 
     def _show_auth_button(self) -> bool:
