@@ -98,11 +98,24 @@ class LeiFeed(PIFeed):
             if output.startswith('v2:'):
                 self.known_searches.append(output[3:])
 
-    def init_feed(self) -> None:
-        """Initialize a new LEI feed by saving the current state."""
-        logger.debug('Initializing LEI feed: %s', self.feed_dir)
-        # We just need to save the feed state with the latest existing epoch
-        self.save_feed_state()
+    def init_feed(self, from_start: bool = False) -> None:
+        """Initialize a new LEI feed by saving the current state.
+
+        Args:
+            from_start: If True, initialize from the first commit so all existing
+                        messages will be delivered on the next pull. If False
+                        (default), initialize from the latest commit so only new
+                        messages will be delivered.
+        """
+        logger.debug('Initializing LEI feed: %s (from_start=%s)', self.feed_dir, from_start)
+        epoch = self.get_highest_epoch()
+        if from_start:
+            # Use first commit so all messages are treated as "new"
+            latest_commit = self.get_first_commit(epoch)
+            logger.debug('Initializing from first commit: %s', latest_commit)
+        else:
+            latest_commit = None  # Will use get_top_commit() in save_feed_state()
+        self.save_feed_state(epoch=epoch, latest_commit=latest_commit)
 
     def update_feed(self) -> int:
         """Update the LEI search and check for new messages.

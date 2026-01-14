@@ -195,6 +195,7 @@ class TestGmailTargetListLabels:
     def test_list_labels_success(self) -> None:
         """Successful label listing."""
         target = self._create_target_with_service()
+        assert target.service is not None
 
         mock_labels = [
             {"id": "INBOX", "name": "INBOX"},
@@ -213,6 +214,7 @@ class TestGmailTargetListLabels:
     def test_list_labels_empty(self) -> None:
         """Empty label list returns empty list."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().labels().list().execute.return_value = {}
 
         result = target.list_labels()
@@ -222,9 +224,10 @@ class TestGmailTargetListLabels:
     def test_list_labels_http_error(self) -> None:
         """HTTP error raises RemoteError."""
         target = self._create_target_with_service()
+        assert target.service is not None
 
         # Import HttpError for the mock
-        from googleapiclient.errors import HttpError
+        from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
         mock_response = MagicMock()
         mock_response.status = 403
         target.service.users().labels().list().execute.side_effect = HttpError(
@@ -254,6 +257,7 @@ class TestGmailTargetTranslateLabels:
     def test_translate_single_label(self) -> None:
         """Translate single label name to ID."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().labels().list().execute.return_value = {
             "labels": [
                 {"id": "INBOX", "name": "INBOX"},
@@ -268,6 +272,7 @@ class TestGmailTargetTranslateLabels:
     def test_translate_multiple_labels(self) -> None:
         """Translate multiple label names to IDs."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().labels().list().execute.return_value = {
             "labels": [
                 {"id": "INBOX", "name": "INBOX"},
@@ -283,6 +288,7 @@ class TestGmailTargetTranslateLabels:
     def test_translate_unknown_label_raises(self) -> None:
         """Unknown label raises ConfigurationError."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().labels().list().execute.return_value = {
             "labels": [{"id": "INBOX", "name": "INBOX"}]
         }
@@ -295,6 +301,7 @@ class TestGmailTargetTranslateLabels:
     def test_translate_caches_label_map(self) -> None:
         """Label map is cached after first translation."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().labels().list().execute.return_value = {
             "labels": [
                 {"id": "INBOX", "name": "INBOX"},
@@ -334,6 +341,7 @@ class TestGmailTargetImportMessage:
     def test_import_success_with_labels(self) -> None:
         """Successful message import with labels."""
         target = self._create_target_with_service()
+        assert target.service is not None
 
         mock_result = {"id": "msg123", "labelIds": ["INBOX", "UNREAD"]}
         target.service.users().messages().import_().execute.return_value = mock_result
@@ -358,6 +366,7 @@ class TestGmailTargetImportMessage:
     def test_import_base64_encoding(self) -> None:
         """Message is base64 URL-safe encoded."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
         raw_message = b"Test message with special chars: +/="
@@ -374,6 +383,7 @@ class TestGmailTargetImportMessage:
     def test_import_without_labels(self) -> None:
         """Import without labels doesn't include labelIds."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
         raw_message = b"Test message"
@@ -386,6 +396,7 @@ class TestGmailTargetImportMessage:
     def test_import_translates_label_names(self) -> None:
         """Label names are translated to IDs."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
         target.import_message(b"Test", ["MyLabel"])
@@ -397,6 +408,7 @@ class TestGmailTargetImportMessage:
     def test_import_http_error(self) -> None:
         """HTTP error raises RemoteError."""
         target = self._create_target_with_service()
+        assert target.service is not None
 
         from googleapiclient.errors import HttpError
         mock_response = MagicMock()
@@ -412,6 +424,7 @@ class TestGmailTargetImportMessage:
     def test_import_unknown_label_raises(self) -> None:
         """Unknown label in import raises ConfigurationError."""
         target = self._create_target_with_service()
+        assert target.service is not None
 
         with pytest.raises(ConfigurationError) as exc_info:
             target.import_message(b"Test", ["UnknownLabel"])
@@ -437,6 +450,7 @@ class TestGmailTargetEdgeCases:
     def test_large_message(self) -> None:
         """Large messages are handled correctly."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
         # 1MB message
@@ -448,6 +462,7 @@ class TestGmailTargetEdgeCases:
     def test_binary_message_content(self) -> None:
         """Binary content is properly base64 encoded."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
         # Message with all byte values
@@ -465,6 +480,7 @@ class TestGmailTargetEdgeCases:
     def test_empty_message(self) -> None:
         """Empty message is handled."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
         result = target.import_message(b"", ["INBOX"])
@@ -474,6 +490,7 @@ class TestGmailTargetEdgeCases:
     def test_multiple_imports(self) -> None:
         """Multiple messages can be imported."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target.service.users().messages().import_().execute.side_effect = [
             {"id": f"msg{i}"} for i in range(5)
         ]
@@ -511,6 +528,7 @@ class TestGmailTargetEdgeCases:
     def test_label_names_are_case_sensitive(self) -> None:
         """Label name matching is case-sensitive."""
         target = self._create_target_with_service()
+        assert target.service is not None
         target._label_map = {"INBOX": "INBOX", "inbox": "inbox_lower"}
 
         result = target.translate_labels(["INBOX"])

@@ -1,8 +1,13 @@
 """Shared pytest fixtures for korgalore tests."""
+from __future__ import annotations
 
 import pytest
 from pathlib import Path
+from typing import Any, TYPE_CHECKING
 from unittest.mock import MagicMock
+
+if TYPE_CHECKING:
+    from korgalore.pi_feed import PIFeed
 
 
 @pytest.fixture
@@ -43,12 +48,12 @@ def mock_feed(temp_feed_dir: Path) -> "PIFeed":
 
 
 @pytest.fixture
-def sample_deliveries() -> dict:
+def sample_deliveries() -> dict[str, tuple[Any, Any, list[str]]]:
     """Create sample delivery data structure matching cli.py format.
 
     Returns dict mapping delivery_name -> (feed, target, labels)
     """
-    feeds = {}
+    feeds: dict[str, tuple[Any, Any, list[str]]] = {}
     for i in range(5):
         feed = MagicMock()
         feed.feed_key = f"feed-{i % 3}"  # 3 unique feeds

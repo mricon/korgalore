@@ -389,6 +389,17 @@ class PIFeed:
         top_commit = output.decode()
         return top_commit
 
+    def get_first_commit(self, epoch: int) -> str:
+        """Get the first (oldest) commit hash in an epoch."""
+        gitdir = self.get_gitdir(epoch)
+        branch = self._get_default_branch(gitdir)
+        gitargs = ['rev-list', '--max-parents=0', branch]
+        retcode, output = run_git_command(str(gitdir), gitargs)
+        if retcode != 0:
+            raise GitError(f"Git rev-list failed: {output.decode()}")
+        first_commit = output.decode()
+        return first_commit
+
     def feed_lock(self) -> None:
         """Acquire exclusive lock on feed to prevent concurrent access."""
         # Grab an exclusive posix lock to make sure that we're not running the

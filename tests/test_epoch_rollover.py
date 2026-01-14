@@ -42,10 +42,11 @@ def create_feed_with_epochs(tmp_path: Path, epochs: List[int]) -> MockPIFeed:
     return MockPIFeed(feed_dir)
 
 
-def write_delivery_info(feed: PIFeed, delivery_name: str, epochs_data: dict) -> None:
+def write_delivery_info(feed: PIFeed, delivery_name: str,
+                        epochs_data: dict[int, dict[str, str]]) -> None:
     """Write delivery info state file."""
     state_file = feed.feed_dir / f"korgalore.{delivery_name}.info"
-    state = {"epochs": {}}
+    state: dict[str, dict[str, dict[str, str]]] = {"epochs": {}}
     for epoch_num, data in epochs_data.items():
         state["epochs"][str(epoch_num)] = {
             "last": data.get("last", "dummy_commit"),

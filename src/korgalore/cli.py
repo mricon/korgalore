@@ -24,13 +24,44 @@ from korgalore import (
 )
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
-    create_lei_thread_search, update_lei_search
+    create_lei_thread_search, create_lei_query_search, update_lei_search,
+    forget_lei_search
+)
+from korgalore.lei_feed import LeiFeed
+from korgalore.maintainers import (
+    get_subsystem, normalize_subsystem_name,
+    build_mailinglist_query, build_patches_query,
+    generate_subsystem_config
 )
 
 logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
 
 REQSESSION: Optional[requests.Session] = None
+
+
+def parse_labels(labels: Tuple[str, ...]) -> List[str]:
+    """Parse labels from command line, supporting both repeated -l and comma-separated.
+
+    Args:
+        labels: Tuple of label strings from click's multiple=True option.
+
+    Returns:
+        Flattened list of individual labels.
+
+    Examples:
+        >>> parse_labels(('INBOX', 'UNREAD'))
+        ['INBOX', 'UNREAD']
+        >>> parse_labels(('INBOX,UNREAD,custom-label',))
+        ['INBOX', 'UNREAD', 'custom-label']
+        >>> parse_labels(('INBOX', 'UNREAD,CATEGORY_FORUMS'))
+        ['INBOX', 'UNREAD', 'CATEGORY_FORUMS']
+    """
+    result: List[str] = []
+    for label in labels:
+        # Split by comma and strip whitespace
+        result.extend(part.strip() for part in label.split(',') if part.strip())
+    return result
 
 def get_reqsession() -> requests.Session:
     """Get or create the global requests session with korgalore User-Agent."""
@@ -350,8 +381,23 @@ def validate_config_file(cfgpath: Path) -> Tuple[bool, str]:
         return False, f"Error reading config: {e}"
 
 
+def merge_config(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
+    """Merge extra config into base config (modifies base in-place).
+
+    Merges 'targets', 'feeds', 'deliveries', and 'gui' sections.
+    """
+    for section in ('targets', 'feeds', 'deliveries'):
+        if section in extra:
+            if section not in base:
+                base[section] = {}
+            base[section].update(extra[section])
+    # gui section is replaced, not merged
+    if 'gui' in extra:
+        base['gui'] = extra['gui']
+
+
 def load_config(cfgfile: Path) -> Dict[str, Any]:
-    """Load and parse the TOML configuration file."""
+    """Load and parse the TOML configuration file and conf.d/*.toml files."""
     config: Dict[str, Any] = dict()
 
     if not cfgfile.exists():
@@ -369,6 +415,15 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
             logger.debug('Converting legacy "sources" to "deliveries" in config')
             config['deliveries'] = config['sources']
             del config['sources']
+
+        # Load conf.d/*.toml files
+        conf_d = cfgfile.parent / 'conf.d'
+        if conf_d.is_dir():
+            for toml_file in sorted(conf_d.glob('*.toml')):
+                logger.debug('Loading additional config from %s', toml_file.name)
+                with open(toml_file, 'rb') as cf:
+                    extra = tomllib.load(cf)
+                merge_config(config, extra)
 
         logger.debug('Config loaded with %s targets, %s deliveries, and %s feeds',
                      len(config.get('targets', {})), len(config.get('deliveries', {})),
@@ -926,7 +981,7 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
 @click.pass_context
 @click.option('--target', '-t', default=None, help='Target to upload the message to')
 @click.option('--labels', '-l', multiple=True,
-              help='Labels to apply to the message (can be used multiple times)')
+              help='Labels to apply (repeatable or comma-separated)')
 @click.option('--thread', '-T', is_flag=True, help='Fetch and upload the entire thread')
 @click.argument('msgid_or_url', type=str, nargs=1)
 def yank(ctx: click.Context, target: Optional[str],
@@ -954,7 +1009,7 @@ def yank(ctx: click.Context, target: Optional[str],
 
     # Use target-specific default labels if none specified
     if labels:
-        labels_list = list(labels)
+        labels_list = parse_labels(labels)
     else:
         labels_list = ts.DEFAULT_LABELS
 
@@ -1103,7 +1158,7 @@ def track(ctx: click.Context) -> None:
 @click.argument('msgid_or_url', type=str)
 @click.option('--target', '-t', default=None, help='Target for deliveries')
 @click.option('--labels', '-l', multiple=True,
-              help='Labels to apply (can be used multiple times)')
+              help='Labels to apply (repeatable or comma-separated)')
 @click.pass_context
 def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
               labels: Tuple[str, ...]) -> None:
@@ -1193,7 +1248,7 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
 
     # Add to manifest with target-specific default labels if none specified
     if labels:
-        labels_list = list(labels)
+        labels_list = parse_labels(labels)
     else:
         labels_list = target_service.DEFAULT_LABELS
 
@@ -1349,6 +1404,219 @@ def gui(ctx: click.Context) -> None:
     # Set GUI mode to disable interactive OAuth flows
     ctx.obj['gui_mode'] = True
     start_gui(ctx)
+
+
+@main.command('track-subsystem')
+@click.argument('subsystem_name', type=str)
+@click.option('--maintainers', '-m', default=None,
+              type=click.Path(exists=True), help='Path to MAINTAINERS file')
+@click.option('--target', '-t', default=None, help='Target for deliveries')
+@click.option('--labels', '-l', multiple=True,
+              help='Labels to apply (repeatable or comma-separated; default: target DEFAULT_LABELS)')
+@click.option('--since', default='7.days.ago',
+              help='Start date for query (default: 7.days.ago)')
+@click.option('--threads/--no-threads', default=False,
+              help='Include entire threads when any message matches (can produce many results)')
+@click.option('--forget', is_flag=True, default=False,
+              help='Remove tracking for the subsystem (deletes config and lei queries)')
+@click.pass_context
+def track_subsystem(ctx: click.Context, subsystem_name: str,
+                    maintainers: Optional[str], target: Optional[str],
+                    labels: Tuple[str, ...], since: str,
+                    threads: bool, forget: bool) -> None:
+    """Track a kernel subsystem from MAINTAINERS file.
+
+    Creates lei queries for the subsystem:
+
+    \b
+    - {name}-mailinglist: Messages to the subsystem mailing list(s)
+    - {name}-patches: Patches touching subsystem files
+
+    The configuration is written to conf.d/{subsystem_key}.toml
+
+    Use --forget to remove tracking for a previously tracked subsystem.
+    """
+    # Handle --forget mode
+    if forget:
+        # Normalize the subsystem name to find the config and lei paths
+        key = normalize_subsystem_name(subsystem_name)
+        config_dir = get_xdg_config_dir()
+        data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
+
+        # Find and remove config file
+        config_file = config_dir / 'conf.d' / f'{key}.toml'
+        if config_file.exists():
+            config_file.unlink()
+            logger.info('Removed config file: %s', config_file)
+        else:
+            logger.warning('Config file not found: %s', config_file)
+
+        # Forget lei searches
+        lei_base_path = data_dir / 'lei'
+        for suffix in ('mailinglist', 'patches'):
+            lei_path = lei_base_path / f'{key}-{suffix}'
+            if lei_path.exists():
+                try:
+                    retcode, output = forget_lei_search(lei_path)
+                    if retcode == 0:
+                        logger.info('Forgot lei search: %s', lei_path)
+                    else:
+                        logger.error('Failed to forget lei search %s: %s',
+                                     lei_path, output.decode())
+                except PublicInboxError as e:
+                    logger.error('Failed to forget lei search %s: %s', lei_path, str(e))
+            else:
+                logger.debug('Lei search not found: %s', lei_path)
+
+        logger.info('Removed tracking for subsystem: %s', subsystem_name)
+        return
+
+    # Require --maintainers when not using --forget
+    if not maintainers:
+        logger.critical('--maintainers/-m is required when creating a new subsystem tracking')
+        raise click.Abort()
+
+    config = ctx.obj.get('config', {})
+    targets = config.get('targets', {})
+
+    # Auto-select target if only one exists
+    if not target:
+        if len(targets) == 1:
+            target = list(targets.keys())[0]
+            logger.debug('Using only configured target: %s', target)
+        else:
+            logger.critical('Multiple targets configured. Please specify one with -t.')
+            logger.critical('Available targets: %s', ', '.join(targets.keys()))
+            raise click.Abort()
+    elif target not in targets:
+        logger.critical('Target "%s" not found in configuration.', target)
+        logger.critical('Known targets: %s', ', '.join(targets.keys()))
+        raise click.Abort()
+
+    # Get target instance for default labels
+    target_service = get_target(ctx, target)
+
+    # Parse MAINTAINERS file and get subsystem entry
+    maintainers_path = Path(maintainers)
+    try:
+        entry = get_subsystem(maintainers_path, subsystem_name)
+    except KeyError as e:
+        logger.critical('%s', str(e))
+        raise click.Abort()
+
+    logger.info('Found subsystem: %s', entry.name)
+
+    # Generate normalized key for directory and config names
+    key = normalize_subsystem_name(entry.name)
+    logger.debug('Normalized key: %s', key)
+
+    # Determine labels to use (supports comma-separated values)
+    if labels:
+        labels_list = parse_labels(labels)
+    else:
+        labels_list = target_service.DEFAULT_LABELS
+
+    # Create lei search directories
+    data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
+    lei_base_path = data_dir / 'lei'
+
+    # Build and create queries
+    queries_created = 0
+    skipped_patterns: List[str] = []
+
+    # 1. Mailing list query
+    mailinglist_query = build_mailinglist_query(entry, since)
+    if mailinglist_query:
+        lei_path = lei_base_path / f'{key}-mailinglist'
+        logger.info('Creating mailinglist query: %s', mailinglist_query)
+        try:
+            retcode, output = create_lei_query_search(mailinglist_query, lei_path,
+                                                      threads=threads)
+            if retcode != 0:
+                logger.error('Lei query failed for mailinglist: %s', output.decode())
+            else:
+                # Initialize feed from start so all existing messages are delivered
+                feed = LeiFeed(f'{key}-mailinglist', f'lei:{lei_path}')
+                epoch = feed.get_highest_epoch()
+                first_commit = feed.get_first_commit(epoch)
+                if first_commit:
+                    feed.init_feed(from_start=True)
+                    # Also initialize delivery state from the same starting point
+                    delivery_name = f'{key}-mailinglist'
+                    feed.save_delivery_info(delivery_name, epoch=epoch,
+                                            latest_commit=first_commit)
+                else:
+                    # No messages matched the query, initialize normally
+                    logger.warning('No messages found for mailinglist query')
+                    feed.init_feed(from_start=False)
+                queries_created += 1
+        except PublicInboxError as e:
+            logger.error('Failed to create mailinglist query: %s', str(e))
+    else:
+        logger.warning('No mailing lists found for subsystem')
+
+    # 2. Patches query
+    patches_query, skipped = build_patches_query(entry, since)
+    skipped_patterns.extend(skipped)
+    if patches_query:
+        lei_path = lei_base_path / f'{key}-patches'
+        logger.info('Creating patches query: %s', patches_query)
+        try:
+            retcode, output = create_lei_query_search(patches_query, lei_path,
+                                                      threads=threads)
+            if retcode != 0:
+                logger.error('Lei query failed for patches: %s', output.decode())
+            else:
+                # Initialize feed from start so all existing messages are delivered
+                feed = LeiFeed(f'{key}-patches', f'lei:{lei_path}')
+                epoch = feed.get_highest_epoch()
+                first_commit = feed.get_first_commit(epoch)
+                if first_commit:
+                    feed.init_feed(from_start=True)
+                    # Also initialize delivery state from the same starting point
+                    delivery_name = f'{key}-patches'
+                    feed.save_delivery_info(delivery_name, epoch=epoch,
+                                            latest_commit=first_commit)
+                else:
+                    # No messages matched the query, initialize normally
+                    logger.warning('No messages found for patches query')
+                    feed.init_feed(from_start=False)
+                queries_created += 1
+        except PublicInboxError as e:
+            logger.error('Failed to create patches query: %s', str(e))
+    else:
+        logger.warning('No file patterns found for subsystem')
+
+    if queries_created == 0:
+        logger.critical('No queries could be created for subsystem.')
+        raise click.Abort()
+
+    # Report skipped patterns
+    if skipped_patterns:
+        logger.warning('Skipped %d regex patterns (not supported by Xapian):', len(skipped_patterns))
+        for pattern in skipped_patterns:
+            logger.warning('  %s', pattern)
+
+    # Generate and write configuration file
+    config_dir = get_xdg_config_dir()
+    conf_d = config_dir / 'conf.d'
+    conf_d.mkdir(parents=True, exist_ok=True)
+
+    config_content = generate_subsystem_config(
+        key=key,
+        target=target,
+        labels=labels_list,
+        lei_base_path=lei_base_path,
+        since=since,
+        subsystem_name=entry.name
+    )
+
+    config_file = conf_d / f'{key}.toml'
+    config_file.write_text(config_content)
+
+    logger.info('Created %d lei queries for subsystem "%s"', queries_created, entry.name)
+    logger.info('Configuration written to: %s', config_file)
+    logger.info('Target: %s, Labels: %s', target, ', '.join(labels_list))
 
 
 if __name__ == '__main__':

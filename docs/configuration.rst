@@ -21,6 +21,30 @@ You can override this with the ``-c`` or ``--cfgfile`` option:
 
    kgl -c /path/to/config.toml pull
 
+Modular Configuration (conf.d)
+==============================
+
+In addition to the main configuration file, korgalore automatically loads
+additional configuration files from the ``conf.d/`` subdirectory:
+
+.. code-block:: bash
+
+   ~/.config/korgalore/conf.d/*.toml
+
+This is useful for:
+
+* Keeping auto-generated configurations separate from your main config
+* Organizing configurations by purpose (e.g., one file per subsystem)
+* Easily enabling/disabling configurations by adding/removing files
+
+Files are loaded in alphabetical order and merged into the main configuration.
+The ``targets``, ``feeds``, and ``deliveries`` sections are merged (new entries
+added, existing entries with the same key are overwritten). The ``gui`` section
+is replaced entirely if present in a conf.d file.
+
+This feature is used by the ``track-subsystem`` command to store subsystem
+tracking configurations separately from your main configuration file.
+
 Gmail Setup
 ===========
 

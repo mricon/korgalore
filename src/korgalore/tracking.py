@@ -394,6 +394,38 @@ def create_lei_thread_search(msgid: str, output_path: Path) -> Tuple[int, bytes]
     return run_lei_command(args)
 
 
+def create_lei_query_search(query: str, output_path: Path,
+                            threads: bool = False) -> Tuple[int, bytes]:
+    """Create a new lei search with an arbitrary query string.
+
+    Uses: lei q '<query>' [--threads] --only https://lore.kernel.org/all -o v2:<output_path>
+
+    Args:
+        query: The lei query string (e.g., 'd:30.days.ago.. AND a:foo@bar.com').
+        output_path: Path where the lei search will be created.
+        threads: If True, include entire email threads when any message matches.
+                 This can result in many more results but is useful for following
+                 discussions.
+
+    Returns:
+        Tuple of (return_code, output).
+
+    Raises:
+        PublicInboxError: If the lei command is not found.
+    """
+    # Ensure output directory's parent exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    args = ['q', query]
+    if threads:
+        args.append('--threads')
+    args.extend(['--only', 'https://lore.kernel.org/all',
+                 '-o', f'v2:{output_path}'])
+    logger.debug('Creating lei query search: lei %s', ' '.join(args))
+
+    return run_lei_command(args)
+
+
 def update_lei_search(search_path: Path) -> Tuple[int, bytes]:
     """Update an existing lei search.
 
@@ -407,4 +439,23 @@ def update_lei_search(search_path: Path) -> Tuple[int, bytes]:
         PublicInboxError: If the lei command is not found.
     """
     args = ['up', str(search_path)]
+    return run_lei_command(args)
+
+
+def forget_lei_search(search_path: Path) -> Tuple[int, bytes]:
+    """Forget a lei search and remove its data.
+
+    Runs 'lei forget-search' to remove the search from lei's tracking
+    and delete the associated data.
+
+    Args:
+        search_path: Path to the lei search directory.
+
+    Returns:
+        Tuple of (return_code, output).
+
+    Raises:
+        PublicInboxError: If the lei command is not found.
+    """
+    args = ['forget-search', str(search_path)]
     return run_lei_command(args)

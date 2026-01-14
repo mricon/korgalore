@@ -28,6 +28,22 @@ New Features
   - Tracked threads automatically updated during regular ``pull`` operations
   - Threads auto-expire after 30 days of inactivity (can be resumed)
 
+* Subsystem Tracking (``kgl track-subsystem``)
+
+  - Track Linux kernel subsystems by parsing MAINTAINERS file
+  - Automatically creates lei queries for mailing list traffic and patches
+  - Supports substring matching for subsystem names (case-insensitive)
+  - ``--threads`` option to include entire threads when any message matches
+  - ``--since`` option to control query date range (default: 7 days)
+  - ``--forget`` flag to remove tracking and clean up lei queries
+  - Configuration stored in conf.d/ for easy management
+
+* Modular Configuration (conf.d)
+
+  - Additional config files automatically loaded from ``~/.config/korgalore/conf.d/*.toml``
+  - Files merged alphabetically into main configuration
+  - Useful for separating auto-generated configs from manual configuration
+
 * Pipe Target
 
   - New target type for delivering messages to external commands
@@ -50,9 +66,12 @@ Improvements
 * Defer feed initialization messages until after progressbar completes for
   cleaner output
 
-* Add comprehensive test suite with 200+ tests
+* Add comprehensive test suite with 300+ tests
 
 * Optimize delivery lookup algorithms for better performance
+
+* Labels can now be specified as comma-separated strings (e.g., ``-l INBOX,UNREAD``)
+  in addition to repeated options (``-l INBOX -l UNREAD``)
 
 Bug Fixes
 ~~~~~~~~~
@@ -70,6 +89,8 @@ Documentation
 
 * Add comprehensive GUI documentation covering installation, usage,
   configuration, and systemd service setup
+
+* Add documentation for subsystem tracking and conf.d modular configuration
 
 v0.2
 ----

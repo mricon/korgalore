@@ -26,7 +26,10 @@ class TestJSONLOperations:
     def test_write_and_read_jsonl(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
         """Write and read back JSONL data."""
         filepath = temp_feed_dir / "test.jsonl"
-        data = [(1, "abc123", "2024-01-01T00:00:00", 1), (2, "def456", "2024-01-02T00:00:00", 2)]
+        data: list[tuple[int | str, ...]] = [
+            (1, "abc123", "2024-01-01T00:00:00", 1),
+            (2, "def456", "2024-01-02T00:00:00", 2),
+        ]
         mock_feed._write_jsonl_file(filepath, data)
 
         result = mock_feed._read_jsonl_file(filepath)

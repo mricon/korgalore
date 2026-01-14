@@ -80,7 +80,12 @@ class TestMaildirTargetConnect:
     def test_connect_logs_path(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Connect logs the maildir path."""
         import logging
-        caplog.set_level(logging.DEBUG)
+        # Clear any handlers added by click-log from cli.py imports
+        # and ensure propagation for caplog to capture
+        korg_logger = logging.getLogger('korgalore')
+        korg_logger.handlers.clear()
+        korg_logger.propagate = True
+        caplog.set_level(logging.DEBUG, logger='korgalore')
         maildir_path = tmp_path / "my_maildir"
         target = MaildirTarget("test", str(maildir_path))
         target.connect()

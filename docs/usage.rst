@@ -224,7 +224,7 @@ Arguments:
 Options:
 
 * ``-t, --target TEXT``: Target to upload the message to (required if multiple targets configured)
-* ``-l, --labels TEXT``: Labels to apply to the message (can be used multiple times)
+* ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated)
 * ``-T, --thread``: Fetch and upload the entire thread instead of just a single message
 
 .. note::
@@ -242,8 +242,8 @@ Examples:
    # Upload a single message by URL
    kgl yank --target work https://lore.kernel.org/lkml/msgid@example.com/
 
-   # Upload with specific labels
-   kgl yank --target personal --labels INBOX --labels UNREAD some@msgid.com
+   # Upload with specific labels (comma-separated or repeated)
+   kgl yank --target personal --labels INBOX,UNREAD some@msgid.com
 
    # Upload an entire thread
    kgl yank --target personal --thread some@msgid.com
@@ -276,7 +276,7 @@ Subcommands
 Options:
 
 * ``-t, --target TEXT``: Target for deliveries (required if multiple targets configured)
-* ``-l, --labels TEXT``: Labels to apply (can be used multiple times)
+* ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated)
 
 **track list** - List tracked threads:
 
@@ -321,8 +321,8 @@ Examples
    # Start tracking a thread by lore URL
    kgl track add https://lore.kernel.org/lkml/20251217-feature-v3-0-abc123@kernel.org/
 
-   # Track with specific labels
-   kgl track add -l tracked -l patches '<msgid@example.org>'
+   # Track with specific labels (comma-separated)
+   kgl track add -l tracked,patches '<msgid@example.org>'
 
    # List all tracked threads
    kgl track list
@@ -369,6 +369,108 @@ How Thread Tracking Works
 
 .. note::
    Thread tracking requires ``lei`` from the public-inbox project to be installed
+   and configured. See https://public-inbox.org/lei for installation instructions.
+
+
+track-subsystem
+---------------
+
+Track a Linux kernel subsystem by parsing the MAINTAINERS file and creating
+lei queries for mailing list traffic and patches.
+
+This is useful for kernel developers who want to follow a subsystem's mailing
+list and patches without manually configuring lei queries.
+
+.. code-block:: bash
+
+   kgl track-subsystem [OPTIONS] SUBSYSTEM_NAME
+
+Arguments:
+
+* ``SUBSYSTEM_NAME``: Name of the subsystem (or substring) from the MAINTAINERS file
+
+Options:
+
+* ``-m, --maintainers PATH``: Path to MAINTAINERS file (required)
+* ``-t, --target TEXT``: Target for deliveries (auto-selected if only one target configured)
+* ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated; defaults to target's default labels)
+* ``--since TEXT``: Start date for query (default: ``7.days.ago``)
+* ``--threads / --no-threads``: Include entire threads when any message matches (default: off)
+* ``--forget``: Remove tracking for the subsystem (deletes config and lei queries)
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Track the 9P FILE SYSTEM subsystem
+   kgl track-subsystem -m ~/linux/MAINTAINERS '9P FILE SYSTEM'
+
+   # Track using a substring match (case-insensitive)
+   kgl track-subsystem -m ~/linux/MAINTAINERS '9p file'
+
+   # Track with specific target and labels (comma-separated)
+   kgl track-subsystem -m ~/linux/MAINTAINERS -t work -l INBOX,patches 'DRM'
+
+   # Track with --threads to get full discussions (can produce many results)
+   kgl track-subsystem -m ~/linux/MAINTAINERS --threads 'RUST'
+
+   # Track patches from the last 30 days (default is 7)
+   kgl track-subsystem -m ~/linux/MAINTAINERS --since 30.days.ago 'BTRFS'
+
+   # Stop tracking a subsystem (removes config and lei queries)
+   kgl track-subsystem --forget '9P FILE SYSTEM'
+
+How It Works
+~~~~~~~~~~~~
+
+When you run ``track-subsystem``, korgalore:
+
+1. Parses the MAINTAINERS file to find the matching subsystem entry
+2. Creates two lei queries based on the subsystem's metadata:
+
+   * **{name}-mailinglist**: Messages to the subsystem's mailing list(s) (from ``L:`` entries)
+   * **{name}-patches**: Patches touching subsystem files (from ``F:``, ``X:``, ``N:``, ``K:`` entries)
+
+3. Initializes the lei searches and feed state
+4. Writes a configuration file to ``~/.config/korgalore/conf.d/{subsystem_key}.toml``
+
+The configuration is stored in the ``conf.d/`` directory, which is automatically
+loaded by korgalore alongside the main configuration file. This keeps subsystem
+tracking separate from your main configuration.
+
+MAINTAINERS File Fields Used
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The command uses these fields from the MAINTAINERS file:
+
+* ``L:`` - Mailing list addresses (for the mailinglist query)
+* ``F:`` - File patterns (for the patches query, using ``dfn:`` prefix)
+* ``X:`` - Excluded file patterns (for the patches query, using ``NOT dfn:``)
+* ``N:`` - File regex patterns (simple patterns only, converted to ``dfn:``)
+* ``K:`` - Content regex patterns (simple patterns only, converted to ``dfb:``)
+
+.. note::
+   Complex regex patterns in ``N:`` and ``K:`` fields are skipped with a warning,
+   as Xapian (used by lei) doesn't support regex queries. Only simple whole-word
+   patterns can be converted.
+
+Forgetting a Subsystem
+~~~~~~~~~~~~~~~~~~~~~~
+
+To stop tracking a subsystem and clean up all related data:
+
+.. code-block:: bash
+
+   kgl track-subsystem --forget 'SUBSYSTEM NAME'
+
+This will:
+
+1. Remove the configuration file from ``conf.d/``
+2. Run ``lei forget-search`` on each lei query to remove the search data
+
+.. note::
+   Subsystem tracking requires ``lei`` from the public-inbox project to be installed
    and configured. See https://public-inbox.org/lei for installation instructions.
 
 
