@@ -433,7 +433,8 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
         logger.debug('Failed to deliver commit %s from epoch %d: %s', commit, epoch, str(e))
         feed.mark_failed_delivery(delivery_name, epoch, commit)
         # Only save delivery info if we successfully retrieved the message
-        if raw_message is not None:
+        # and this is not a retry of a previously failed delivery
+        if raw_message is not None and not was_failing:
             feed.save_delivery_info(delivery_name, epoch, latest_commit=commit, message=raw_message)
         return None
 
