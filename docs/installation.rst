@@ -32,21 +32,16 @@ Clone the repository and install:
 GUI Installation
 ================
 
-To use the GNOME taskbar application, install with GUI dependencies:
-
-.. code-block:: bash
-
-   pip install "korgalore[gui]"
-
-On some systems, you may need to install system packages for GTK and AppIndicator:
+The GNOME taskbar application requires GTK and AppIndicator3 bindings, which
+should be installed via system packages:
 
 .. code-block:: bash
 
    # Debian/Ubuntu
-   sudo apt install libgirepository1.0-dev libcairo2-dev gir1.2-appindicator3-0.1
+   sudo apt install python3-gi gir1.2-appindicator3-0.1
 
    # Fedora
-   sudo dnf install gobject-introspection-devel cairo-devel libappindicator-gtk3
+   sudo dnf install python3-gobject libappindicator-gtk3
 
 To add Korgalore to your application menu, install the desktop file:
 
