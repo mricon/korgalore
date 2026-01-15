@@ -1,27 +1,31 @@
 """GNOME Taskbar Application for Korgalore."""
 
-import threading
-import time
 import logging
-import click
+import math
 import signal
 import subprocess
-import math
+import threading
+import time
 from typing import Optional, Any
 
-# We use GTK 3 as it's the most stable binding for AppIndicator3
+import click
+
+from korgalore import AuthenticationError
+from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file, load_config
+from korgalore.gmail_target import GmailTarget
+
+# Optional GTK/AppIndicator3 support - checked at runtime
+HAS_GTK = False
 try:
     import gi  # type: ignore
     gi.require_version('Gtk', '3.0')
     gi.require_version('AppIndicator3', '0.1')
     from gi.repository import Gtk, GLib, AppIndicator3  # type: ignore
+    HAS_GTK = True
 except (ValueError, ImportError):
-    # Fallback/Mock for type checking or if imports fail late
-    pass
-
-from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file, load_config
-from korgalore import AuthenticationError
-from korgalore.gmail_target import GmailTarget
+    Gtk = None
+    GLib = None
+    AppIndicator3 = None
 
 logger = logging.getLogger('korgalore.gui')
 
@@ -29,6 +33,10 @@ class KorgaloreApp:
     """Korgalore Taskbar Application."""
 
     def __init__(self, ctx: click.Context):
+        if not HAS_GTK:
+            raise RuntimeError(
+                "GUI dependencies not available. Install with: pip install korgalore[gui]"
+            )
         self.ctx = ctx
         self.ind = AppIndicator3.Indicator.new(
             "korgalore-indicator",
