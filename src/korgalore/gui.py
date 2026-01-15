@@ -14,7 +14,7 @@ try:
     import gi  # type: ignore
     gi.require_version('Gtk', '3.0')
     gi.require_version('AppIndicator3', '0.1')
-    from gi.repository import Gtk, GLib, AppIndicator3, GObject  # type: ignore
+    from gi.repository import Gtk, GLib, AppIndicator3  # type: ignore
 except (ValueError, ImportError):
     # Fallback/Mock for type checking or if imports fail late
     pass

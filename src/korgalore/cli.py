@@ -27,7 +27,6 @@ from korgalore.tracking import (
     create_lei_thread_search, create_lei_query_search, update_lei_search,
     forget_lei_search
 )
-from korgalore.lei_feed import LeiFeed
 from korgalore.maintainers import (
     get_subsystem, normalize_subsystem_name,
     build_mailinglist_query, build_patches_query,
@@ -855,9 +854,8 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
     map_deliveries(ctx, deliveries)
 
     # Map tracked threads as ephemeral deliveries (unless specific delivery requested)
-    tracked_ids: List[str] = []
     if not delivery_name:
-        tracked_ids = map_tracked_threads(ctx)
+        map_tracked_threads(ctx)
 
     lock_all_feeds(ctx)
     # Retry all previously failed deliveries, if any
