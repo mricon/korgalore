@@ -49,6 +49,12 @@ Repository = "https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.data-files]
+"share/man/man1" = ["man/kgl.1"]
+"share/bash-completion/completions" = ["completions/kgl.bash"]
+"share/zsh/site-functions" = ["completions/kgl.zsh"]
+"share/fish/vendor_completions.d" = ["completions/kgl.fish"]
+
 [tool.pip-tools]
 generate-hashes = true
 
