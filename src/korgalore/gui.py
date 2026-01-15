@@ -37,22 +37,22 @@ class KorgaloreApp:
         )
         self.ind.set_title("Korgalore")
         self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-        
+
         # Load config
         config = ctx.obj.get('config', {})
         gui_config = config.get('gui', {})
         self.sync_interval = gui_config.get('sync_interval', 300)
         logger.info('Auto-sync interval set to %d seconds', self.sync_interval)
-        
+
         # State
         self.is_syncing = False
         self.last_sync_time = 0.0
         self.next_sync_time = 0.0
         self.error_state = False
         self.auth_needed_target: Optional[str] = None  # Target ID needing re-auth
-        
+
         self.ind.set_menu(self.build_menu())
-        
+
         self.sync_thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
 
@@ -111,13 +111,13 @@ class KorgaloreApp:
         # Start background sync thread
         self.sync_thread = threading.Thread(target=self.background_worker, daemon=True)
         self.sync_thread.start()
-        
+
         # Start timer update loop (every 1 second)
         GLib.timeout_add_seconds(1, self.update_timers)
-        
+
         # Handle Ctrl+C
         signal.signal(signal.SIGINT, lambda *args: self.quit())
-        
+
         # Start GTK loop
         Gtk.main()
 
@@ -138,7 +138,7 @@ class KorgaloreApp:
     def update_timers(self) -> bool:
         """Update last/next sync timers in menu."""
         now = time.time()
-        
+
         # Next Sync
         if self.is_syncing:
              self.item_next_sync.set_label("Next sync: In progress...")
@@ -224,10 +224,10 @@ class KorgaloreApp:
         self.update_status("Syncing...", "system-run-symbolic")
         # Ensure next sync shows as processing
         self.next_sync_time = 0
-        
+
         try:
             logger.info("Starting sync...")
-            
+
             # Run the pull command logic
             # We wrap this to catch any exceptions and update UI
             _, unique_msgids = perform_pull(
@@ -249,7 +249,7 @@ class KorgaloreApp:
             else:
                 logger.info("Sync complete: no new messages")
                 self.update_status("Idle", "mail-read-symbolic")
-                
+
         except AuthenticationError as e:
             logger.error("Authentication required for %s: %s", e.target_id, str(e))
             self.error_state = True
@@ -333,6 +333,6 @@ def start_gui(ctx: click.Context) -> None:
     # Ensure logging is configured (Click log might catch this, but just in case)
     if not logger.handlers:
         logging.basicConfig(level=logging.INFO)
-    
+
     app = KorgaloreApp(ctx)
     app.run()

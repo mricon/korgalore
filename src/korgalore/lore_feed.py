@@ -21,7 +21,8 @@ logger = logging.getLogger('korgalore')
 class LoreFeed(PIFeed):
     """Service for interacting with lore.kernel.org public-inbox archives."""
 
-    def __init__(self, feed_key: str, feed_dir: Path, feed_url: str, reqsession: Optional[requests.Session] = None) -> None:
+    def __init__(self, feed_key: str, feed_dir: Path, feed_url: str,
+                 reqsession: Optional[requests.Session] = None) -> None:
         """Initialize a LoreFeed instance.
 
         Args:

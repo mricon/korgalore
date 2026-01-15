@@ -631,7 +631,8 @@ class PIFeed:
             assert isinstance(result, dict)
             return result
 
-    def save_feed_state(self, epoch: Optional[int] = None, latest_commit: Optional[str] = None, success: bool = True) -> None:
+    def save_feed_state(self, epoch: Optional[int] = None,
+                        latest_commit: Optional[str] = None, success: bool = True) -> None:
         """Save feed-level state to disk."""
         state_file = self._get_state_file_path(delivery_name=None, suffix='feed')
 

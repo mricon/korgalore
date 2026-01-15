@@ -1396,7 +1396,8 @@ def gui(ctx: click.Context) -> None:
     except ImportError as e:
         logger.critical('GUI dependencies not found: %s', str(e))
         logger.critical('Please install the "gui" extra: pip install ".[gui]"')
-        logger.critical('You may also need system packages: libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1')
+        logger.critical('You may also need system packages: '
+                        'libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1')
         raise click.Abort()
 
     # Set GUI mode to disable interactive OAuth flows
