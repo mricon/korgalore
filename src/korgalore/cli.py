@@ -902,8 +902,6 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
         logger.debug('Processing deliveries for target: %s', target_name)
         run_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
         for dname in delivery_names:
-            if status_callback:
-                status_callback(f"Delivering {format_key_for_display(dname)}...")
             feed, target, labels = ctx.obj['deliveries'][dname]
             commits = feed.get_latest_commits_for_delivery(dname)
             if not commits:
@@ -923,7 +921,11 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                               hidden=ctx.obj['hide_bar']) as bar:
             # We bail on a target if we have more than 5 consecutive failures
             consecutive_failures = 0
+            prev_dname: Optional[str] = None
             for dname, target, feed, epoch, commit, labels in bar:
+                if status_callback and dname != prev_dname:
+                    status_callback(f"Delivering {format_key_for_display(dname)}...")
+                    prev_dname = dname
                 if consecutive_failures >= 5:
                     logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
                     break
