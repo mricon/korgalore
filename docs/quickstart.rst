@@ -7,13 +7,11 @@ This guide will help you get started with Korgalore quickly.
 Step 1: Install Korgalore
 ==========================
 
-See :doc:`installation` for detailed installation instructions.
-
-Eventually, this will work, too:
-
 .. code-block:: bash
 
-   pip install korgalore
+   pipx install korgalore
+
+See :doc:`installation` for more options.
 
 Step 2: Set Up Gmail API Credentials
 =====================================
@@ -22,6 +20,12 @@ Gmail went out of their way to make it super difficult to access your
 inbox via an API, so please be prepared to suffer a bit. You will need
 to download an OAuth 2.0 Client ID file from Google that will authorize
 your access.
+
+.. note::
+   Maintainers with a kernel.org account can obtain the credentials file
+   by running::
+
+      ssh git@gitolite.kernel.org get-kgl-creds
 
 The best approach is to follow the "quickstart app" instructions from
 Google itself:

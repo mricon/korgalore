@@ -8,6 +8,7 @@ Prerequisites
 Before installing Korgalore, ensure you have the following:
 
 * Python 3.11 or above
+* pipx (https://pipx.pypa.io/)
 * Git
 * Gmail API credentials (see :doc:`configuration` for setup instructions)
 
@@ -16,7 +17,7 @@ Installing from PyPI
 
 .. code-block:: bash
 
-   pip install korgalore
+   pipx install korgalore
 
 Installing from Source
 ======================
@@ -27,7 +28,7 @@ Clone the repository and install:
 
    git clone https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git
    cd korgalore
-   pip install .
+   pipx install .
 
 GUI Installation
 ================
