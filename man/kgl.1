@@ -1,0 +1,239 @@
+.\" Manpage for kgl (korgalore)
+.\" Contact konstantin@linuxfoundation.org for corrections.
+.TH KGL 1 "January 2026" "korgalore 0.3" "User Commands"
+.SH NAME
+kgl \- feed public-inbox messages into mail targets
+.SH SYNOPSIS
+.B kgl
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]...
+.SH DESCRIPTION
+.B kgl
+(korgalore) is a tool for feeding public-inbox git repositories and lei
+search results directly into mail targets such as Gmail, JMAP servers,
+IMAP servers, or local maildirs. It provides a workaround for Gmail's
+notorious hostility to high-volume technical mailing list traffic.
+.SH OPTIONS
+.TP
+.B \-\-version
+Show the version and exit.
+.TP
+.BR \-v ", " \-\-verbosity " " \fILVL\fR
+Set logging verbosity. Valid levels: CRITICAL, ERROR, WARNING, INFO, DEBUG.
+.TP
+.BR \-c ", " \-\-cfgfile " " \fIPATH\fR
+Path to configuration file. Default: \fI~/.config/korgalore/korgalore.toml\fR
+.TP
+.BR \-l ", " \-\-logfile " " \fIPATH\fR
+Path to log file for persistent logging.
+.TP
+.B \-\-help
+Show help message and exit.
+.SH COMMANDS
+.SS auth
+Authenticate with configured targets.
+.PP
+.B kgl auth
+[\fITARGET\fR]
+.PP
+If \fITARGET\fR is specified, authenticate only that target. Otherwise,
+authenticate all targets requiring authentication. For Gmail targets, this
+opens a browser for OAuth authentication. For JMAP/IMAP targets, this
+verifies credentials are valid.
+.SS bozofilter
+Manage the bozofilter for blocking unwanted senders.
+.PP
+.B kgl bozofilter
+[\fIOPTIONS\fR]
+.TP
+.BR \-a ", " \-\-add " " \fIADDRESS\fR
+Add address(es) to the bozofilter (comma-separated).
+.TP
+.BR \-r ", " \-\-reason " " \fITEXT\fR
+Reason for adding (included as comment in the file).
+.TP
+.BR \-e ", " \-\-edit
+Open the bozofilter file in $EDITOR.
+.TP
+.BR \-l ", " \-\-list
+List all addresses in the bozofilter.
+.PP
+Messages from blocked addresses are silently skipped during delivery.
+The filter file is stored at \fI~/.config/korgalore/bozofilter.txt\fR.
+.SS edit-config
+Open the configuration file in the default editor.
+.PP
+.B kgl edit-config
+.PP
+Opens the configuration file in $EDITOR or $VISUAL. If the file doesn't
+exist, creates it with example configuration. Validates TOML syntax after
+the editor closes.
+.SS gui
+Launch the GNOME taskbar application.
+.PP
+.B kgl gui
+.PP
+Starts a system tray indicator with automatic background syncing. Features
+include configurable sync intervals, Gmail re-authentication support, and
+menu options for manual sync, yanking messages, editing configuration, and
+managing the bozofilter.
+.SS labels
+List all available labels/folders for a target.
+.PP
+.B kgl labels
+[\fIOPTIONS\fR] \fITARGET\fR
+.TP
+.BR \-i ", " \-\-ids
+Include label/folder IDs in the output.
+.PP
+Useful for checking available labels before configuring deliveries.
+.SS pull
+Pull messages from configured lore and LEI deliveries.
+.PP
+.B kgl pull
+[\fIOPTIONS\fR] [\fIDELIVERY_NAME\fR]
+.TP
+.BR \-m ", " \-\-max\-mail " " \fINUM\fR
+Maximum number of messages to pull (0 for all).
+.TP
+.BR \-n ", " \-\-no\-update
+Skip feed updates (useful with \fB\-\-force\fR).
+.TP
+.BR \-f ", " \-\-force
+Run deliveries even if no apparent updates.
+.PP
+If \fIDELIVERY_NAME\fR is specified, only process that delivery.
+Otherwise, process all configured deliveries including tracked threads.
+.SS track
+Track email threads for updates via lei queries.
+.PP
+.B kgl track
+\fISUBCOMMAND\fR [\fIOPTIONS\fR] [\fIARGS\fR]
+.PP
+Subcommands:
+.TP
+.B add \fIMSGID_OR_URL\fR
+Start tracking a thread. Options: \fB\-t\fR/\fB\-\-target\fR, \fB\-l\fR/\fB\-\-labels\fR.
+.TP
+.B list
+List tracked threads. Use \fB\-i\fR/\fB\-\-inactive\fR to show only inactive threads.
+.TP
+.B stop \fITRACK_ID\fR
+Stop tracking a thread. Use \fB\-\-delete\fR to also remove lei search data.
+.TP
+.B pause \fITRACK_ID\fR
+Temporarily pause tracking.
+.TP
+.B resume \fITRACK_ID\fR
+Resume a paused or expired thread.
+.SS track-subsystem
+Track a kernel subsystem from MAINTAINERS file.
+.PP
+.B kgl track-subsystem
+[\fIOPTIONS\fR] \fISUBSYSTEM_NAME\fR
+.TP
+.BR \-m ", " \-\-maintainers " " \fIPATH\fR
+Path to MAINTAINERS file (required).
+.TP
+.BR \-t ", " \-\-target " " \fINAME\fR
+Target for deliveries.
+.TP
+.BR \-l ", " \-\-labels " " \fILABEL\fR
+Labels to apply (repeatable).
+.TP
+.B \-\-since " " \fIDATE\fR
+Start date for query (default: 7.days.ago).
+.TP
+.B \-\-threads
+Include entire threads when any message matches.
+.TP
+.B \-\-forget
+Remove tracking for the subsystem.
+.PP
+Creates lei queries for mailing list traffic and patches touching
+subsystem files. Configuration is stored in
+\fI~/.config/korgalore/conf.d/\fR.
+.SS yank
+Yank a single message or entire thread to a target.
+.PP
+.B kgl yank
+[\fIOPTIONS\fR] \fIMSGID_OR_URL\fR
+.TP
+.BR \-t ", " \-\-target " " \fINAME\fR
+Target to upload the message to.
+.TP
+.BR \-l ", " \-\-labels " " \fILABEL\fR
+Labels to apply (repeatable or comma-separated).
+.TP
+.BR \-T ", " \-\-thread
+Fetch and upload the entire thread.
+.PP
+Accepts either a message-id or a lore.kernel.org URL.
+.SH FILES
+.TP
+.I ~/.config/korgalore/korgalore.toml
+Main configuration file.
+.TP
+.I ~/.config/korgalore/conf.d/*.toml
+Additional configuration files (merged alphabetically).
+.TP
+.I ~/.config/korgalore/bozofilter.txt
+Sender blocking filter.
+.TP
+.I ~/.local/share/korgalore/
+Feed state and tracking data.
+.SH ENVIRONMENT
+.TP
+.B EDITOR
+Editor used by \fBedit-config\fR and \fBbozofilter \-\-edit\fR.
+.TP
+.B VISUAL
+Fallback editor if EDITOR is not set.
+.SH EXAMPLES
+Initial setup:
+.PP
+.RS
+.nf
+# Create and edit configuration
+kgl edit-config
+
+# Authenticate with Gmail
+kgl auth personal
+
+# Verify labels exist
+kgl labels personal
+
+# Test with verbose output
+kgl -v DEBUG pull
+.fi
+.RE
+.PP
+Regular use:
+.PP
+.RS
+.nf
+# Pull all new messages
+kgl pull
+
+# Yank a specific message
+kgl yank '<msgid@example.com>'
+
+# Yank an entire thread
+kgl yank -T https://lore.kernel.org/lkml/msgid/
+
+# Track a thread for updates
+kgl track add '<msgid@example.com>'
+
+# Block a sender
+kgl bozofilter --add spammer@example.com
+.fi
+.RE
+.SH SEE ALSO
+.BR lei (1),
+.BR git (1),
+.BR notmuch (1)
+.PP
+Full documentation: https://korgalore.docs.kernel.org/
+.SH BUGS
+Report bugs by sending mail to tools@kernel.org
+.SH AUTHOR
+Konstantin Ryabitsev <konstantin@linuxfoundation.org>
