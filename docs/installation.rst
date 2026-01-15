@@ -66,6 +66,42 @@ For development, install with dev dependencies:
 
 This will install the package in editable mode with additional development tools.
 
+Shell Completion
+================
+
+Korgalore supports tab completion for bash, zsh, and fish. If you installed
+via a system package, completions may already be set up. For pip/pipx installs,
+you can enable completion manually.
+
+**Bash** (add to ``~/.bashrc``):
+
+.. code-block:: bash
+
+   eval "$(_KGL_COMPLETE=bash_source kgl)"
+
+**Zsh** (add to ``~/.zshrc``):
+
+.. code-block:: bash
+
+   eval "$(_KGL_COMPLETE=zsh_source kgl)"
+
+**Fish** (run once):
+
+.. code-block:: bash
+
+   _KGL_COMPLETE=fish_source kgl > ~/.config/fish/completions/kgl.fish
+
+Alternatively, you can generate static completion files and source them, which
+is faster for shell startup:
+
+.. code-block:: bash
+
+   # Bash
+   _KGL_COMPLETE=bash_source kgl > ~/.local/share/bash-completion/completions/kgl
+
+   # Zsh (ensure ~/.zfunc is in your fpath)
+   _KGL_COMPLETE=zsh_source kgl > ~/.zfunc/_kgl
+
 Verifying Installation
 ======================
 
