@@ -32,11 +32,17 @@ from korgalore.maintainers import (
     build_mailinglist_query, build_patches_query,
     generate_subsystem_config
 )
+from korgalore.bozofilter import (
+    load_bozofilter, add_to_bozofilter, edit_bozofilter, is_bozofied
+)
 
 logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
 
 REQSESSION: Optional[requests.Session] = None
+
+# Sentinel value for messages skipped due to bozofilter
+SKIPPED_BOZOFILTER = '__SKIPPED_BOZOFILTER__'
 
 
 def parse_labels(labels: Tuple[str, ...]) -> List[str]:
@@ -465,11 +471,22 @@ def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], targ
 
 
 def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFeed], epoch: int, commit: str,
-                   labels: List[str], was_failing: bool = False) -> Optional[str]:
+                   labels: List[str], was_failing: bool = False,
+                   bozofilter: Optional[Set[str]] = None) -> Optional[str]:
     """Deliver a single message to the target.
 
+    Args:
+        delivery_name: Name of the delivery configuration.
+        target: Target service to deliver to.
+        feed: Feed to get message from.
+        epoch: Epoch number containing the message.
+        commit: Git commit hash of the message.
+        labels: Labels/folders to apply.
+        was_failing: True if this is a retry of a previously failed delivery.
+        bozofilter: Optional set of addresses to skip (from bozofilter).
+
     Returns:
-        The Message-ID of the delivered message on success, None on failure.
+        The Message-ID of the delivered message on success, None on failure or skip.
     """
     raw_message: Optional[bytes] = None
     try:
@@ -477,6 +494,17 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
         target.connect()
         msg = feed.parse_message(raw_message)
         msgid = msg.get('Message-ID', '')
+
+        # Check bozofilter before delivering
+        if bozofilter:
+            from_header = msg.get('From', '')
+            if is_bozofied(from_header, bozofilter):
+                logger.debug('Skipping bozofied sender: %s', from_header)
+                # Mark as successful to avoid retrying
+                feed.mark_successful_delivery(delivery_name, epoch, commit,
+                                              message=raw_message, was_failing=was_failing)
+                return SKIPPED_BOZOFILTER
+
         if logger.isEnabledFor(logging.DEBUG):
             subject = msg.get('Subject', '(no subject)')
             logger.debug(' -> %s', subject)
@@ -604,6 +632,8 @@ def update_all_feeds(ctx: click.Context, status_callback: Optional[Callable[[str
 
 def retry_all_failed_deliveries(ctx: click.Context) -> None:
     """Retry all previously failed deliveries across all feeds."""
+    bozo_set = ctx.obj.get('bozofilter', set())
+
     # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
     deliveries = ctx.obj['deliveries']
     retry_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
@@ -623,7 +653,8 @@ def retry_all_failed_deliveries(ctx: click.Context) -> None:
                            show_pos=True,
                            hidden=ctx.obj['hide_bar']) as bar:
         for (delivery_name, target, feed, epoch, commit, labels) in bar:
-            deliver_commit(delivery_name, target, feed, epoch, commit, labels, was_failing=True)
+            deliver_commit(delivery_name, target, feed, epoch, commit, labels,
+                           was_failing=True, bozofilter=bozo_set)
 
 
 @click.group()
@@ -673,6 +704,10 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
         ctx.obj['hide_bar'] = True
     else:
         ctx.obj['hide_bar'] = False
+
+    # Load bozofilter for filtering unwanted senders
+    config_dir = get_xdg_config_dir()
+    ctx.obj['bozofilter'] = load_bozofilter(config_dir)
 
 
 @main.command()
@@ -841,6 +876,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
         A tuple of (per-delivery counts dict, set of unique message-ids delivered).
     """
     cfg = ctx.obj.get('config', {})
+    bozo_set = ctx.obj.get('bozofilter', set())
 
     # Load deliveries to process
     deliveries = cfg.get('deliveries', {})
@@ -929,9 +965,13 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                 if consecutive_failures >= 5:
                     logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
                     break
-                msgid = deliver_commit(dname, target, feed, epoch, commit, labels, was_failing=False)
+                msgid = deliver_commit(dname, target, feed, epoch, commit, labels,
+                                       was_failing=False, bozofilter=bozo_set)
                 if msgid is None:
                     consecutive_failures += 1
+                    continue
+                if msgid == SKIPPED_BOZOFILTER:
+                    # Bozofied message - not a failure, just skip
                     continue
 
                 consecutive_failures = 0
@@ -1281,11 +1321,12 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
 
     logger.info('Delivering %d messages to target...', len(commits))
 
+    bozo_set = ctx.obj.get('bozofilter', set())
     delivered = 0
     for commit in commits:
-        success = deliver_commit(thread.track_id, target_service, lei_feed, 0, commit,
-                                labels_list, was_failing=False)
-        if success:
+        result = deliver_commit(thread.track_id, target_service, lei_feed, 0, commit,
+                                labels_list, was_failing=False, bozofilter=bozo_set)
+        if result and result != SKIPPED_BOZOFILTER:
             delivered += 1
 
     # Initialize feed state so subsequent pulls don't re-initialize
@@ -1618,6 +1659,69 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     logger.info('Created %d lei queries for subsystem "%s"', queries_created, entry.name)
     logger.info('Configuration written to: %s', config_file)
     logger.info('Target: %s, Labels: %s', target, ', '.join(labels_list))
+
+
+@main.command()
+@click.option('--add', '-a', 'addresses', default=None,
+              help='Add address(es) to the bozofilter (comma-separated)')
+@click.option('--reason', '-r', default=None,
+              help='Reason for adding (included as comment)')
+@click.option('--edit', '-e', 'do_edit', is_flag=True,
+              help='Edit the bozofilter file in $EDITOR')
+@click.option('--list', '-l', 'do_list', is_flag=True,
+              help='List all addresses in the bozofilter')
+@click.pass_context
+def bozofilter(ctx: click.Context, addresses: Optional[str], reason: Optional[str],
+               do_edit: bool, do_list: bool) -> None:
+    """Manage the bozofilter for blocking unwanted senders.
+
+    The bozofilter is a simple list of email addresses that will be
+    skipped during mail delivery. Useful for blocking trolls, spammers,
+    or bots.
+
+    Examples:
+
+        kgl bozofilter --add spammer@example.com
+
+        kgl bozofilter --add "addr1@example.com,addr2@example.com" --reason "sends junk"
+
+        kgl bozofilter --edit
+
+        kgl bozofilter --list
+    """
+    config_dir = get_xdg_config_dir()
+
+    if do_edit:
+        if not edit_bozofilter(config_dir):
+            raise click.Abort()
+        return
+
+    if do_list:
+        bozo_set = load_bozofilter(config_dir)
+        if not bozo_set:
+            click.echo('Bozofilter is empty.')
+        else:
+            click.echo(f'Bozofilter contains {len(bozo_set)} address(es):')
+            for addr in sorted(bozo_set):
+                click.echo(f'  {addr}')
+        return
+
+    if addresses:
+        # Parse comma-separated addresses
+        addr_list = [a.strip() for a in addresses.split(',') if a.strip()]
+        if not addr_list:
+            logger.error('No valid addresses provided')
+            raise click.Abort()
+
+        added = add_to_bozofilter(config_dir, addr_list, reason=reason)
+        if added > 0:
+            click.echo(f'Added {added} address(es) to bozofilter.')
+        else:
+            click.echo('No new addresses added (all already in filter).')
+        return
+
+    # No action specified - show help
+    ctx.invoke(bozofilter, do_list=True)
 
 
 if __name__ == '__main__':

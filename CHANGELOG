@@ -55,6 +55,14 @@ New Features
   - ``edit-config`` command now validates syntax after editor closes
   - Reports errors with line numbers for easy debugging
 
+* Bozofilter (``kgl bozofilter``)
+
+  - Block messages from unwanted senders
+  - Blocked messages are silently skipped during delivery
+  - Simple text file format (one address per line, supports comments)
+  - CLI options: ``--add``, ``--edit``, ``--list``, ``--reason``
+  - GUI integration: "Edit Bozofilter..." menu item
+
 Improvements
 ~~~~~~~~~~~~
 

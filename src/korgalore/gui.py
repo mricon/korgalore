@@ -12,6 +12,7 @@ import click
 
 from korgalore import AuthenticationError
 from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file, load_config
+from korgalore.bozofilter import ensure_bozofilter_exists, load_bozofilter
 from korgalore.gmail_target import GmailTarget
 
 # Optional GTK/AppIndicator3 support - checked at runtime
@@ -105,6 +106,11 @@ class KorgaloreApp:
         item_edit_config = Gtk.MenuItem(label="Edit Config...")
         item_edit_config.connect("activate", self.on_edit_config)
         menu.append(item_edit_config)
+
+        # Edit Bozofilter
+        item_edit_bozofilter = Gtk.MenuItem(label="Edit Bozofilter...")
+        item_edit_bozofilter.connect("activate", self.on_edit_bozofilter)
+        menu.append(item_edit_bozofilter)
 
         # Quit
         item_quit = Gtk.MenuItem(label="Quit")
@@ -204,6 +210,25 @@ class KorgaloreApp:
                 self.update_status("Config error - see logs", "dialog-warning-symbolic")
         except Exception as e:
             logger.error("Failed to open config file: %s", str(e))
+
+    def on_edit_bozofilter(self, source: Any) -> None:
+        """Open the bozofilter file in the user's preferred editor."""
+        threading.Thread(target=self._run_edit_bozofilter, daemon=True).start()
+
+    def _run_edit_bozofilter(self) -> None:
+        """Execute bozofilter editing and reload after editor closes."""
+        config_dir = get_xdg_config_dir()
+        bozofilter_path = ensure_bozofilter_exists(config_dir)
+
+        logger.info("Opening bozofilter file: %s", bozofilter_path)
+        try:
+            proc = subprocess.Popen(['xdg-open', str(bozofilter_path)])
+            proc.wait()
+            # Reload bozofilter after editor closes
+            self.ctx.obj['bozofilter'] = load_bozofilter(config_dir)
+            logger.info("Bozofilter reloaded successfully.")
+        except Exception as e:
+            logger.error("Failed to edit bozofilter: %s", str(e))
 
     def background_worker(self) -> None:
         """Periodically run sync."""

@@ -47,11 +47,12 @@ Features
   * Pipe commands
 
 * GNOME taskbar application for background syncing
+* Bozofilter for blocking unwanted senders
 
 Non-features
 ------------
 
-* No filtering (use lei for that)
+* No filtering beyond bozofilter (use lei for that)
 * No querying (use lei for that)
 
 .. toctree::

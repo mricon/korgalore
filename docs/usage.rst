@@ -69,6 +69,65 @@ This command will:
    For JMAP targets, this verifies the API token is valid.
    For IMAP targets, this verifies the password and folder exist.
 
+bozofilter
+----------
+
+Manage the bozofilter for blocking messages from unwanted senders.
+
+The bozofilter is a simple text file containing email addresses to block.
+Messages from these addresses are silently skipped during delivery (they
+are marked as delivered but not actually imported).
+
+.. code-block:: bash
+
+   kgl bozofilter [OPTIONS]
+
+Options:
+
+* ``-a, --add TEXT``: Add address(es) to the bozofilter (comma-separated)
+* ``-r, --reason TEXT``: Reason for adding (included as comment in the file)
+* ``-e, --edit``: Open the bozofilter file in ``$EDITOR``
+* ``-l, --list``: List all addresses in the bozofilter
+
+Examples:
+
+.. code-block:: bash
+
+   # Add a single address
+   kgl bozofilter --add spammer@example.com
+
+   # Add multiple addresses with a reason
+   kgl bozofilter --add 'bot@example.com,noise@example.org' --reason 'automated noise'
+
+   # Edit the bozofilter in your editor
+   kgl bozofilter --edit
+
+   # List all blocked addresses
+   kgl bozofilter --list
+
+File Format
+~~~~~~~~~~~
+
+The bozofilter is stored at ``~/.config/korgalore/bozofilter.txt``. The format
+is simple:
+
+* One email address per line
+* Lines starting with ``#`` are comments
+* Trailing comments after ``#`` are supported
+* Addresses are case-insensitive
+
+Example file:
+
+.. code-block:: text
+
+   # Korgalore bozofilter - one email address per line
+   spammer@example.com # added on 2026-01-15, sends junk
+   bot@example.org # added on 2026-01-15, automated noise
+
+.. tip::
+   When using the GUI, you can edit the bozofilter via the "Edit Bozofilter..."
+   menu option, which opens it in your system's default text editor.
+
 edit-config
 -----------
 
@@ -492,6 +551,7 @@ The GUI provides:
   * Sync Now - trigger an immediate sync
   * Authenticate - re-authenticate Gmail targets when tokens expire (appears only when needed)
   * Edit Config - open the configuration file in your preferred editor
+  * Edit Bozofilter - open the bozofilter file to block unwanted senders
   * Quit - exit the application
 
 Features
