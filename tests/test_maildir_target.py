@@ -3,7 +3,7 @@
 import mailbox
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from korgalore import ConfigurationError
 from korgalore.maildir_target import MaildirTarget
@@ -15,7 +15,7 @@ class TestMaildirTargetInit:
     def test_creates_maildir_structure(self, tmp_path: Path) -> None:
         """Initializing creates maildir subdirectories."""
         maildir_path = tmp_path / "test_maildir"
-        target = MaildirTarget("test", str(maildir_path))
+        MaildirTarget("test", str(maildir_path))
 
         assert maildir_path.exists()
         assert (maildir_path / "new").is_dir()
@@ -30,7 +30,7 @@ class TestMaildirTargetInit:
         marker_file = maildir_path / "cur" / "marker"
         marker_file.touch()
 
-        target = MaildirTarget("test", str(maildir_path))
+        MaildirTarget("test", str(maildir_path))
 
         # Marker file should still exist
         assert marker_file.exists()
@@ -44,7 +44,7 @@ class TestMaildirTargetInit:
         """Tilde in path is expanded."""
         with patch.object(Path, "expanduser") as mock_expand:
             mock_expand.return_value = tmp_path / "expanded"
-            target = MaildirTarget("test", "~/mail")
+            MaildirTarget("test", "~/mail")
             mock_expand.assert_called()
 
     def test_path_stored_as_path_object(self, tmp_path: Path) -> None:
@@ -243,7 +243,7 @@ class TestMaildirTargetIntegration:
         key = target1.import_message(b"From: test@example.com\nSubject: Persist\n\nTest", [])
 
         # Second session: read message
-        target2 = MaildirTarget("test", str(maildir_path))
+        MaildirTarget("test", str(maildir_path))
         mbox = mailbox.Maildir(str(maildir_path))
         assert len(mbox) == 1
         assert mbox[key]["Subject"] == "Persist"

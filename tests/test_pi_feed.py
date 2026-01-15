@@ -252,7 +252,7 @@ class TestFeedLocking:
 
     def test_lock_creates_directory_if_missing(self, tmp_path: Path) -> None:
         """Locking a feed creates the parent directory if it doesn't exist."""
-        from korgalore.pi_feed import PIFeed, LOCKED_FEEDS
+        from korgalore.pi_feed import PIFeed
 
         # Create a feed pointing to a non-existent directory
         nonexistent_dir = tmp_path / "nonexistent" / "feed" / "path"

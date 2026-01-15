@@ -9,11 +9,11 @@ the old and new epochs.
 import json
 import pytest
 from pathlib import Path
-from typing import List, Tuple, Any
+from typing import List
 from unittest.mock import patch, MagicMock
 
 from korgalore.pi_feed import PIFeed
-from korgalore import GitError, StateError, PublicInboxError
+from korgalore import GitError, PublicInboxError
 
 
 class MockPIFeed(PIFeed):

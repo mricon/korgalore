@@ -1,7 +1,6 @@
 """Tests for PipeTarget message delivery."""
 
 import pytest
-import subprocess
 from unittest.mock import patch, MagicMock
 
 from korgalore import ConfigurationError, DeliveryError

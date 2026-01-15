@@ -33,7 +33,8 @@ class TestNormalizeSubsystemName:
 
     def test_removes_parenthetical(self) -> None:
         """Parenthetical content is removed."""
-        assert normalize_subsystem_name("3WARE SAS/SATA-RAID SCSI DRIVERS (3W-XXXX)") == "3ware_sas_sata_raid_scsi_drivers"
+        result = normalize_subsystem_name("3WARE SAS/SATA-RAID SCSI DRIVERS (3W-XXXX)")
+        assert result == "3ware_sas_sata_raid_scsi_drivers"
 
     def test_special_chars_become_underscores(self) -> None:
         """Special characters become underscores."""

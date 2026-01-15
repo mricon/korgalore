@@ -1,6 +1,5 @@
 """Tests for CLI configuration loading and merging."""
 
-import pytest
 from pathlib import Path
 from typing import Any, Dict
 

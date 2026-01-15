@@ -5,7 +5,6 @@ The current implementation in cli.py uses a nested loop which we want to
 optimize to use a reverse index for O(1) lookups.
 """
 
-import pytest
 from typing import Dict, List, Tuple, Any
 from unittest.mock import MagicMock
 

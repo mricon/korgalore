@@ -2,7 +2,6 @@
 
 import base64
 import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 
 from korgalore import ConfigurationError, RemoteError
@@ -48,7 +47,7 @@ class TestGmailTargetInit:
         mock_creds.to_json.return_value = '{"token": "refreshed"}'
         mock_credentials.from_authorized_user_file.return_value = mock_creds
 
-        target = GmailTarget("test", "/path/to/creds.json", "/path/to/token.json")
+        GmailTarget("test", "/path/to/creds.json", "/path/to/token.json")
 
         mock_creds.refresh.assert_called_once()
         mock_file.assert_called_with("/path/to/token.json", 'w')
@@ -102,7 +101,7 @@ class TestGmailTargetInit:
         mock_credentials.from_authorized_user_file.return_value = mock_creds
 
         with patch.dict('os.environ', {'HOME': '/home/testuser'}):
-            target = GmailTarget("test", "~/creds.json", "$HOME/token.json")
+            GmailTarget("test", "~/creds.json", "$HOME/token.json")
 
         # Verify expanded paths were used
         call_args = mock_credentials.from_authorized_user_file.call_args[0]
