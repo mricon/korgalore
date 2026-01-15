@@ -549,6 +549,7 @@ The GUI provides:
 * **Menu options**:
 
   * Sync Now - trigger an immediate sync
+  * Yank - fetch a message or thread by message-id or lore.kernel.org URL
   * Authenticate - re-authenticate Gmail targets when tokens expire (appears only when needed)
   * Edit Config - open the configuration file in your preferred editor
   * Edit Bozofilter - open the bozofilter file to block unwanted senders
@@ -568,6 +569,14 @@ After successful authentication, sync runs automatically.
 The "Edit Config..." menu item opens your configuration file using ``xdg-open``.
 After you close the editor, the file is validated for TOML syntax errors. If valid,
 the new configuration is loaded immediately without restarting the GUI.
+
+**Yank Dialog**
+
+The "Yank..." menu item opens a dialog for fetching messages without using the
+terminal. Enter a message-id (e.g., ``<msgid@example.com>``) or a lore.kernel.org
+URL, optionally select a target (if multiple are configured), and check
+"Yank entire thread" to fetch all messages in the thread. The status indicator
+shows progress and results.
 
 **Status Display**
 

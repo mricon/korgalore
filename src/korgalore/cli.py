@@ -1017,6 +1017,60 @@ def pull(ctx: click.Context, max_mail: int, no_update: bool, force: bool, delive
         logger.info('Pull complete with no updates.')
 
 
+def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
+                 thread: bool = False,
+                 labels_list: Optional[List[str]] = None) -> Tuple[int, int]:
+    """Perform yank operation (usable from CLI and GUI).
+
+    Args:
+        ctx: Click context with config and targets
+        target_name: Name of the target to upload to
+        msgid_or_url: Message-ID or lore.kernel.org URL
+        thread: If True, fetch entire thread
+        labels_list: Labels to apply (uses target defaults if None)
+
+    Returns:
+        Tuple of (uploaded_count, failed_count)
+
+    Raises:
+        ConfigurationError: If target not found
+        RemoteError: If fetch or upload fails
+    """
+    ts = get_target(ctx, target_name)
+
+    if labels_list is None:
+        labels_list = ts.DEFAULT_LABELS
+
+    ts.connect()
+
+    if thread:
+        messages = LoreFeed.get_thread_by_msgid(msgid_or_url)
+        logger.info('Found %d messages in thread', len(messages))
+
+        uploaded = 0
+        failed = 0
+
+        for raw_message in messages:
+            try:
+                msg = LoreFeed.parse_message(raw_message)
+                subject = msg.get('Subject', '(no subject)')
+                logger.debug('Uploading: %s', subject)
+                ts.import_message(raw_message, labels=labels_list)
+                uploaded += 1
+            except RemoteError as e:
+                logger.error('Failed to upload message: %s', str(e))
+                failed += 1
+
+        return uploaded, failed
+    else:
+        raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
+        msg = LoreFeed.parse_message(raw_message)
+        subject = msg.get('Subject', '(no subject)')
+        logger.debug('Uploading: %s', subject)
+        ts.import_message(raw_message, labels=labels_list)
+        return 1, 0
+
+
 @main.command()
 @click.pass_context
 @click.option('--target', '-t', default=None, help='Target to upload the message to')

@@ -13,7 +13,9 @@ New Features
   - Configurable sync interval via ``[gui] sync_interval`` config option
   - Real-time status updates showing current feed/delivery being processed
   - "Sync Now" menu item for manual sync triggering
+  - "Yank..." dialog to fetch messages by message-id or URL without terminal
   - "Edit Config..." menu item to edit configuration in preferred editor
+  - "Edit Bozofilter..." menu item to manage blocked senders
   - Automatic TOML validation after config edits with live reload on success
   - Gmail re-authentication support: detects expired tokens and shows
     "Authenticate..." menu item to re-auth via browser without terminal

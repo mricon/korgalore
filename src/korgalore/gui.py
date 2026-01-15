@@ -11,7 +11,8 @@ from typing import Optional, Any
 import click
 
 from korgalore import AuthenticationError
-from korgalore.cli import perform_pull, get_xdg_config_dir, validate_config_file, load_config
+from korgalore.cli import perform_pull, perform_yank, get_xdg_config_dir, validate_config_file, load_config
+from korgalore import RemoteError
 from korgalore.bozofilter import ensure_bozofilter_exists, load_bozofilter
 from korgalore.gmail_target import GmailTarget
 
@@ -79,6 +80,11 @@ class KorgaloreApp:
         self.item_sync = Gtk.MenuItem(label="Sync Now")
         self.item_sync.connect("activate", self.on_sync_now)
         menu.append(self.item_sync)
+
+        # Yank
+        item_yank = Gtk.MenuItem(label="Yank...")
+        item_yank.connect("activate", self.on_yank)
+        menu.append(item_yank)
 
         # Authenticate (hidden by default, shown when auth is needed)
         self.item_auth = Gtk.MenuItem(label="Authenticate...")
@@ -178,6 +184,123 @@ class KorgaloreApp:
             return
         # Run sync in a separate thread to not block UI
         threading.Thread(target=self.run_sync, daemon=True).start()
+
+    def on_yank(self, source: Any) -> None:
+        """Show the yank dialog."""
+        # Must run dialog on main thread
+        GLib.idle_add(self._show_yank_dialog)
+
+    def _show_yank_dialog(self) -> bool:
+        """Display the yank dialog (called from GLib.idle_add)."""
+        config = self.ctx.obj.get('config', {})
+        targets = config.get('targets', {})
+        target_names = list(targets.keys())
+
+        if not target_names:
+            dialog = Gtk.MessageDialog(
+                transient_for=None,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="No targets configured"
+            )
+            dialog.format_secondary_text("Please configure at least one target in your configuration file.")
+            dialog.run()
+            dialog.destroy()
+            return False
+
+        # Create dialog
+        dialog = Gtk.Dialog(
+            title="Yank Message",
+            transient_for=None,
+            flags=0
+        )
+        dialog.add_buttons(
+            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_OK, Gtk.ResponseType.OK
+        )
+        dialog.set_default_size(450, -1)
+
+        content_area = dialog.get_content_area()
+        content_area.set_spacing(10)
+        content_area.set_margin_start(15)
+        content_area.set_margin_end(15)
+        content_area.set_margin_top(15)
+        content_area.set_margin_bottom(15)
+
+        # Message-ID or URL entry
+        label_msgid = Gtk.Label(label="Message-ID or lore.kernel.org URL:")
+        label_msgid.set_halign(Gtk.Align.START)
+        content_area.pack_start(label_msgid, False, False, 0)
+
+        entry_msgid = Gtk.Entry()
+        entry_msgid.set_placeholder_text("e.g., <msgid@example.com> or https://lore.kernel.org/...")
+        content_area.pack_start(entry_msgid, False, False, 0)
+
+        # Target dropdown (only show if multiple targets)
+        combo_target: Optional[Gtk.ComboBoxText] = None
+        if len(target_names) > 1:
+            label_target = Gtk.Label(label="Target:")
+            label_target.set_halign(Gtk.Align.START)
+            content_area.pack_start(label_target, False, False, 5)
+
+            combo_target = Gtk.ComboBoxText()
+            for name in target_names:
+                combo_target.append_text(name)
+            combo_target.set_active(0)
+            content_area.pack_start(combo_target, False, False, 0)
+
+        # Thread checkbox
+        check_thread = Gtk.CheckButton(label="Yank entire thread")
+        content_area.pack_start(check_thread, False, False, 10)
+
+        dialog.show_all()
+        response = dialog.run()
+
+        if response == Gtk.ResponseType.OK:
+            msgid_or_url = entry_msgid.get_text().strip()
+            if combo_target is not None:
+                target_name = combo_target.get_active_text()
+            else:
+                target_name = target_names[0]
+            fetch_thread = check_thread.get_active()
+
+            dialog.destroy()
+
+            if msgid_or_url and target_name:
+                # Run yank in background thread
+                threading.Thread(
+                    target=self._run_yank,
+                    args=(target_name, msgid_or_url, fetch_thread),
+                    daemon=True
+                ).start()
+        else:
+            dialog.destroy()
+
+        return False
+
+    def _run_yank(self, target_name: str, msgid_or_url: str, fetch_thread: bool) -> None:
+        """Execute the yank operation in background."""
+        self.update_status("Yanking...", "system-run-symbolic")
+
+        try:
+            uploaded, failed = perform_yank(
+                self.ctx, target_name, msgid_or_url, thread=fetch_thread
+            )
+
+            if failed > 0:
+                self.update_status(f"Yanked {uploaded}, {failed} failed", "dialog-warning-symbolic")
+                logger.warning("Yank completed: %d uploaded, %d failed", uploaded, failed)
+            else:
+                self.update_status(f"Yanked {uploaded} message(s)", "mail-unread-symbolic")
+                logger.info("Yank completed: %d message(s) uploaded", uploaded)
+
+        except RemoteError as e:
+            logger.error("Yank failed: %s", str(e))
+            self.update_status("Yank failed - see logs", "dialog-error-symbolic")
+        except Exception as e:
+            logger.error("Yank failed: %s", str(e))
+            self.update_status("Yank failed - see logs", "dialog-error-symbolic")
 
     def on_edit_config(self, source: Any) -> None:
         """Open the configuration file in the user's preferred editor."""
