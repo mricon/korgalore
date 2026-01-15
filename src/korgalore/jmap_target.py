@@ -120,6 +120,7 @@ class JmapTarget:
         Returns:
             Blob ID string
         """
+        assert self.upload_url is not None, "Must call connect() first"
         try:
             response = requests.post(
                 self.upload_url,
@@ -150,6 +151,7 @@ class JmapTarget:
         Returns:
             List of dicts with 'id', 'name', 'role' keys
         """
+        assert self.api_url is not None, "Must call connect() first"
         try:
             # Query all mailboxes
             request_body = {
@@ -239,6 +241,7 @@ class JmapTarget:
         Returns:
             JMAP import result dict
         """
+        assert self.api_url is not None, "Must call connect() first"
         # Normalize line endings to CRLF as required by RFC 2822/5322
         # Git stores messages with Unix LF endings, but JMAP requires CRLF
         normalized_message = raw_message.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
