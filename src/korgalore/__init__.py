@@ -51,10 +51,13 @@ class AuthenticationError(KorgaloreError):
 
 def run_git_command(gitdir: Optional[str], args: List[str],
                     stdin: Optional[bytes] = None) -> Tuple[int, bytes]:
-    """Run a git command in the specified topdir and return (returncode, output)."""
+    """Run a git command in the specified git directory and return (returncode, output).
+
+    Uses --git-dir instead of -C to work with safe.bareRepository=explicit.
+    """
     cmd = [GITCMD]
     if gitdir:
-        cmd += ['-C', gitdir]
+        cmd += ['--git-dir', gitdir]
     cmd += args
     logger.debug('Running git command: %s', ' '.join(cmd))
 
