@@ -92,6 +92,9 @@ Bug Fixes
 
 * Drop dependency on python-dateutil (use stdlib datetime instead)
 
+* Fix git commands failing with ``safe.bareRepository=explicit`` by using
+  ``--git-dir`` instead of ``-C``
+
 Documentation
 ~~~~~~~~~~~~~
 
@@ -101,6 +104,10 @@ Documentation
   configuration, and systemd service setup
 
 * Add documentation for subsystem tracking and conf.d modular configuration
+
+* Add manpage (``man/kgl.1``) for distribution packages
+
+* Add shell completion scripts for bash, zsh, and fish (``completions/``)
 
 v0.2
 ----
