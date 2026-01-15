@@ -35,7 +35,7 @@ class KorgaloreApp:
     def __init__(self, ctx: click.Context):
         if not HAS_GTK:
             raise RuntimeError(
-                "GUI dependencies not available. Install with: pip install korgalore[gui]"
+                "GUI dependencies not available. Install python3-gi and appindicator3 via system packages."
             )
         self.ctx = ctx
         self.ind = AppIndicator3.Indicator.new(

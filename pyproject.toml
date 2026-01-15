@@ -38,9 +38,6 @@ dev = [
     "mypy>=1.0.0",
     "ruff>=0.4.0",
 ]
-gui = [
-    "PyGObject>=3.42.0",
-]
 
 [project.scripts]
 kgl = "korgalore.cli:main"
