@@ -645,3 +645,190 @@ class TestImapTargetEdgeCases:
         assert call_args[0] == "INBOX"  # folder
         assert call_args[1] == ''  # flags (empty = unread)
         assert call_args[2] == ''  # datetime (empty = current time)
+
+
+class TestImapTargetOAuth2:
+    """Tests for ImapTarget OAuth2 authentication."""
+
+    def test_oauth2_uses_default_client_id(self, tmp_path: Path) -> None:
+        """OAuth2 uses default client_id when not specified."""
+        from korgalore.oauth2_imap import DEFAULT_CLIENT_ID
+
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            token=str(tmp_path / "token.json")
+        )
+        assert target._oauth2_authenticator is not None
+        assert target._oauth2_authenticator.client_id == DEFAULT_CLIENT_ID
+
+    def test_oauth2_custom_client_id(self, tmp_path: Path) -> None:
+        """OAuth2 configuration with custom client_id overrides default."""
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            client_id="custom-client-id",
+            token=str(tmp_path / "token.json")
+        )
+        assert target.auth_type == "oauth2"
+        assert target._oauth2_authenticator is not None
+        assert target._oauth2_authenticator.client_id == "custom-client-id"
+        assert target.password is None
+
+    def test_oauth2_custom_tenant(self, tmp_path: Path) -> None:
+        """OAuth2 configuration with custom tenant."""
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            client_id="test-client-id",
+            tenant="my-tenant-id",
+            token=str(tmp_path / "token.json")
+        )
+        assert target._oauth2_authenticator is not None
+        assert target._oauth2_authenticator.tenant == "my-tenant-id"
+
+    def test_oauth2_needs_auth_initially(self, tmp_path: Path) -> None:
+        """OAuth2 target needs_auth is True without token file."""
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            client_id="test-client-id",
+            token=str(tmp_path / "nonexistent-token.json")
+        )
+        assert target.needs_auth
+
+    def test_oauth2_needs_auth_with_valid_token(self, tmp_path: Path) -> None:
+        """OAuth2 target needs_auth is False with valid token."""
+        import json
+        from datetime import datetime, timezone
+
+        token_file = tmp_path / "token.json"
+        token_data = {
+            "access_token": "valid",
+            "refresh_token": "refresh",
+            "expires_at": datetime.now(timezone.utc).timestamp() + 3600,
+        }
+        token_file.write_text(json.dumps(token_data))
+
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            client_id="test-client-id",
+            token=str(token_file)
+        )
+        assert not target.needs_auth
+
+    def test_password_auth_needs_auth_always_false(self) -> None:
+        """Password auth target always has needs_auth False."""
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        assert not target.needs_auth
+
+    def test_invalid_auth_type(self) -> None:
+        """Invalid auth_type raises ConfigurationError."""
+        with pytest.raises(ConfigurationError) as exc_info:
+            ImapTarget(
+                identifier="test",
+                server="imap.example.com",
+                username="user@example.com",
+                auth_type="invalid"
+            )
+        assert "Invalid auth_type" in str(exc_info.value)
+
+    def test_reauthenticate_password_raises(self) -> None:
+        """reauthenticate() raises for password auth type."""
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        with pytest.raises(ConfigurationError) as exc_info:
+            target.reauthenticate()
+        assert "not configured for OAuth2" in str(exc_info.value)
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_oauth2_connect_calls_authenticate(self, mock_imap_class: MagicMock,
+                                                tmp_path: Path) -> None:
+        """OAuth2 connection uses AUTHENTICATE instead of LOGIN."""
+        import json
+        from datetime import datetime, timezone
+
+        token_file = tmp_path / "token.json"
+        token_data = {
+            "access_token": "test_access_token",
+            "refresh_token": "refresh",
+            "expires_at": datetime.now(timezone.utc).timestamp() + 3600,
+        }
+        token_file.write_text(json.dumps(token_data))
+
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.authenticate.return_value = ('OK', [b'Success'])
+        mock_imap.select.return_value = ('OK', [b'1'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            client_id="test-client-id",
+            token=str(token_file)
+        )
+        target.connect()
+
+        # Verify authenticate was called with XOAUTH2
+        mock_imap.authenticate.assert_called_once()
+        call_args = mock_imap.authenticate.call_args[0]
+        assert call_args[0] == 'XOAUTH2'
+
+        # Verify login was NOT called
+        mock_imap.login.assert_not_called()
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_oauth2_connect_auth_failure(self, mock_imap_class: MagicMock,
+                                          tmp_path: Path) -> None:
+        """OAuth2 authentication failure raises RemoteError."""
+        import json
+        from datetime import datetime, timezone
+
+        token_file = tmp_path / "token.json"
+        token_data = {
+            "access_token": "invalid_token",
+            "refresh_token": "refresh",
+            "expires_at": datetime.now(timezone.utc).timestamp() + 3600,
+        }
+        token_file.write_text(json.dumps(token_data))
+
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.authenticate.side_effect = imaplib.IMAP4.error(
+            "AUTHENTICATE failed"
+        )
+
+        target = ImapTarget(
+            identifier="test",
+            server="outlook.office365.com",
+            username="user@company.com",
+            auth_type="oauth2",
+            client_id="test-client-id",
+            token=str(token_file)
+        )
+
+        with pytest.raises(RemoteError) as exc_info:
+            target.connect()
+        assert "XOAUTH2 authentication failed" in str(exc_info.value)

@@ -1,6 +1,29 @@
 Korgalore Changelog
 ===================
 
+v0.4 (unreleased)
+-----------------
+
+New Features
+~~~~~~~~~~~~
+
+* IMAP OAuth2 Authentication for Microsoft 365
+
+  - Support for modern OAuth2 authentication (XOAUTH2) with Microsoft 365
+  - Uses PKCE authorization flow for secure desktop application authentication
+  - Built-in Azure AD application ID for zero-configuration setup
+  - Custom client_id support for organizations that block third-party apps
+  - Automatic token refresh with secure local storage
+  - Full GUI support for re-authentication when tokens expire
+
+  Example configuration::
+
+    [targets.office365]
+    type = 'imap'
+    auth_type = 'oauth2'
+    server = 'outlook.office365.com'
+    username = 'user@company.com'
+
 v0.3 (2026-01-15)
 -----------------
 
