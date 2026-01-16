@@ -279,3 +279,20 @@ class ImapTarget:
             raise RemoteError(
                 f"IMAP delivery failed: {e}"
             ) from e
+
+    def disconnect(self) -> None:
+        """Close the IMAP connection.
+
+        Safely closes the IMAP connection if one is open. Should be called
+        after delivery is complete to avoid keeping connections open
+        unnecessarily between sync runs.
+        """
+        if self.imap is not None:
+            try:
+                self.imap.logout()
+                logger.debug('IMAP connection closed for %s', self.identifier)
+            except (OSError, imaplib.IMAP4.error) as e:
+                logger.debug('Error closing IMAP connection for %s: %s',
+                            self.identifier, e)
+            finally:
+                self.imap = None

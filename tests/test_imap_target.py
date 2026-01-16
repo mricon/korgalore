@@ -832,3 +832,87 @@ class TestImapTargetOAuth2:
         with pytest.raises(RemoteError) as exc_info:
             target.connect()
         assert "XOAUTH2 authentication failed" in str(exc_info.value)
+
+
+class TestImapTargetDisconnect:
+    """Tests for ImapTarget disconnect method."""
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_disconnect_closes_connection(self, mock_imap_class: MagicMock) -> None:
+        """disconnect() calls logout on the IMAP connection."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+        assert target.imap is not None
+
+        target.disconnect()
+
+        mock_imap.logout.assert_called_once()
+        assert target.imap is None
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_disconnect_handles_logout_error(self, mock_imap_class: MagicMock) -> None:
+        """disconnect() handles errors during logout gracefully."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.logout.side_effect = imaplib.IMAP4.error("Connection lost")
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        # Should not raise
+        target.disconnect()
+        assert target.imap is None
+
+    def test_disconnect_when_not_connected(self) -> None:
+        """disconnect() is safe when not connected."""
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        assert target.imap is None
+
+        # Should not raise
+        target.disconnect()
+        assert target.imap is None
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_disconnect_allows_reconnect(self, mock_imap_class: MagicMock) -> None:
+        """After disconnect(), connect() establishes a new connection."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+        target.disconnect()
+
+        assert target.imap is None
+
+        target.connect()
+        assert target.imap is not None
+        assert mock_imap_class.call_count == 2

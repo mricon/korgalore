@@ -1,9 +1,11 @@
 """Service for delivering messages to JMAP-compatible mail servers."""
 
 import logging
-import requests
 from pathlib import Path
 from typing import Dict, Any, List, Optional, cast
+
+import requests
+
 from korgalore import ConfigurationError, RemoteError
 
 logger = logging.getLogger('korgalore')
@@ -16,7 +18,8 @@ class JmapTarget:
 
     def __init__(self, identifier: str, server: str, username: str,
                  token: Optional[str] = None, token_file: Optional[str] = None,
-                 timeout: int = 60) -> None:
+                 timeout: int = 60,
+                 reqsession: Optional[requests.Session] = None) -> None:
         """Initialize JMAP service.
 
         Args:
@@ -26,6 +29,7 @@ class JmapTarget:
             token: Bearer token (if provided directly)
             token_file: Path to file containing bearer token
             timeout: Request timeout in seconds (default: 60)
+            reqsession: Optional requests session for HTTP calls
 
         Raises:
             ConfigurationError: If configuration is invalid
@@ -33,6 +37,7 @@ class JmapTarget:
         self.identifier = identifier
         self.server = server.rstrip('/')
         self.username = username
+        self._reqsession = reqsession
 
         # Load token from file or use provided token
         if token:
@@ -62,6 +67,13 @@ class JmapTarget:
         # Mailbox cache
         self._mailbox_map: Optional[Dict[str, str]] = None  # name -> id
 
+    def _get_session(self) -> requests.Session:
+        """Get requests session, using provided one or falling back to requests module."""
+        if self._reqsession is not None:
+            return self._reqsession
+        # Fall back to requests module directly (creates new connection each time)
+        return requests  # type: ignore[return-value]
+
     def connect(self) -> None:
         """Connect to JMAP server and discover session."""
         if self.session is None:
@@ -73,7 +85,7 @@ class JmapTarget:
         session_url = f"{self.server}/jmap/session"
 
         try:
-            response = requests.get(
+            response = self._get_session().get(
                 session_url,
                 headers={'Authorization': f'Bearer {self.token}'},
                 timeout=self.timeout
@@ -122,7 +134,7 @@ class JmapTarget:
         """
         assert self.upload_url is not None, "Must call connect() first"
         try:
-            response = requests.post(
+            response = self._get_session().post(
                 self.upload_url,
                 data=raw_message,
                 headers={
@@ -169,7 +181,7 @@ class JmapTarget:
                 ]
             }
 
-            response = requests.post(
+            response = self._get_session().post(
                 self.api_url,
                 json=request_body,
                 headers={'Authorization': f'Bearer {self.token}'},
@@ -277,7 +289,7 @@ class JmapTarget:
                 ]
             }
 
-            response = requests.post(
+            response = self._get_session().post(
                 self.api_url,
                 json=request_body,
                 headers={'Authorization': f'Bearer {self.token}'},

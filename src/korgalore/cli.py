@@ -75,6 +75,14 @@ def get_reqsession() -> requests.Session:
         REQSESSION = LoreFeed.get_reqsession()
     return REQSESSION
 
+
+def close_reqsession() -> None:
+    """Close the global requests session if open."""
+    global REQSESSION
+    if REQSESSION is not None:
+        REQSESSION.close()
+        REQSESSION = None
+
 def get_xdg_data_dir() -> Path:
     """Get or create the korgalore data directory following XDG specification."""
     # Get XDG_DATA_HOME or default to ~/.local/share
@@ -149,7 +157,8 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             username=details.get('username', ''),
             token=details.get('token', None),
             token_file=details.get('token_file', None),
-            timeout=details.get('timeout', 60)
+            timeout=details.get('timeout', 60),
+            reqsession=get_reqsession()
         )
     elif target_type == 'imap':
         service = get_imap_target(
@@ -229,7 +238,8 @@ def get_maildir_target(identifier: str, maildir_path: str) -> MaildirTarget:
 
 def get_jmap_target(identifier: str, server: str, username: str,
                     token: Optional[str], token_file: Optional[str],
-                    timeout: int) -> JmapTarget:
+                    timeout: int,
+                    reqsession: Optional[requests.Session] = None) -> JmapTarget:
     """Create a JMAP target service instance."""
     if not server:
         logger.critical('No server specified for JMAP target: %s', identifier)
@@ -251,7 +261,8 @@ def get_jmap_target(identifier: str, server: str, username: str,
             username=username,
             token=token,
             token_file=token_file,
-            timeout=timeout
+            timeout=timeout,
+            reqsession=reqsession
         )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
@@ -1001,10 +1012,19 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                 if msgid:
                     unique_msgids.add(msgid)
 
+        # Disconnect target if it supports it (e.g., IMAP)
+        target_service = ctx.obj['targets'].get(target_name)
+        if target_service is not None and hasattr(target_service, 'disconnect'):
+            target_service.disconnect()
+
     unlock_all_feeds(ctx)
 
     # Update tracking manifest activity for any tracked threads that had deliveries
     update_tracked_thread_activity(ctx, changes)
+
+    # Close HTTP session and clear cached targets to avoid stale session references
+    close_reqsession()
+    ctx.obj['targets'] = {}
 
     return changes, unique_msgids
 
@@ -1063,32 +1083,38 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
 
     ts.connect()
 
-    if thread:
-        messages = LoreFeed.get_thread_by_msgid(msgid_or_url)
-        logger.info('Found %d messages in thread', len(messages))
+    try:
+        if thread:
+            messages = LoreFeed.get_thread_by_msgid(msgid_or_url)
+            logger.info('Found %d messages in thread', len(messages))
 
-        uploaded = 0
-        failed = 0
+            uploaded = 0
+            failed = 0
 
-        for raw_message in messages:
-            try:
-                msg = LoreFeed.parse_message(raw_message)
-                subject = msg.get('Subject', '(no subject)')
-                logger.debug('Uploading: %s', subject)
-                ts.import_message(raw_message, labels=labels_list)
-                uploaded += 1
-            except RemoteError as e:
-                logger.error('Failed to upload message: %s', str(e))
-                failed += 1
+            for raw_message in messages:
+                try:
+                    msg = LoreFeed.parse_message(raw_message)
+                    subject = msg.get('Subject', '(no subject)')
+                    logger.debug('Uploading: %s', subject)
+                    ts.import_message(raw_message, labels=labels_list)
+                    uploaded += 1
+                except RemoteError as e:
+                    logger.error('Failed to upload message: %s', str(e))
+                    failed += 1
 
-        return uploaded, failed
-    else:
-        raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
-        msg = LoreFeed.parse_message(raw_message)
-        subject = msg.get('Subject', '(no subject)')
-        logger.debug('Uploading: %s', subject)
-        ts.import_message(raw_message, labels=labels_list)
-        return 1, 0
+            return uploaded, failed
+        else:
+            raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
+            msg = LoreFeed.parse_message(raw_message)
+            subject = msg.get('Subject', '(no subject)')
+            logger.debug('Uploading: %s', subject)
+            ts.import_message(raw_message, labels=labels_list)
+            return 1, 0
+    finally:
+        if hasattr(ts, 'disconnect'):
+            ts.disconnect()
+        close_reqsession()
+        ctx.obj['targets'] = {}
 
 
 @main.command()
