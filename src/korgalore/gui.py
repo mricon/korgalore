@@ -15,6 +15,7 @@ from korgalore.cli import perform_pull, perform_yank, get_xdg_config_dir, valida
 from korgalore import RemoteError
 from korgalore.bozofilter import ensure_bozofilter_exists, load_bozofilter
 from korgalore.gmail_target import GmailTarget
+from korgalore.imap_target import ImapTarget
 
 # Optional GTK/AppIndicator3 support - checked at runtime
 HAS_GTK = False
@@ -458,13 +459,17 @@ class KorgaloreApp:
                 self.update_status("Error: Target not found", "dialog-error-symbolic")
                 return
 
-            if not isinstance(target, GmailTarget):
-                logger.error("Target %s is not a GmailTarget", target_id)
-                self.update_status("Error: Not a Gmail target", "dialog-error-symbolic")
+            # Check if target supports re-authentication
+            if isinstance(target, GmailTarget):
+                # Run the Gmail re-authentication flow (this opens a browser)
+                target.reauthenticate()
+            elif isinstance(target, ImapTarget) and target.auth_type == 'oauth2':
+                # Run the IMAP OAuth2 re-authentication flow (this opens a browser)
+                target.reauthenticate()
+            else:
+                logger.error("Target %s does not support re-authentication", target_id)
+                self.update_status("Error: Auth not supported", "dialog-error-symbolic")
                 return
-
-            # Run the re-authentication flow (this opens a browser)
-            target.reauthenticate()
 
             # Success - clear the auth needed state
             self.auth_needed_target = None

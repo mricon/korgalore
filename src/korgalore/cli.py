@@ -159,7 +159,12 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             folder=details.get('folder', 'INBOX'),
             password=details.get('password', None),
             password_file=details.get('password_file', None),
-            timeout=details.get('timeout', 60)
+            timeout=details.get('timeout', 60),
+            auth_type=details.get('auth_type', 'password'),
+            client_id=details.get('client_id', None),
+            tenant=details.get('tenant', 'common'),
+            token=details.get('token', None),
+            interactive=interactive
         )
     elif target_type == 'pipe':
         service = get_pipe_target(
@@ -174,6 +179,8 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
     ctx.obj['targets'][identifier] = service
 
     # Check if Gmail target needs authentication (in non-interactive/GUI mode)
+    # Note: IMAP OAuth2 targets handle this during connect() instead, which
+    # allows the 'auth' command to work properly.
     if target_type == 'gmail' and service.needs_auth:
         raise AuthenticationError(
             f"Gmail target '{identifier}' requires authentication.",
@@ -255,7 +262,12 @@ def get_jmap_target(identifier: str, server: str, username: str,
 
 def get_imap_target(identifier: str, server: str, username: str,
                     folder: str, password: Optional[str],
-                    password_file: Optional[str], timeout: int) -> ImapTarget:
+                    password_file: Optional[str], timeout: int,
+                    auth_type: str = 'password',
+                    client_id: Optional[str] = None,
+                    tenant: str = 'common',
+                    token: Optional[str] = None,
+                    interactive: bool = True) -> ImapTarget:
     """Create an IMAP target service instance."""
     if not server:
         logger.critical('No server specified for IMAP target: %s', identifier)
@@ -265,10 +277,13 @@ def get_imap_target(identifier: str, server: str, username: str,
         logger.critical('No username specified for IMAP target: %s', identifier)
         raise click.Abort()
 
-    if not password and not password_file:
-        logger.critical('No password or password_file specified for IMAP target: %s', identifier)
-        logger.critical('Either provide password directly or use password_file for security')
-        raise click.Abort()
+    if auth_type != 'oauth2':
+        # Password authentication - requires password or password_file
+        if not password and not password_file:
+            logger.critical('No password or password_file specified for IMAP target: %s', identifier)
+            logger.critical('Either provide password directly or use password_file for security')
+            raise click.Abort()
+    # OAuth2 uses a built-in default client_id if not specified
 
     try:
         it = ImapTarget(
@@ -278,7 +293,12 @@ def get_imap_target(identifier: str, server: str, username: str,
             folder=folder,
             password=password,
             password_file=password_file,
-            timeout=timeout
+            timeout=timeout,
+            auth_type=auth_type,
+            client_id=client_id,
+            tenant=tenant,
+            token=token,
+            interactive=interactive
         )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))

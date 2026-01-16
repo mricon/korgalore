@@ -169,6 +169,114 @@ To configure an IMAP target, specify the server, credentials, and target folder:
    For security, use ``password_file`` instead of inline ``password`` in your
    configuration file.
 
+IMAP OAuth2 Setup (Microsoft 365)
+=================================
+
+Microsoft 365 and Office 365 accounts require OAuth2 authentication (Modern
+Authentication) instead of passwords. Korgalore supports this via the XOAUTH2
+IMAP extension using the PKCE authorization flow.
+
+Configuring IMAP OAuth2 Targets
+-------------------------------
+
+To configure an IMAP target with OAuth2 authentication for Microsoft 365:
+
+.. code-block:: toml
+
+   [targets.office365]
+   type = 'imap'
+   auth_type = 'oauth2'
+   server = 'outlook.office365.com'
+   username = 'user@company.com'
+
+That's it! Korgalore includes a built-in Azure AD application, so no additional
+setup is required for most users.
+
+OAuth2 Target Parameters
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``auth_type``: Must be ``'oauth2'`` to enable OAuth2 authentication
+* ``client_id``: (Optional) Azure AD Application (client) ID. Korgalore uses a
+  built-in default; only specify this if your organization blocks third-party
+  apps and you need to use your own app registration.
+* ``tenant``: (Optional) Azure AD tenant - use ``'common'`` for multi-tenant,
+  ``'organizations'`` for any work/school account, or your specific tenant ID.
+  Default: ``'common'``
+* ``token``: (Optional) Path to store the OAuth2 token file. Defaults to
+  ``~/.config/korgalore/imap-{identifier}-oauth2-token.json``
+
+.. note::
+   Korgalore includes a default Azure AD application ID. However, some
+   organizations block third-party applications via conditional access policies.
+   If you encounter errors like "AADSTS65001" or "application not approved",
+   contact your IT department to obtain an approved client ID and specify it
+   in your configuration:
+
+   .. code-block:: toml
+
+      [targets.office365]
+      type = 'imap'
+      auth_type = 'oauth2'
+      server = 'outlook.office365.com'
+      username = 'user@company.com'
+      client_id = 'client-id-from-it-department'
+
+Authenticating
+--------------
+
+The first time you access an OAuth2 IMAP target, korgalore will:
+
+1. Open your default web browser to the Microsoft login page
+2. Prompt you to sign in and grant permissions to the application
+3. Save the refresh token locally for future use
+
+You can trigger authentication explicitly:
+
+.. code-block:: bash
+
+   kgl auth office365
+
+Once authenticated, the token is stored locally and refreshed automatically.
+If the token expires or is revoked, korgalore will prompt for re-authentication.
+
+Using on Headless Servers
+-------------------------
+
+For headless servers, authenticate on a machine with a browser first, then copy
+the token file:
+
+1. On your workstation, run ``kgl auth office365``
+2. Complete the browser authentication
+3. Copy the token file to your server:
+
+   .. code-block:: bash
+
+      scp ~/.config/korgalore/imap-office365-oauth2-token.json \
+          server:~/.config/korgalore/
+
+4. Ensure the configuration on the server matches (same ``client_id``, etc.)
+
+The token will be refreshed automatically without requiring a browser.
+
+Troubleshooting OAuth2
+----------------------
+
+**"AADSTS700016: Application not found"**
+   The ``client_id`` is incorrect or the application was deleted. Verify the
+   Application ID in Azure Portal.
+
+**"AADSTS65001: User or administrator has not consented"**
+   The user hasn't granted permissions. Run ``kgl auth`` to trigger the
+   consent flow, or ask your administrator to grant admin consent.
+
+**"AUTHENTICATE failed" after successful login**
+   Verify that IMAP.AccessAsUser.All permission is granted and that IMAP is
+   enabled for your mailbox in Microsoft 365 admin settings.
+
+**Token refresh fails repeatedly**
+   The refresh token may have expired (90 days of inactivity) or been revoked.
+   Delete the token file and re-authenticate.
+
 Pipe Setup
 ==========
 
@@ -329,11 +437,24 @@ IMAP Target Parameters
 * ``server``: IMAP server hostname (e.g., ``'imap.example.com'``)
 * ``username``: Your account username or email address
 * ``folder``: Target folder for delivery (default: ``'INBOX'``)
-* ``password``: (Optional*) Password provided inline (less secure)
-* ``password_file``: (Optional*) Path to file containing password (recommended)
+* ``auth_type``: (Optional) Authentication type - ``'password'`` (default) or ``'oauth2'``
 * ``timeout``: (Optional) Connection timeout in seconds (default: ``60``)
 
-*Either ``password`` or ``password_file`` must be provided.
+**For password authentication** (``auth_type = 'password'`` or omitted):
+
+* ``password``: (Optional*) Password provided inline (less secure)
+* ``password_file``: (Optional*) Path to file containing password (recommended)
+
+*Either ``password`` or ``password_file`` must be provided for password auth.
+
+**For OAuth2 authentication** (``auth_type = 'oauth2'``):
+
+* ``client_id``: (Optional) Azure AD Application (client) ID. Uses built-in default
+  if not specified.
+* ``tenant``: (Optional) Azure AD tenant ID (default: ``'common'``)
+* ``token``: (Optional) Path to OAuth2 token file
+
+See `IMAP OAuth2 Setup (Microsoft 365)`_ for detailed OAuth2 configuration.
 
 .. note::
    IMAP connections always use SSL on port 993 for security.
@@ -466,6 +587,12 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    folder = 'INBOX'
    password_file = '~/.config/korgalore/imap-password.txt'
 
+   [targets.office365]
+   type = 'imap'
+   auth_type = 'oauth2'
+   server = 'outlook.office365.com'
+   username = 'user@company.com'
+
    [targets.processor]
    type = 'pipe'
    command = '/usr/local/bin/process-mail.sh'
@@ -504,10 +631,16 @@ Here's a complete configuration file example showing both Gmail and maildir targ
    target = 'archive'  # Maildir target
    labels = []  # Ignored for maildir targets
 
-   # Deliver to IMAP server
+   # Deliver to IMAP server (password auth)
    [deliveries.lkml-imap]
    feed = 'lkml'
    target = 'myserver'
+   labels = []  # Ignored for IMAP targets
+
+   # Deliver to Microsoft 365 (OAuth2 auth)
+   [deliveries.lkml-office365]
+   feed = 'lkml'
+   target = 'office365'
    labels = []  # Ignored for IMAP targets
 
    # Deliver to pipe command for custom processing
