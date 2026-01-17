@@ -18,12 +18,19 @@ from korgalore.gmail_target import GmailTarget
 from korgalore.imap_target import ImapTarget
 
 # Optional GTK/AppIndicator3 support - checked at runtime
+# AppIndicator3 is called AyatanaAppIndicator3 on some systems (e.g., Debian)
 HAS_GTK = False
 try:
     import gi  # type: ignore
     gi.require_version('Gtk', '3.0')
-    gi.require_version('AppIndicator3', '0.1')
-    from gi.repository import Gtk, GLib, AppIndicator3  # type: ignore
+    from gi.repository import Gtk, GLib  # type: ignore
+    # Try AppIndicator3 first, fall back to AyatanaAppIndicator3
+    try:
+        gi.require_version('AppIndicator3', '0.1')
+        from gi.repository import AppIndicator3  # type: ignore
+    except ValueError:
+        gi.require_version('AyatanaAppIndicator3', '0.1')
+        from gi.repository import AyatanaAppIndicator3 as AppIndicator3  # type: ignore
     HAS_GTK = True
 except (ValueError, ImportError):
     Gtk = None
@@ -38,7 +45,9 @@ class KorgaloreApp:
     def __init__(self, ctx: click.Context):
         if not HAS_GTK:
             raise RuntimeError(
-                "GUI dependencies not available. Install python3-gi and appindicator3 via system packages."
+                "GUI dependencies not available. Install python3-gi and "
+                "gir1.2-appindicator3-0.1 (or gir1.2-ayatanaappindicator3-0.1) "
+                "via system packages."
             )
         self.ctx = ctx
         self.ind = AppIndicator3.Indicator.new(

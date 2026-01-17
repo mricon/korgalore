@@ -35,6 +35,9 @@ Improvements
 
 * Add GUI optional dependencies to pyproject.toml (``pip install korgalore[gui]``)
 
+* Support AyatanaAppIndicator3 as fallback for AppIndicator3 (needed on
+  Debian and derivatives)
+
 v0.3 (2026-01-15)
 -----------------
 
