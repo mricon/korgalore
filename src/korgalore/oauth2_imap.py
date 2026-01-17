@@ -232,7 +232,7 @@ class ImapOAuth2Authenticator:
         )
         self._save_token()
         self._needs_auth = False
-        logger.info("OAuth2 token refreshed for %s", self.identifier)
+        logger.debug("OAuth2 token refreshed for %s", self.identifier)
 
     def _run_auth_flow(self) -> None:
         """Run interactive PKCE authentication flow.
