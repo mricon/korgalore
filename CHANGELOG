@@ -24,6 +24,17 @@ New Features
     server = 'outlook.office365.com'
     username = 'user@company.com'
 
+Improvements
+~~~~~~~~~~~~
+
+* Close network connections after sync runs to avoid keeping idle connections
+  open between periodic syncs (IMAP, HTTP sessions)
+
+* JMAP target now uses shared requests session for consistent User-Agent
+  header and proper connection cleanup
+
+* Add GUI optional dependencies to pyproject.toml (``pip install korgalore[gui]``)
+
 v0.3 (2026-01-15)
 -----------------
 
