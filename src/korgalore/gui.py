@@ -27,10 +27,10 @@ try:
     # Try AppIndicator3 first, fall back to AyatanaAppIndicator3
     try:
         gi.require_version('AppIndicator3', '0.1')
-        from gi.repository import AppIndicator3  # type: ignore
+        from gi.repository import AppIndicator3
     except ValueError:
         gi.require_version('AyatanaAppIndicator3', '0.1')
-        from gi.repository import AyatanaAppIndicator3 as AppIndicator3  # type: ignore
+        from gi.repository import AyatanaAppIndicator3 as AppIndicator3
     HAS_GTK = True
 except (ValueError, ImportError):
     Gtk = None
