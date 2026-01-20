@@ -23,7 +23,7 @@ HAS_GTK = False
 try:
     import gi  # type: ignore
     gi.require_version('Gtk', '3.0')
-    from gi.repository import Gtk, GLib  # type: ignore
+    from gi.repository import Gtk, GLib, Gio  # type: ignore
     # Try AppIndicator3 first, fall back to AyatanaAppIndicator3
     try:
         gi.require_version('AppIndicator3', '0.1')
@@ -35,6 +35,7 @@ try:
 except (ValueError, ImportError):
     Gtk = None
     GLib = None
+    Gio = None
     AppIndicator3 = None
 
 logger = logging.getLogger('korgalore.gui')
@@ -70,6 +71,12 @@ class KorgaloreApp:
         self.next_sync_time = 0.0
         self.error_state = False
         self.auth_needed_target: Optional[str] = None  # Target ID needing re-auth
+
+        # Network monitoring
+        self.network_monitor = Gio.NetworkMonitor.get_default()
+        self.network_available = self.network_monitor.get_network_available()
+        self.network_monitor.connect('network-changed', self._on_network_changed)
+        logger.info('Network available: %s', self.network_available)
 
         self.ind.set_menu(self.build_menu())
 
@@ -165,13 +172,32 @@ class KorgaloreApp:
             return False
         GLib.idle_add(_update)
 
+    def _on_network_changed(self, monitor: Any, network_available: bool) -> None:
+        """Handle network availability changes."""
+        was_available = self.network_available
+        self.network_available = network_available
+        logger.info('Network availability changed: %s -> %s', was_available, network_available)
+
+        if network_available and not was_available:
+            # Network just came back up - schedule sync after short delay
+            # to allow network stack to fully stabilize
+            logger.info('Network restored, scheduling sync in 10 seconds')
+            self.next_sync_time = time.time() + 10
+            self.error_state = False
+            self.update_status("Network restored, syncing soon...", "network-idle-symbolic")
+        elif not network_available:
+            # Network went down
+            self.update_status("Network unavailable", "network-offline-symbolic")
+
     def update_timers(self) -> bool:
         """Update last/next sync timers in menu."""
         now = time.time()
 
         # Next Sync
-        if self.is_syncing:
-             self.item_next_sync.set_label("Next sync: In progress...")
+        if not self.network_available:
+            self.item_next_sync.set_label("Next sync: Waiting for network")
+        elif self.is_syncing:
+            self.item_next_sync.set_label("Next sync: In progress...")
         elif self.next_sync_time > now:
             diff = int(self.next_sync_time - now)
             if diff > 60:
@@ -307,10 +333,10 @@ class KorgaloreApp:
 
         except RemoteError as e:
             logger.error("Yank failed: %s", str(e))
-            self.update_status("Yank failed - see logs", "dialog-error-symbolic")
+            self.update_status(f"Yank failed: {e}", "dialog-error-symbolic")
         except Exception as e:
             logger.error("Yank failed: %s", str(e))
-            self.update_status("Yank failed - see logs", "dialog-error-symbolic")
+            self.update_status(f"Yank failed: {e}", "dialog-error-symbolic")
 
     def on_edit_config(self, source: Any) -> None:
         """Open the configuration file in the user's preferred editor."""
@@ -340,7 +366,7 @@ class KorgaloreApp:
                 logger.info("Configuration reloaded successfully.")
             else:
                 logger.error("Configuration file has errors: %s", error_msg)
-                self.update_status("Config error - see logs", "dialog-warning-symbolic")
+                self.update_status(f"Config error: {error_msg}", "dialog-warning-symbolic")
         except Exception as e:
             logger.error("Failed to open config file: %s", str(e))
 
@@ -385,6 +411,15 @@ class KorgaloreApp:
         if self.is_syncing:
             return
 
+        # Check network availability before attempting sync
+        if not self.network_available:
+            logger.info("Skipping sync: network unavailable")
+            self.update_status("Network unavailable", "network-offline-symbolic")
+            # Schedule next check at normal interval; network-changed callback
+            # will trigger sooner if network comes back
+            self.next_sync_time = time.time() + self.sync_interval
+            return
+
         self.is_syncing = True
         GLib.idle_add(lambda: self.item_sync.set_sensitive(False))
         self.update_status("Syncing...", "system-run-symbolic")
@@ -425,7 +460,7 @@ class KorgaloreApp:
         except Exception as e:
             logger.error("Sync failed: %s", str(e))
             self.error_state = True
-            self.update_status("Error: See logs", "dialog-error-symbolic")
+            self.update_status(f"Error: {e}", "dialog-error-symbolic")
         finally:
             self.is_syncing = False
             # Reset countdown timer after sync completes
