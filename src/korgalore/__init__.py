@@ -5,7 +5,7 @@ from pathlib import Path
 
 from typing import List, Optional, Tuple
 
-__version__ = "0.4"
+__version__ = "0.5-dev"
 __author__ = "Konstantin Ryabitsev"
 __email__ = "konstantin@linuxfoundation.org"
 
