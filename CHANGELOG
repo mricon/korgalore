@@ -38,6 +38,15 @@ Improvements
 * Support AyatanaAppIndicator3 as fallback for AppIndicator3 (needed on
   Debian and derivatives)
 
+* GUI now monitors network availability via Gio.NetworkMonitor and skips
+  sync attempts when network is unavailable (airplane mode, resume from
+  suspend, etc.). Sync is automatically scheduled when network is restored.
+
+* GUI error messages now display actual error text instead of unhelpful
+  "see logs" messages, since logs are not collected by default.
+
+* Add hashed requirements file for GUI dependencies (requirements-gui.txt)
+
 v0.3 (2026-01-15)
 -----------------
 
