@@ -1,6 +1,16 @@
 Korgalore Changelog
 ===================
 
+v0.4.1 (unreleased)
+-----------------
+
+Improvements
+~~~~~~~~~~~~
+
+* GUI now redirects stdout/stderr to /dev/null and logs only critical messages
+  to the systemd journal. This prevents I/O errors when the terminal is closed
+  after launching with ``kgl gui &``.
+
 v0.4 (2026-01-20)
 -----------------
 

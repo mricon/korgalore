@@ -2,8 +2,10 @@
 
 import logging
 import math
+import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from typing import Optional, Any
@@ -535,9 +537,27 @@ class KorgaloreApp:
 
 def start_gui(ctx: click.Context) -> None:
     """Entry point for the GUI."""
-    # Ensure logging is configured (Click log might catch this, but just in case)
-    if not logger.handlers:
-        logging.basicConfig(level=logging.INFO)
+    # Redirect stdout/stderr to /dev/null to prevent EIO errors when the
+    # terminal is closed, since the GUI is designed to run detached.
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, sys.stdout.fileno())
+    os.dup2(devnull, sys.stderr.fileno())
+    os.close(devnull)
+
+    # Configure logging to systemd journal with CRITICAL level only.
+    root_logger = logging.getLogger('korgalore')
+    root_logger.handlers.clear()
+    root_logger.setLevel(logging.CRITICAL)
+
+    try:
+        from systemd.journal import JournalHandler  # type: ignore
+        handler = JournalHandler(SYSLOG_IDENTIFIER='korgalore')
+        handler.setLevel(logging.CRITICAL)
+        root_logger.addHandler(handler)
+    except ImportError:
+        # systemd-python not available, use NullHandler
+        handler = logging.NullHandler()
+        root_logger.addHandler(handler)
 
     app = KorgaloreApp(ctx)
     app.run()
