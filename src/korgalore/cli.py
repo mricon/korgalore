@@ -1742,6 +1742,8 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     # Build and create queries
     queries_created = 0
     skipped_patterns: List[str] = []
+    mailinglist_created = False
+    patches_created = False
 
     # 1. Mailing list query
     mailinglist_query, excluded_lists = build_mailinglist_query(entry, since, catchall_lists)
@@ -1771,6 +1773,7 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
                     logger.warning('No messages found for mailinglist query')
                     feed.init_feed(from_start=False)
                 queries_created += 1
+                mailinglist_created = True
         except PublicInboxError as e:
             logger.error('Failed to create mailinglist query: %s', str(e))
     elif excluded_lists:
@@ -1805,6 +1808,7 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
                     logger.warning('No messages found for patches query')
                     feed.init_feed(from_start=False)
                 queries_created += 1
+                patches_created = True
         except PublicInboxError as e:
             logger.error('Failed to create patches query: %s', str(e))
     else:
@@ -1831,7 +1835,9 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
         labels=labels_list,
         lei_base_path=lei_base_path,
         since=since,
-        subsystem_name=entry.name
+        subsystem_name=entry.name,
+        include_mailinglist=mailinglist_created,
+        include_patches=patches_created
     )
 
     config_file = conf_d / f'{key}.toml'

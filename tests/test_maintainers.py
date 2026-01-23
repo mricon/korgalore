@@ -754,3 +754,45 @@ class TestGenerateSubsystemConfig:
 
         assert f"url = 'lei:{lei_base}/9p_file_system-mailinglist'" in content
         assert f"url = 'lei:{lei_base}/9p_file_system-patches'" in content
+
+    def test_exclude_mailinglist(self, tmp_path: Path) -> None:
+        """Config excludes mailinglist when include_mailinglist=False."""
+        import tomllib
+
+        content = generate_subsystem_config(
+            key="test",
+            target="personal",
+            labels=["INBOX"],
+            lei_base_path=tmp_path / "lei",
+            since="30.days.ago",
+            subsystem_name="TEST",
+            include_mailinglist=False,
+            include_patches=True,
+        )
+
+        config = tomllib.loads(content)
+        assert "test-mailinglist" not in config.get("feeds", {})
+        assert "test-mailinglist" not in config.get("deliveries", {})
+        assert "test-patches" in config["feeds"]
+        assert "test-patches" in config["deliveries"]
+
+    def test_exclude_patches(self, tmp_path: Path) -> None:
+        """Config excludes patches when include_patches=False."""
+        import tomllib
+
+        content = generate_subsystem_config(
+            key="test",
+            target="personal",
+            labels=["INBOX"],
+            lei_base_path=tmp_path / "lei",
+            since="30.days.ago",
+            subsystem_name="TEST",
+            include_mailinglist=True,
+            include_patches=False,
+        )
+
+        config = tomllib.loads(content)
+        assert "test-patches" not in config.get("feeds", {})
+        assert "test-patches" not in config.get("deliveries", {})
+        assert "test-mailinglist" in config["feeds"]
+        assert "test-mailinglist" in config["deliveries"]
