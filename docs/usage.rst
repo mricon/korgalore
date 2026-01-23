@@ -450,32 +450,50 @@ Arguments:
 
 Options:
 
-* ``-m, --maintainers PATH``: Path to MAINTAINERS file (required)
+* ``-m, --maintainers PATH``: Path to MAINTAINERS file (optional, see below)
 * ``-t, --target TEXT``: Target for deliveries (auto-selected if only one target configured)
 * ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated; defaults to target's default labels)
 * ``--since TEXT``: Start date for query (default: ``7.days.ago``)
 * ``--threads / --no-threads``: Include entire threads when any message matches (default: off)
 * ``--forget``: Remove tracking for the subsystem (deletes config and lei queries)
 
+MAINTAINERS File Location
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The command looks for the MAINTAINERS file in this order:
+
+1. Path specified with ``-m/--maintainers``
+2. ``./MAINTAINERS`` in the current directory
+3. Fetched from kernel.org (cached for 24 hours in ``~/.local/share/korgalore/``)
+
+This means you can run ``kgl track-subsystem`` from a kernel source tree without
+any extra arguments, or from anywhere and let it fetch the file automatically.
+
 Examples
 ~~~~~~~~
 
 .. code-block:: bash
 
-   # Track the 9P FILE SYSTEM subsystem
+   # Track from a kernel source tree (uses ./MAINTAINERS)
+   cd ~/linux && kgl track-subsystem 'DRM'
+
+   # Track from anywhere (fetches MAINTAINERS from kernel.org)
+   kgl track-subsystem 'BTRFS'
+
+   # Track with explicit MAINTAINERS path
    kgl track-subsystem -m ~/linux/MAINTAINERS '9P FILE SYSTEM'
 
    # Track using a substring match (case-insensitive)
-   kgl track-subsystem -m ~/linux/MAINTAINERS '9p file'
+   kgl track-subsystem '9p file'
 
    # Track with specific target and labels (comma-separated)
-   kgl track-subsystem -m ~/linux/MAINTAINERS -t work -l INBOX,patches 'DRM'
+   kgl track-subsystem -t work -l INBOX,patches 'DRM'
 
    # Track with --threads to get full discussions (can produce many results)
-   kgl track-subsystem -m ~/linux/MAINTAINERS --threads 'RUST'
+   kgl track-subsystem --threads 'RUST'
 
    # Track patches from the last 30 days (default is 7)
-   kgl track-subsystem -m ~/linux/MAINTAINERS --since 30.days.ago 'BTRFS'
+   kgl track-subsystem --since 30.days.ago 'BTRFS'
 
    # Stop tracking a subsystem (removes config and lei queries)
    kgl track-subsystem --forget '9P FILE SYSTEM'
@@ -513,6 +531,21 @@ The command uses these fields from the MAINTAINERS file:
    Complex regex patterns in ``N:`` and ``K:`` fields are skipped with a warning,
    as Xapian (used by lei) doesn't support regex queries. Only simple whole-word
    patterns can be converted.
+
+Catch-all Mailing Lists
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Many MAINTAINERS entries include high-volume catch-all lists like
+``linux-kernel@vger.kernel.org`` that receive copies of most kernel patches.
+Including these in subsystem queries would flood results with irrelevant messages.
+
+By default, korgalore excludes these lists from mailinglist queries:
+
+* ``linux-kernel@vger.kernel.org``
+* ``patches@lists.linux.dev``
+
+You can customize this via the ``main.catchall_lists`` configuration option.
+See :doc:`configuration` for details.
 
 Forgetting a Subsystem
 ~~~~~~~~~~~~~~~~~~~~~~

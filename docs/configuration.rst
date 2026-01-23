@@ -712,6 +712,7 @@ The optional ``[main]`` section configures global korgalore behavior.
 
    [main]
    user_agent_plus = "abcd1234"
+   catchall_lists = ["linux-kernel@vger.kernel.org", "patches@lists.linux.dev"]
 
 Parameters
 ----------
@@ -720,6 +721,20 @@ Parameters
   sent to remote servers. This helps server operators identify traffic from
   specific korgalore installations. The resulting User-Agent will be
   ``korgalore/VERSION+VALUE`` (e.g., ``korgalore/0.5+abcd1234``).
+
+* ``catchall_lists``: (Optional) List of mailing list addresses to exclude from
+  ``track-subsystem`` queries. These are high-volume lists that receive copies
+  of most kernel patches and would flood subsystem-specific queries with
+  irrelevant messages. Default:
+
+  .. code-block:: toml
+
+     catchall_lists = [
+         "linux-kernel@vger.kernel.org",
+         "patches@lists.linux.dev",
+     ]
+
+  Set to an empty list ``[]`` to include all mailing lists in queries.
 
 Logging
 =======

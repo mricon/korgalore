@@ -32,7 +32,7 @@ from korgalore.tracking import (
 from korgalore.maintainers import (
     get_subsystem, normalize_subsystem_name,
     build_mailinglist_query, build_patches_query,
-    generate_subsystem_config
+    generate_subsystem_config, DEFAULT_CATCHALL_LISTS
 )
 from korgalore.bozofilter import (
     load_bozofilter, add_to_bozofilter, edit_bozofilter, is_bozofied
@@ -43,6 +43,63 @@ click_log.basic_config(logger)
 
 # Sentinel value for messages skipped due to bozofilter
 SKIPPED_BOZOFILTER = '__SKIPPED_BOZOFILTER__'
+
+# URL to fetch MAINTAINERS file from kernel.org
+MAINTAINERS_URL = 'https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/MAINTAINERS'
+
+# Maximum age of cached MAINTAINERS file in seconds (24 hours)
+MAINTAINERS_CACHE_MAX_AGE = 24 * 60 * 60
+
+
+def get_maintainers_file(data_dir: Path) -> Path:
+    """Get MAINTAINERS file, fetching from kernel.org if needed.
+
+    Uses a cached copy if it exists and is less than 24 hours old.
+    Otherwise fetches a fresh copy from kernel.org.
+
+    Args:
+        data_dir: The korgalore data directory for caching.
+
+    Returns:
+        Path to the MAINTAINERS file.
+
+    Raises:
+        click.ClickException: If fetching fails.
+    """
+    import time
+
+    cache_path = data_dir / 'MAINTAINERS'
+
+    # Check if we have a fresh cached copy
+    if cache_path.exists():
+        age = time.time() - cache_path.stat().st_mtime
+        if age < MAINTAINERS_CACHE_MAX_AGE:
+            logger.debug('Using cached MAINTAINERS file (age: %.1f hours)', age / 3600)
+            return cache_path
+        logger.debug('Cached MAINTAINERS file is stale (age: %.1f hours)', age / 3600)
+
+    # Fetch fresh copy
+    logger.info('Fetching MAINTAINERS file from %s', MAINTAINERS_URL)
+    try:
+        session = get_requests_session()
+        response = session.get(MAINTAINERS_URL, timeout=30)
+        response.raise_for_status()
+    except Exception as e:
+        # If fetch fails but we have a stale cache, use it with a warning
+        if cache_path.exists():
+            logger.warning('Failed to fetch fresh MAINTAINERS file, using stale cache: %s', e)
+            return cache_path
+        raise click.ClickException(
+            f"Failed to fetch MAINTAINERS file from {MAINTAINERS_URL}: {e}\n"
+            "Use -m/--maintainers to specify a local copy."
+        )
+
+    # Cache the file
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_bytes(response.content)
+    logger.debug('Cached MAINTAINERS file to %s', cache_path)
+
+    return cache_path
 
 
 def parse_labels(labels: Tuple[str, ...]) -> List[str]:
@@ -1554,7 +1611,7 @@ def gui(ctx: click.Context) -> None:
 @main.command('track-subsystem')
 @click.argument('subsystem_name', type=str)
 @click.option('--maintainers', '-m', default=None,
-              type=click.Path(exists=True), help='Path to MAINTAINERS file')
+              type=click.Path(), help='Path to MAINTAINERS file (default: ./MAINTAINERS)')
 @click.option('--target', '-t', default=None, help='Target for deliveries')
 @click.option('--labels', '-l', multiple=True,
               help='Labels to apply (repeatable or comma-separated; default: target DEFAULT_LABELS)')
@@ -1616,12 +1673,30 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
         logger.info('Removed tracking for subsystem: %s', subsystem_name)
         return
 
-    # Require --maintainers when not using --forget
-    if not maintainers:
-        logger.critical('--maintainers/-m is required when creating a new subsystem tracking')
-        raise click.Abort()
+    # Find MAINTAINERS file: explicit path, ./MAINTAINERS, or fetch from kernel.org
+    if maintainers:
+        maintainers_path = Path(maintainers)
+        if not maintainers_path.exists():
+            raise click.ClickException(f"MAINTAINERS file not found: {maintainers}")
+    else:
+        maintainers_path = Path('MAINTAINERS')
+        if maintainers_path.exists():
+            logger.debug('Using MAINTAINERS file from current directory')
+        else:
+            # Fetch from kernel.org as fallback
+            data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
+            maintainers_path = get_maintainers_file(data_dir)
 
     config = ctx.obj.get('config', {})
+
+    # Get catchall lists from config or use defaults
+    main_config = config.get('main', {})
+    catchall_lists_config = main_config.get('catchall_lists')
+    if catchall_lists_config is not None:
+        catchall_lists: Set[str] = set(catchall_lists_config)
+        logger.debug('Using catchall_lists from config: %s', catchall_lists)
+    else:
+        catchall_lists = set(DEFAULT_CATCHALL_LISTS)
     targets = config.get('targets', {})
 
     # Auto-select target if only one exists
@@ -1642,7 +1717,6 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     target_service = get_target(ctx, target)
 
     # Parse MAINTAINERS file and get subsystem entry
-    maintainers_path = Path(maintainers)
     try:
         entry = get_subsystem(maintainers_path, subsystem_name)
     except KeyError as e:
@@ -1670,7 +1744,9 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     skipped_patterns: List[str] = []
 
     # 1. Mailing list query
-    mailinglist_query = build_mailinglist_query(entry, since)
+    mailinglist_query, excluded_lists = build_mailinglist_query(entry, since, catchall_lists)
+    if excluded_lists:
+        logger.info('Excluding catch-all lists: %s', ', '.join(excluded_lists))
     if mailinglist_query:
         lei_path = lei_base_path / f'{key}-mailinglist'
         logger.info('Creating mailinglist query: %s', mailinglist_query)
@@ -1697,6 +1773,8 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
                 queries_created += 1
         except PublicInboxError as e:
             logger.error('Failed to create mailinglist query: %s', str(e))
+    elif excluded_lists:
+        logger.warning('No mailing lists remain after excluding catch-all lists')
     else:
         logger.warning('No mailing lists found for subsystem')
 

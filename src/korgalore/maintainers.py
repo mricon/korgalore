@@ -6,9 +6,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.utils import parseaddr
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger('korgalore')
+
+# Default catch-all mailing lists to exclude from subsystem queries.
+# These lists receive copies of most/all kernel patches and would flood
+# subsystem-specific queries with irrelevant messages.
+DEFAULT_CATCHALL_LISTS: List[str] = [
+    'linux-kernel@vger.kernel.org',
+    'patches@lists.linux.dev',
+]
 
 # Regex metacharacters that indicate a pattern is not a simple word
 REGEX_METACHARACTERS = r'\[](){}|^$?+*'
@@ -256,28 +264,44 @@ def build_maintainers_query(entry: SubsystemEntry, since: str) -> Optional[str]:
     return f'{email_query} AND d:{since}..'
 
 
-def build_mailinglist_query(entry: SubsystemEntry, since: str) -> Optional[str]:
+def build_mailinglist_query(entry: SubsystemEntry, since: str,
+                            catchall_lists: Optional[Set[str]] = None
+                            ) -> Tuple[Optional[str], List[str]]:
     """Build lei query for mailing list messages.
 
     Args:
         entry: SubsystemEntry with mailing lists
         since: Date string for query
+        catchall_lists: Set of mailing list addresses to exclude from query.
+            If None, uses DEFAULT_CATCHALL_LISTS.
 
     Returns:
-        Query string like '(l:list1 OR l:list2) AND d:30.days.ago..'
-        or None if no mailing lists
+        Tuple of (query_string, excluded_lists).
+        Query is None if no usable mailing lists remain after filtering.
 
     Note: d: is placed last to work around a lei bug with d: as first param.
     """
-    if not entry.mailing_lists:
-        return None
+    if catchall_lists is None:
+        catchall_lists = set(DEFAULT_CATCHALL_LISTS)
 
-    list_parts = [f'l:{email_to_list_id(ml)}' for ml in entry.mailing_lists]
+    excluded: List[str] = []
+    usable_lists: List[str] = []
+
+    for ml in entry.mailing_lists:
+        if ml in catchall_lists:
+            excluded.append(ml)
+        else:
+            usable_lists.append(ml)
+
+    if not usable_lists:
+        return None, excluded
+
+    list_parts = [f'l:{email_to_list_id(ml)}' for ml in usable_lists]
     list_query = ' OR '.join(list_parts)
 
-    if len(entry.mailing_lists) > 1:
-        return f'({list_query}) AND d:{since}..'
-    return f'{list_query} AND d:{since}..'
+    if len(usable_lists) > 1:
+        return f'({list_query}) AND d:{since}..', excluded
+    return f'{list_query} AND d:{since}..', excluded
 
 
 def build_patches_query(entry: SubsystemEntry, since: str) -> Tuple[Optional[str], List[str]]:

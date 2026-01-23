@@ -12,8 +12,21 @@ New Features
   identify traffic from specific korgalore installations and may be used to
   prioritize requests.
 
+* New ``main.catchall_lists`` configuration option to customize which mailing
+  lists are excluded from ``track-subsystem`` queries. Default excludes
+  ``linux-kernel@vger.kernel.org`` and ``patches@lists.linux.dev``.
+
 Improvements
 ~~~~~~~~~~~~
+
+* ``track-subsystem`` no longer requires ``-m/--maintainers``. The command now
+  automatically looks for ``./MAINTAINERS`` in the current directory, and falls
+  back to fetching from kernel.org if not found. The fetched file is cached for
+  24 hours.
+
+* ``track-subsystem`` now excludes catch-all mailing lists (linux-kernel,
+  patches@lists.linux.dev) from queries by default to avoid flooding results
+  with irrelevant messages. Override via ``main.catchall_lists`` in config.
 
 * Centralized User-Agent handling across all remote connections (git, lei, HTTP).
   All requests now consistently identify as korgalore with the current version.

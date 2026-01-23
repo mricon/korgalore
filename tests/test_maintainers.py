@@ -290,8 +290,9 @@ class TestBuildMailinglistQuery:
             name="TEST",
             mailing_lists=["list@lists.linux.dev"],
         )
-        result = build_mailinglist_query(entry, "30.days.ago")
-        assert result == "l:list.lists.linux.dev AND d:30.days.ago.."
+        query, excluded = build_mailinglist_query(entry, "30.days.ago")
+        assert query == "l:list.lists.linux.dev AND d:30.days.ago.."
+        assert excluded == []
 
     def test_multiple_lists(self) -> None:
         """Query with multiple mailing lists uses OR and parentheses."""
@@ -299,14 +300,76 @@ class TestBuildMailinglistQuery:
             name="TEST",
             mailing_lists=["list1@domain.org", "list2@domain.org"],
         )
-        result = build_mailinglist_query(entry, "30.days.ago")
-        assert result == "(l:list1.domain.org OR l:list2.domain.org) AND d:30.days.ago.."
+        query, excluded = build_mailinglist_query(entry, "30.days.ago")
+        assert query == "(l:list1.domain.org OR l:list2.domain.org) AND d:30.days.ago.."
+        assert excluded == []
 
     def test_no_lists(self) -> None:
         """Returns None when no mailing lists."""
         entry = SubsystemEntry(name="TEST")
-        result = build_mailinglist_query(entry, "30.days.ago")
-        assert result is None
+        query, excluded = build_mailinglist_query(entry, "30.days.ago")
+        assert query is None
+        assert excluded == []
+
+    def test_excludes_default_catchall_lists(self) -> None:
+        """Default catchall lists are excluded from query."""
+        entry = SubsystemEntry(
+            name="TEST",
+            mailing_lists=[
+                "subsystem@lists.linux.dev",
+                "linux-kernel@vger.kernel.org",
+                "patches@lists.linux.dev",
+            ],
+        )
+        query, excluded = build_mailinglist_query(entry, "30.days.ago")
+        assert query == "l:subsystem.lists.linux.dev AND d:30.days.ago.."
+        assert "linux-kernel@vger.kernel.org" in excluded
+        assert "patches@lists.linux.dev" in excluded
+
+    def test_all_lists_excluded_returns_none(self) -> None:
+        """Returns None when all lists are catchall lists."""
+        entry = SubsystemEntry(
+            name="TEST",
+            mailing_lists=["linux-kernel@vger.kernel.org"],
+        )
+        query, excluded = build_mailinglist_query(entry, "30.days.ago")
+        assert query is None
+        assert excluded == ["linux-kernel@vger.kernel.org"]
+
+    def test_custom_catchall_lists(self) -> None:
+        """Custom catchall lists override defaults."""
+        entry = SubsystemEntry(
+            name="TEST",
+            mailing_lists=[
+                "subsystem@lists.linux.dev",
+                "linux-kernel@vger.kernel.org",
+            ],
+        )
+        # Custom catchall that doesn't include linux-kernel
+        query, excluded = build_mailinglist_query(
+            entry, "30.days.ago", catchall_lists={"custom@example.com"}
+        )
+        # linux-kernel should NOT be excluded with custom list
+        assert query is not None
+        assert "linux-kernel" in query
+        assert excluded == []
+
+    def test_empty_catchall_lists_includes_all(self) -> None:
+        """Empty catchall set includes all mailing lists."""
+        entry = SubsystemEntry(
+            name="TEST",
+            mailing_lists=[
+                "subsystem@lists.linux.dev",
+                "linux-kernel@vger.kernel.org",
+            ],
+        )
+        query, excluded = build_mailinglist_query(
+            entry, "30.days.ago", catchall_lists=set()
+        )
+        assert query is not None
+        assert "linux-kernel" in query
+        assert "subsystem" in query
+        assert excluded == []
 
 
 class TestBuildPatchesQuery:
