@@ -10,7 +10,7 @@ import urllib.parse
 
 import logging
 
-from korgalore import __version__, run_git_command, StateError, RemoteError
+from korgalore import get_requests_session, run_git_command, StateError, RemoteError
 from korgalore.pi_feed import PIFeed
 
 charset.add_charset('utf-8', None)
@@ -38,16 +38,7 @@ class LoreFeed(PIFeed):
         if reqsession:
             self.session = reqsession
         else:
-            self.session = LoreFeed.get_reqsession()
-
-    @staticmethod
-    def get_reqsession() -> requests.Session:
-        """Create a requests session with korgalore User-Agent header."""
-        reqsession = requests.Session()
-        reqsession.headers.update({
-            'User-Agent': f'korgalore/{__version__}'
-        })
-        return reqsession
+            self.session = get_requests_session()
 
     def get_manifest(self) -> Dict[str, Any]:
         """Fetch and parse the gzipped manifest from the Lore server."""
@@ -214,7 +205,7 @@ class LoreFeed(PIFeed):
         logger.debug(f"Fetching message from: {raw_url}")
 
         try:
-            reqsession = LoreFeed.get_reqsession()
+            reqsession = get_requests_session()
             response = reqsession.get(raw_url)
             response.raise_for_status()
             return response.content
@@ -241,7 +232,7 @@ class LoreFeed(PIFeed):
         logger.debug(f"Fetching thread from: {mbox_url}")
 
         try:
-            reqsession = LoreFeed.get_reqsession()
+            reqsession = get_requests_session()
             response = reqsession.get(mbox_url)
             response.raise_for_status()
         except Exception as e:

@@ -703,6 +703,24 @@ You can override this by setting the ``XDG_DATA_HOME`` environment
 variable, but then korgalore will lose your existing clones, so this is
 not advised.
 
+Main Section
+============
+
+The optional ``[main]`` section configures global korgalore behavior.
+
+.. code-block:: toml
+
+   [main]
+   user_agent_plus = "abcd1234"
+
+Parameters
+----------
+
+* ``user_agent_plus``: (Optional) A string appended to the User-Agent header
+  sent to remote servers. This helps server operators identify traffic from
+  specific korgalore installations. The resulting User-Agent will be
+  ``korgalore/VERSION+VALUE`` (e.g., ``korgalore/0.5+abcd1234``).
+
 Logging
 =======
 

@@ -6,22 +6,18 @@ storing metadata in a separate manifest file from the main configuration.
 import json
 import logging
 import shutil
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from korgalore import PublicInboxError
+from korgalore import run_lei_command
 
 logger = logging.getLogger('korgalore')
 
 # Auto-expire threads with no new messages after this many days
 EXPIRE_DAYS = 30
-
-# Lei command name
-LEICMD = "lei"
 
 
 class TrackStatus(Enum):
@@ -344,28 +340,6 @@ class TrackingManifest:
             thread.message_count += new_messages
 
         self._save()
-
-
-def run_lei_command(args: List[str]) -> Tuple[int, bytes]:
-    """Run a lei command and return (returncode, stdout).
-
-    Args:
-        args: Arguments to pass to lei command.
-
-    Returns:
-        Tuple of (return_code, stdout_output).
-
-    Raises:
-        PublicInboxError: If the lei command is not found.
-    """
-    cmd = [LEICMD] + args
-
-    try:
-        result = subprocess.run(cmd, capture_output=True)
-    except FileNotFoundError:
-        raise PublicInboxError(f"LEI command '{LEICMD}' not found. Is it installed?")
-
-    return result.returncode, result.stdout.strip()
 
 
 def create_lei_thread_search(msgid: str, output_path: Path) -> Tuple[int, bytes]:

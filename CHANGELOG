@@ -4,8 +4,22 @@ Korgalore Changelog
 v0.5 (unreleased)
 -----------------
 
+New Features
+~~~~~~~~~~~~
+
+* New ``main.user_agent_plus`` configuration option to append a unique identifier
+  to the User-Agent string sent to remote servers. This helps server operators
+  identify traffic from specific korgalore installations and may be used to
+  prioritize requests.
+
 Improvements
 ~~~~~~~~~~~~
+
+* Centralized User-Agent handling across all remote connections (git, lei, HTTP).
+  All requests now consistently identify as korgalore with the current version.
+
+* Git availability is now checked at startup with a friendly error message if
+  git is not installed or fails to run.
 
 * GUI now redirects stdout/stderr to /dev/null and logs only critical messages
   to the systemd journal. This prevents I/O errors when the terminal is closed

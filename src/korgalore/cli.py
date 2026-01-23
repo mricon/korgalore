@@ -3,6 +3,7 @@
 import os
 import re
 import hashlib
+import uuid
 import click
 import tomllib
 import logging
@@ -20,7 +21,8 @@ from korgalore.imap_target import ImapTarget
 from korgalore.pipe_target import PipeTarget
 from korgalore import (
     __version__, ConfigurationError, StateError, GitError,
-    RemoteError, PublicInboxError, AuthenticationError, format_key_for_display
+    RemoteError, PublicInboxError, AuthenticationError, format_key_for_display,
+    _init_git_user_agent, set_user_agent_id, get_requests_session, close_requests_session
 )
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
@@ -38,8 +40,6 @@ from korgalore.bozofilter import (
 
 logger = logging.getLogger('korgalore')
 click_log.basic_config(logger)
-
-REQSESSION: Optional[requests.Session] = None
 
 # Sentinel value for messages skipped due to bozofilter
 SKIPPED_BOZOFILTER = '__SKIPPED_BOZOFILTER__'
@@ -68,20 +68,6 @@ def parse_labels(labels: Tuple[str, ...]) -> List[str]:
         result.extend(part.strip() for part in label.split(',') if part.strip())
     return result
 
-def get_reqsession() -> requests.Session:
-    """Get or create the global requests session with korgalore User-Agent."""
-    global REQSESSION
-    if REQSESSION is None:
-        REQSESSION = LoreFeed.get_reqsession()
-    return REQSESSION
-
-
-def close_reqsession() -> None:
-    """Close the global requests session if open."""
-    global REQSESSION
-    if REQSESSION is not None:
-        REQSESSION.close()
-        REQSESSION = None
 
 def get_xdg_data_dir() -> Path:
     """Get or create the korgalore data directory following XDG specification."""
@@ -158,7 +144,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             token=details.get('token', None),
             token_file=details.get('token_file', None),
             timeout=details.get('timeout', 60),
-            reqsession=get_reqsession()
+            reqsession=get_requests_session()
         )
     elif target_type == 'imap':
         service = get_imap_target(
@@ -581,7 +567,7 @@ def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) 
         # Lore feed
         data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
         feed_dir = data_dir / feed_key
-        lore_feed = LoreFeed(feed_key, feed_dir, feed_url, reqsession=get_reqsession())
+        lore_feed = LoreFeed(feed_key, feed_dir, feed_url, reqsession=get_requests_session())
         feeds[feed_key] = lore_feed
         return lore_feed
     elif feed_url.startswith('lei:'):
@@ -716,6 +702,18 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
         config = load_config(cfgpath)
         ctx.obj['config'] = config
 
+        # Check for user_agent_plus in config
+        main_config = config.get('main', {})
+        user_agent_plus = main_config.get('user_agent_plus')
+        if user_agent_plus:
+            set_user_agent_id(user_agent_plus)
+
+    # Check git is available and set GIT_HTTP_USER_AGENT
+    try:
+        _init_git_user_agent()
+    except GitError as e:
+        raise click.ClickException(str(e))
+
     # Ensure XDG data directory exists
     data_dir = get_xdg_data_dir()
     ctx.obj['data_dir'] = data_dir
@@ -819,7 +817,12 @@ def edit_config(ctx: click.Context) -> None:
     # Create config file with example if it doesn't exist
     if not cfgpath.exists():
         logger.info('Configuration file does not exist. Creating example configuration at: %s', cfgpath)
-        example_config = """### Targets ###
+        example_config = f"""[main]
+# Uncomment to add a unique identifier to your User-Agent string.
+# This may be used to help prioritize your requests.
+# user_agent_plus = '{uuid.uuid4()}'
+
+### Targets ###
 
 [targets.personal]
 type = 'gmail'
@@ -1023,7 +1026,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
     update_tracked_thread_activity(ctx, changes)
 
     # Close HTTP session and clear cached targets to avoid stale session references
-    close_reqsession()
+    close_requests_session()
     ctx.obj['targets'] = {}
 
     return changes, unique_msgids
@@ -1113,7 +1116,7 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
     finally:
         if hasattr(ts, 'disconnect'):
             ts.disconnect()
-        close_reqsession()
+        close_requests_session()
         ctx.obj['targets'] = {}
 
 

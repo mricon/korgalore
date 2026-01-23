@@ -4,13 +4,12 @@ from pathlib import Path
 from typing import List, Tuple
 
 from korgalore.pi_feed import PIFeed
-from korgalore import run_git_command, GitError, PublicInboxError, ConfigurationError, StateError
+from korgalore import run_git_command, run_lei_command, GitError, PublicInboxError, ConfigurationError, StateError
 
 logger = logging.getLogger('korgalore')
 
 class LeiFeed(PIFeed):
     """Feed class for interacting with lei (local email interface) searches."""
-    LEICMD: str = "lei"
 
     def __init__(self, feed_key: str, lei_url: str) -> None:
         """Initialize a LeiFeed instance.
@@ -31,29 +30,6 @@ class LeiFeed(PIFeed):
         super().__init__(feed_key, feed_dir)
         self.feed_type = 'lei'
         self.feed_url = lei_url
-
-    def run_lei_command(self, args: List[str]) -> Tuple[int, bytes]:
-        """Execute a lei command with the given arguments.
-
-        Args:
-            args: List of command-line arguments to pass to lei.
-
-        Returns:
-            Tuple of (return_code, stdout_output).
-
-        Raises:
-            PublicInboxError: If the lei command is not found.
-        """
-        import subprocess
-
-        cmd = [self.LEICMD]
-        cmd += args
-
-        try:
-            result = subprocess.run(cmd, capture_output=True)
-        except FileNotFoundError:
-            raise PublicInboxError(f"LEI command '{self.LEICMD}' not found. Is it installed?")
-        return result.returncode, result.stdout.strip()
 
     def get_latest_epoch_info(self) -> List[Tuple[int, str]]:
         """Get current ref information for all epochs.
@@ -87,7 +63,7 @@ class LeiFeed(PIFeed):
             PublicInboxError: If the lei ls-search command fails.
         """
         args = ['ls-search', '-l', '-f', 'json']
-        retcode, output = self.run_lei_command(args)
+        retcode, output = run_lei_command(args)
         if retcode != 0:
             raise PublicInboxError(f"LEI list searches failed: {output.decode()}")
         json_output = output.decode()
@@ -131,7 +107,7 @@ class LeiFeed(PIFeed):
         """
         logger.debug('Updating lei search: %s', self.feed_dir)
         leiargs = ['up', str(self.feed_dir)]
-        retcode, output = self.run_lei_command(leiargs)
+        retcode, output = run_lei_command(leiargs)
         if retcode != 0:
             raise PublicInboxError(f"LEI update failed: {output.decode()}")
 

@@ -1,17 +1,56 @@
 """Korgalore - A command-line tool to put public-inbox sources directly into Gmail."""
 import logging
+import os
 import subprocess
 from pathlib import Path
 
+import requests
 from typing import List, Optional, Tuple
 
 __version__ = "0.5-dev"
 __author__ = "Konstantin Ryabitsev"
 __email__ = "konstantin@linuxfoundation.org"
+__user_agent__ = f"korgalore/{__version__}"
 
 GITCMD: str = "git"
+LEICMD: str = "lei"
 
 logger = logging.getLogger('korgalore')
+
+
+def set_user_agent_id(user_agent_id: str) -> None:
+    """Append a user-agent-id to the user-agent string.
+
+    Args:
+        user_agent_id: Identifier to append (e.g., 'abcd1234').
+    """
+    global __user_agent__
+    __user_agent__ = f"korgalore/{__version__}+{user_agent_id}"
+    logger.debug('Set user-agent to: %s', __user_agent__)
+
+
+# Global requests session for HTTP calls
+_REQSESSION: Optional[requests.Session] = None
+
+
+def get_requests_session() -> requests.Session:
+    """Get or create the global requests session with korgalore User-Agent."""
+    global _REQSESSION
+    if _REQSESSION is None:
+        _REQSESSION = requests.Session()
+        _REQSESSION.headers.update({
+            'User-Agent': __user_agent__
+        })
+    return _REQSESSION
+
+
+def close_requests_session() -> None:
+    """Close the global requests session if open."""
+    global _REQSESSION
+    if _REQSESSION is not None:
+        _REQSESSION.close()
+        _REQSESSION = None
+
 
 # Custom exceptions
 class KorgaloreError(Exception):
@@ -49,6 +88,28 @@ class AuthenticationError(KorgaloreError):
         self.target_id = target_id
         self.target_type = target_type
 
+
+def _init_git_user_agent() -> None:
+    """Check git is available and set GIT_HTTP_USER_AGENT environment variable.
+
+    Raises:
+        GitError: If git is not installed or fails to run.
+    """
+    try:
+        result = subprocess.run([GITCMD, '--version'], capture_output=True)
+    except FileNotFoundError:
+        raise GitError(f"Git command '{GITCMD}' not found. Is it installed?")
+
+    if result.returncode != 0:
+        raise GitError(f"Git command failed: {result.stderr.decode().strip()}")
+
+    # Parse "git version 2.52.0" -> "2.52.0"
+    version_output = result.stdout.decode().strip()
+    git_version = version_output.split()[-1]
+    user_agent = f"git/{git_version} ({__user_agent__})"
+    os.environ['GIT_HTTP_USER_AGENT'] = user_agent
+    logger.debug('Set GIT_HTTP_USER_AGENT to: %s', user_agent)
+
 def run_git_command(gitdir: Optional[str], args: List[str],
                     stdin: Optional[bytes] = None) -> Tuple[int, bytes]:
     """Run a git command in the specified git directory and return (returncode, output).
@@ -65,6 +126,32 @@ def run_git_command(gitdir: Optional[str], args: List[str],
         result = subprocess.run(cmd, capture_output=True, input=stdin)
     except FileNotFoundError:
         raise GitError(f"Git command '{GITCMD}' not found. Is it installed?")
+    return result.returncode, result.stdout.strip()
+
+
+def run_lei_command(args: List[str]) -> Tuple[int, bytes]:
+    """Run a lei command and return (returncode, stdout).
+
+    Args:
+        args: Arguments to pass to lei command (first element is the subcommand).
+
+    Returns:
+        Tuple of (return_code, stdout_output).
+
+    Raises:
+        PublicInboxError: If the lei command is not found.
+    """
+    # --user-agent is only supported by 'q' and 'up' commands
+    cmd = [LEICMD, args[0]]
+    if args[0] in ('q', 'up'):
+        cmd += ['--user-agent', __user_agent__]
+    cmd += args[1:]
+    logger.debug('Running lei command: %s', ' '.join(cmd))
+
+    try:
+        result = subprocess.run(cmd, capture_output=True)
+    except FileNotFoundError:
+        raise PublicInboxError(f"LEI command '{LEICMD}' not found. Is it installed?")
     return result.returncode, result.stdout.strip()
 
 
