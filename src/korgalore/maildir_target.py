@@ -3,7 +3,7 @@
 import logging
 import mailbox
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 from korgalore import ConfigurationError
 from korgalore.message import RawMessage
 
@@ -40,12 +40,20 @@ class MaildirTarget:
         """Connect to maildir (no-op for local maildir)."""
         logger.debug('Maildir target ready at %s', self.maildir_path)
 
-    def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+    def import_message(
+        self,
+        raw_message: bytes,
+        labels: List[str],
+        feed_name: Optional[str] = None,
+        delivery_name: Optional[str] = None
+    ) -> Any:
         """Import message to maildir.
 
         Args:
             raw_message: Raw email bytes
             labels: Ignored for maildir (Gmail-specific)
+            feed_name: Optional feed name for trace header
+            delivery_name: Optional delivery name for trace header
 
         Returns:
             Message key from maildir
@@ -57,7 +65,7 @@ class MaildirTarget:
             msg = RawMessage(raw_message)
             # mailbox.Maildir.add() handles atomic delivery automatically
             # It writes to tmp/ and moves to new/
-            key = self.maildir.add(msg.as_bytes())
+            key = self.maildir.add(msg.as_bytes(feed_name, delivery_name))
             logger.debug('Delivered message to maildir with key: %s', key)
             return key
         except Exception as e:

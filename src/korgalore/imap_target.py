@@ -259,12 +259,20 @@ class ImapTarget:
             logger.debug('Failed to check for existing message: %s', e)
             return False
 
-    def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+    def import_message(
+        self,
+        raw_message: bytes,
+        labels: List[str],
+        feed_name: Optional[str] = None,
+        delivery_name: Optional[str] = None
+    ) -> Any:
         """Import raw email message to IMAP server.
 
         Args:
             raw_message: Raw email bytes (RFC 2822/5322 format)
             labels: Ignored for IMAP (single folder only)
+            feed_name: Optional feed name for trace header
+            delivery_name: Optional delivery name for trace header
 
         Returns:
             IMAP response from APPEND command
@@ -299,7 +307,7 @@ class ImapTarget:
                         self.folder,
                         '',  # No flags (empty string)
                         '',  # Use current time (empty string for default)
-                        msg.as_bytes()
+                        msg.as_bytes(feed_name, delivery_name)
                     )
                 )
 

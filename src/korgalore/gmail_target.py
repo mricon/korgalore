@@ -163,12 +163,20 @@ class GmailTarget:
             translated.append(label_id)
         return translated
 
-    def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+    def import_message(
+        self,
+        raw_message: bytes,
+        labels: List[str],
+        feed_name: Optional[str] = None,
+        delivery_name: Optional[str] = None
+    ) -> Any:
         """Import a raw email message into Gmail.
 
         Args:
             raw_message: The raw email message as bytes.
             labels: List of label names to apply to the message.
+            feed_name: Optional feed name for trace header.
+            delivery_name: Optional delivery name for trace header.
 
         Returns:
             The Gmail API response object for the imported message.
@@ -180,7 +188,9 @@ class GmailTarget:
             import base64
 
             msg = RawMessage(raw_message)
-            encoded_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            encoded_message = base64.urlsafe_b64encode(
+                msg.as_bytes(feed_name, delivery_name)
+            ).decode()
             message_body: Dict[str, Any] = {'raw': encoded_message}
 
             if labels:

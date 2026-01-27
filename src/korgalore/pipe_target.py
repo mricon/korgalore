@@ -3,7 +3,7 @@
 import logging
 import subprocess
 import shlex
-from typing import Any, List
+from typing import Any, List, Optional
 from korgalore import ConfigurationError, DeliveryError
 from korgalore.message import RawMessage
 
@@ -50,12 +50,20 @@ class PipeTarget:
         """Connect to pipe target (no-op for local command)."""
         logger.debug('Pipe target ready with command: %s', self.command)
 
-    def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+    def import_message(
+        self,
+        raw_message: bytes,
+        labels: List[str],
+        feed_name: Optional[str] = None,
+        delivery_name: Optional[str] = None
+    ) -> Any:
         """Pipe message to the configured command.
 
         Args:
             raw_message: Raw email bytes to pipe to stdin
             labels: Additional command line arguments to append
+            feed_name: Optional feed name for trace header
+            delivery_name: Optional delivery name for trace header
 
         Returns:
             Return code from the command
@@ -70,7 +78,7 @@ class PipeTarget:
         try:
             result = subprocess.run(
                 command_with_args,
-                input=msg.as_bytes(),
+                input=msg.as_bytes(feed_name, delivery_name),
                 capture_output=True
             )
 

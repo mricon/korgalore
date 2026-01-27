@@ -3,7 +3,10 @@
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.policy import EmailPolicy
+from email.utils import formatdate
 from typing import Optional
+
+from korgalore import __version__
 
 
 class RawMessage:
@@ -76,16 +79,69 @@ class RawMessage:
                 pass
         return self._message_id
 
-    def as_bytes(self) -> bytes:
+    def as_bytes(
+        self,
+        feed_name: Optional[str] = None,
+        delivery_name: Optional[str] = None
+    ) -> bytes:
         """Return message as binary data suitable for delivery.
 
         Performs any necessary transformations for target delivery:
         - Normalizes line endings to CRLF as required by RFC 2822/5322
-        - Future: may insert additional headers
+        - Injects X-Korgalore-Trace header if feed_name and delivery_name provided
 
         Git stores messages with Unix LF endings, but mail protocols require CRLF.
+
+        Args:
+            feed_name: Optional feed name for trace header
+            delivery_name: Optional delivery name for trace header
 
         Returns:
             Message bytes ready for delivery to a target.
         """
-        return self._raw.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+        # First normalize to LF, then we'll convert to CRLF at the end
+        normalized = self._raw.replace(b'\r\n', b'\n')
+
+        # Inject trace header if context is provided
+        if feed_name is not None and delivery_name is not None:
+            normalized = self._inject_trace_header(normalized, feed_name, delivery_name)
+
+        # Convert to CRLF
+        return normalized.replace(b'\n', b'\r\n')
+
+    def _inject_trace_header(
+        self,
+        message: bytes,
+        feed_name: str,
+        delivery_name: str
+    ) -> bytes:
+        """Inject X-Korgalore-Trace header at the end of headers.
+
+        Operates directly on bytes without using the parsed EmailMessage.
+
+        Args:
+            message: Message bytes with LF line endings
+            feed_name: Feed name for trace header
+            delivery_name: Delivery name for trace header
+
+        Returns:
+            Message bytes with trace header injected
+        """
+        # Build the trace header
+        # Format: X-Korgalore-Trace: from feed=[feed] for delivery=[delivery] by korgalore/[ver]; [date]
+        date_str = formatdate(localtime=True)
+        trace_value = (
+            f"from feed={feed_name} for delivery={delivery_name} "
+            f"by korgalore/{__version__}; {date_str}"
+        )
+        trace_header = f"X-Korgalore-Trace: {trace_value}\n".encode('utf-8')
+
+        # Find the header/body boundary (empty line)
+        # Headers end with \n\n (after LF normalization)
+        boundary = message.find(b'\n\n')
+        if boundary == -1:
+            # No body, append header at the end
+            return message + trace_header
+        else:
+            # Insert header before the blank line
+            return message[:boundary + 1] + trace_header + message[boundary + 1:]

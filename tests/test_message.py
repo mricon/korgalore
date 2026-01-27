@@ -86,3 +86,101 @@ class TestRawMessage:
         msg = RawMessage(raw)
         # Should not raise, may return None or partial result
         _ = msg.message_id
+
+
+class TestRawMessageTraceHeader:
+    """Tests for X-Korgalore-Trace header injection."""
+
+    def test_trace_header_injected(self) -> None:
+        """Trace header is injected when feed_name and delivery_name provided."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="linux-kernel", delivery_name="my-delivery")
+
+        assert b"X-Korgalore-Trace:" in result
+        assert b"from feed=linux-kernel" in result
+        assert b"for delivery=my-delivery" in result
+        assert b"by korgalore/" in result
+
+    def test_trace_header_not_injected_without_params(self) -> None:
+        """Trace header is not injected when parameters are None."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes()
+
+        assert b"X-Korgalore-Trace:" not in result
+
+    def test_trace_header_not_injected_with_partial_params(self) -> None:
+        """Trace header is not injected when only one parameter is provided."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody"
+        msg = RawMessage(raw)
+
+        result1 = msg.as_bytes(feed_name="test-feed")
+        assert b"X-Korgalore-Trace:" not in result1
+
+        result2 = msg.as_bytes(delivery_name="test-delivery")
+        assert b"X-Korgalore-Trace:" not in result2
+
+    def test_trace_header_position(self) -> None:
+        """Trace header is inserted at end of headers, before body."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody content"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="feed", delivery_name="delivery")
+
+        # Find positions
+        trace_pos = result.find(b"X-Korgalore-Trace:")
+        body_separator = result.find(b"\r\n\r\n")
+        body_pos = result.find(b"Body content")
+
+        # Trace should be in headers (before blank line)
+        assert trace_pos < body_separator
+        # Body should be after blank line
+        assert body_pos > body_separator
+
+    def test_trace_header_with_crlf_normalization(self) -> None:
+        """Trace header injection works with CRLF normalization."""
+        raw = b"From: test@example.com\r\nSubject: Test\r\n\r\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="feed", delivery_name="delivery")
+
+        # Should have proper CRLF after trace header
+        assert b"X-Korgalore-Trace:" in result
+        # All line endings should be CRLF
+        assert result.replace(b'\r\n', b'').find(b'\n') == -1
+
+    def test_trace_header_contains_date(self) -> None:
+        """Trace header contains RFC 2822 formatted date."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="feed", delivery_name="delivery")
+
+        # RFC 2822 dates contain day abbreviations and timezone
+        # e.g., "Tue, 27 Jan 2026 16:56:44 -0500"
+        # Check for semicolon separator before date
+        assert b"; " in result
+        # Should have a comma (after day name) somewhere in the trace header
+        trace_start = result.find(b"X-Korgalore-Trace:")
+        trace_end = result.find(b"\r\n", trace_start)
+        trace_header = result[trace_start:trace_end]
+        assert b", " in trace_header  # Day name comma, e.g., "Tue, "
+
+    def test_trace_header_message_without_body(self) -> None:
+        """Trace header works on message with headers only (no body)."""
+        raw = b"From: test@example.com\nSubject: Test"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="feed", delivery_name="delivery")
+
+        assert b"X-Korgalore-Trace:" in result
+        assert b"from feed=feed" in result
+
+    def test_trace_header_special_characters_in_names(self) -> None:
+        """Feed/delivery names with special characters are included as-is."""
+        raw = b"From: test@example.com\n\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(
+            feed_name="lei:/path/to/feed",
+            delivery_name="my-delivery_v2"
+        )
+
+        assert b"from feed=lei:/path/to/feed" in result
+        assert b"for delivery=my-delivery_v2" in result

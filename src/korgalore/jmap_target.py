@@ -309,12 +309,20 @@ class JmapTarget:
             logger.debug('Failed to check for existing message: %s', e)
             return False
 
-    def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
+    def import_message(
+        self,
+        raw_message: bytes,
+        labels: List[str],
+        feed_name: Optional[str] = None,
+        delivery_name: Optional[str] = None
+    ) -> Any:
         """Import raw email message to JMAP server.
 
         Args:
             raw_message: Raw email bytes (may have Unix LF line endings)
             labels: List of folder names (e.g., ['INBOX', 'Lists/LKML'])
+            feed_name: Optional feed name for trace header
+            delivery_name: Optional delivery name for trace header
 
         Returns:
             JMAP import result dict
@@ -336,7 +344,7 @@ class JmapTarget:
             return {'id': '(duplicate)', 'skipped': True}
 
         # Step 3: Upload blob
-        blob_id = self._upload_blob(msg.as_bytes())
+        blob_id = self._upload_blob(msg.as_bytes(feed_name, delivery_name))
 
         # Build mailboxIds dict (id -> true)
         mailbox_ids = {mb_id: True for mb_id in mailbox_ids_list}

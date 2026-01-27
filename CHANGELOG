@@ -23,7 +23,14 @@ New Features
   - Lazy parsing with cached properties (``message_id``, ``parsed``)
   - ``as_bytes()`` method for consistent message transformation before delivery
   - Centralised CRLF line ending normalisation
-  - Prepares for future header insertion capabilities
+
+* X-Korgalore-Trace header injection
+
+  - Messages now include provenance information when delivered to targets
+  - Header format: ``X-Korgalore-Trace: from feed=<feed> for delivery=<delivery>
+    by korgalore/<version>; <RFC 2822 date>``
+  - Helps identify message origin when the same email arrives via multiple paths
+  - Header is inserted at the end of the header section before delivery
 
 * New ``main.user_agent_plus`` configuration option to append a unique identifier
   to the User-Agent string sent to remote servers. This helps server operators

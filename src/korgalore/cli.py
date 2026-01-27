@@ -582,7 +582,9 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
         if logger.isEnabledFor(logging.DEBUG):
             subject = msg.get('Subject', '(no subject)')
             logger.debug(' -> %s', subject)
-        target.import_message(raw_message, labels=labels)
+        target.import_message(raw_message, labels=labels,
+                              feed_name=format_key_for_display(feed.feed_key),
+                              delivery_name=delivery_name)
         feed.mark_successful_delivery(delivery_name, epoch, commit, message=raw_message, was_failing=was_failing)
         return msgid
     except Exception as e:
