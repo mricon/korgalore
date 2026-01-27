@@ -459,13 +459,13 @@ class TestGmailTargetEdgeCases:
         assert result == {"id": "msg123"}
 
     def test_binary_message_content(self) -> None:
-        """Binary content is properly base64 encoded."""
+        """Binary content is properly base64 encoded after as_binary() processing."""
         target = self._create_target_with_service()
         assert target.service is not None
         target.service.users().messages().import_().execute.return_value = {"id": "msg123"}
 
-        # Message with all byte values
-        binary_message = bytes(range(256))
+        # Message without newlines to avoid CRLF transformation
+        binary_message = bytes([b for b in range(256) if b != 0x0a])
         target.import_message(binary_message, ["INBOX"])
 
         import_call = target.service.users().messages().import_

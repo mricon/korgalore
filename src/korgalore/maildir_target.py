@@ -5,6 +5,7 @@ import mailbox
 from pathlib import Path
 from typing import Any, List
 from korgalore import ConfigurationError
+from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
 
@@ -53,9 +54,10 @@ class MaildirTarget:
             ConfigurationError: On delivery errors
         """
         try:
+            msg = RawMessage(raw_message)
             # mailbox.Maildir.add() handles atomic delivery automatically
             # It writes to tmp/ and moves to new/
-            key = self.maildir.add(raw_message)
+            key = self.maildir.add(msg.as_bytes())
             logger.debug('Delivered message to maildir with key: %s', key)
             return key
         except Exception as e:

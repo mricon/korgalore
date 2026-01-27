@@ -11,6 +11,7 @@ from googleapiclient.errors import HttpError # type: ignore
 from google.auth.exceptions import RefreshError
 
 from korgalore import ConfigurationError, RemoteError, AuthenticationError
+from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
 
@@ -178,7 +179,8 @@ class GmailTarget:
         try:
             import base64
 
-            encoded_message = base64.urlsafe_b64encode(raw_message).decode()
+            msg = RawMessage(raw_message)
+            encoded_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
             message_body: Dict[str, Any] = {'raw': encoded_message}
 
             if labels:

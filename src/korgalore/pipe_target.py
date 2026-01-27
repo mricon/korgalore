@@ -5,6 +5,7 @@ import subprocess
 import shlex
 from typing import Any, List
 from korgalore import ConfigurationError, DeliveryError
+from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
 
@@ -62,13 +63,14 @@ class PipeTarget:
         Raises:
             DeliveryError: If command fails or cannot be executed
         """
+        msg = RawMessage(raw_message)
         # Append labels as additional command line arguments
         command_with_args = self.command_args + labels
 
         try:
             result = subprocess.run(
                 command_with_args,
-                input=raw_message,
+                input=msg.as_bytes(),
                 capture_output=True
             )
 

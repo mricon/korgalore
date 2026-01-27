@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, cast
 import requests
 
 from korgalore import ConfigurationError, RemoteError
+from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
 
@@ -243,6 +244,71 @@ class JmapTarget:
 
         return mailbox_ids
 
+    def _check_message_exists(self, message_id: str, mailbox_ids: List[str]) -> bool:
+        """Check if a message with this Message-ID exists in any of the mailboxes.
+
+        Args:
+            message_id: Message-ID header value (with angle brackets)
+            mailbox_ids: List of mailbox IDs to check
+
+        Returns:
+            True if message exists in at least one of the mailboxes
+        """
+        assert self.api_url is not None, "Must call connect() first"
+
+        # Build filter: check for Message-ID in any of the target mailboxes
+        if len(mailbox_ids) == 1:
+            # Simple case: single mailbox
+            query_filter: Dict[str, Any] = {
+                "header": ["Message-ID", message_id],
+                "inMailbox": mailbox_ids[0]
+            }
+        else:
+            # Multiple mailboxes: use OR filter
+            query_filter = {
+                "operator": "OR",
+                "conditions": [
+                    {"header": ["Message-ID", message_id], "inMailbox": mb_id}
+                    for mb_id in mailbox_ids
+                ]
+            }
+
+        try:
+            request_body = {
+                "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+                "methodCalls": [
+                    ["Email/query", {
+                        "accountId": self.account_id,
+                        "filter": query_filter,
+                        "limit": 1  # We only need to know if any exist
+                    }, "call-0"]
+                ]
+            }
+
+            response = self._get_session().post(
+                self.api_url,
+                json=request_body,
+                headers={'Authorization': f'Bearer {self.token}'},
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Check if any messages were found
+            for method_response in result.get('methodResponses', []):
+                method_name, method_result, _ = method_response
+                if method_name == 'Email/query':
+                    ids = method_result.get('ids', [])
+                    if ids:
+                        logger.debug('Message-ID %s already exists in target mailbox', message_id)
+                        return True
+
+            return False
+        except requests.RequestException as e:
+            # On error, log and proceed with import (fail-open)
+            logger.debug('Failed to check for existing message: %s', e)
+            return False
+
     def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
         """Import raw email message to JMAP server.
 
@@ -254,24 +320,28 @@ class JmapTarget:
             JMAP import result dict
         """
         assert self.api_url is not None, "Must call connect() first"
-        # Normalize line endings to CRLF as required by RFC 2822/5322
-        # Git stores messages with Unix LF endings, but JMAP requires CRLF
-        normalized_message = raw_message.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
 
-        # Step 1: Upload blob with normalized line endings
-        blob_id = self._upload_blob(normalized_message)
+        msg = RawMessage(raw_message)
 
-        # Step 2: Translate folder names to IDs
+        # Step 1: Translate folder names to IDs (needed for both dedup check and import)
         if labels:
             mailbox_ids_list = self.translate_folders(labels)
         else:
             # Default to INBOX if no folders specified
             mailbox_ids_list = self.translate_folders(['inbox'])
 
+        # Step 2: Check if message already exists in target mailbox(es)
+        if msg.message_id and self._check_message_exists(msg.message_id, mailbox_ids_list):
+            logger.debug('Skipping import: message %s already in target mailbox', msg.message_id)
+            return {'id': '(duplicate)', 'skipped': True}
+
+        # Step 3: Upload blob
+        blob_id = self._upload_blob(msg.as_bytes())
+
         # Build mailboxIds dict (id -> true)
         mailbox_ids = {mb_id: True for mb_id in mailbox_ids_list}
 
-        # Step 3: Import email
+        # Step 5: Import email
         try:
             request_body = {
                 "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],

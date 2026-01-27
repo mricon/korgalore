@@ -80,6 +80,8 @@ class TestPipeTargetImportMessage:
         """Message piped successfully to command."""
         target = PipeTarget("test", "cat")
         raw_message = b"From: test@example.com\nSubject: Test\n\nBody"
+        # RawMessage.as_binary() normalizes to CRLF
+        expected_output = b"From: test@example.com\r\nSubject: Test\r\n\r\nBody"
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
@@ -89,7 +91,7 @@ class TestPipeTargetImportMessage:
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         assert call_args[0][0] == ["cat"]
-        assert call_args[1]["input"] == raw_message
+        assert call_args[1]["input"] == expected_output
         assert call_args[1]["capture_output"] is True
 
     def test_labels_appended_as_args(self) -> None:
@@ -205,9 +207,10 @@ class TestPipeTargetImportMessage:
         assert mock_run.call_args[1]["input"] == raw_message
 
     def test_binary_message_content(self) -> None:
-        """Binary content in message is preserved."""
+        """Binary content in message is processed through as_binary()."""
         target = PipeTarget("test", "cat")
-        raw_message = bytes(range(256))  # All possible byte values
+        # Use message without newlines to avoid CRLF transformation
+        raw_message = bytes([b for b in range(256) if b != 0x0a])
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")

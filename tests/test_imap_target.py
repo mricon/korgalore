@@ -916,3 +916,158 @@ class TestImapTargetDisconnect:
         target.connect()
         assert target.imap is not None
         assert mock_imap_class.call_count == 2
+
+
+class TestImapTargetDeduplication:
+    """Tests for IMAP message deduplication by Message-ID."""
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_check_message_exists_found(self, mock_imap_class: MagicMock) -> None:
+        """Returns True when message exists in folder."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b'42'])  # Found message 42
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        exists = target._check_message_exists("<test@example.com>")
+        assert exists is True
+
+        # Verify search was called correctly
+        mock_imap.search.assert_called_once_with(
+            None, 'HEADER', 'Message-ID', '<test@example.com>'
+        )
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_check_message_exists_not_found(self, mock_imap_class: MagicMock) -> None:
+        """Returns False when message does not exist."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b''])  # No matches
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        exists = target._check_message_exists("<test@example.com>")
+        assert exists is False
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_check_message_exists_error_returns_false(self, mock_imap_class: MagicMock) -> None:
+        """Returns False on IMAP error (fail-open)."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.side_effect = imaplib.IMAP4.error("Search failed")
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        exists = target._check_message_exists("<test@example.com>")
+        assert exists is False
+
+    def test_check_message_exists_no_connection(self) -> None:
+        """Returns False when not connected."""
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        # Not connected
+        exists = target._check_message_exists("<test@example.com>")
+        assert exists is False
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_import_skips_duplicate(self, mock_imap_class: MagicMock) -> None:
+        """Import is skipped when message already exists in folder."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b'42'])  # Found existing message
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        raw_message = b"From: test@example.com\r\nMessage-ID: <dup@example.com>\r\n\r\nBody"
+        result = target.import_message(raw_message, [])
+
+        # Should return skipped result without appending
+        assert result.get('skipped') is True
+        mock_imap.append.assert_not_called()
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_import_proceeds_when_not_duplicate(self, mock_imap_class: MagicMock) -> None:
+        """Import proceeds normally when message does not exist."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b''])  # No matches
+        mock_imap.append.return_value = ('OK', [b'Done'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        raw_message = b"From: test@example.com\r\nMessage-ID: <new@example.com>\r\n\r\nBody"
+        result = target.import_message(raw_message, [])
+
+        # Should proceed with append
+        assert result == [b'Done']
+        mock_imap.append.assert_called_once()
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_import_proceeds_without_message_id(self, mock_imap_class: MagicMock) -> None:
+        """Import proceeds without dedup check when Message-ID is missing."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.append.return_value = ('OK', [b'Done'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret"
+        )
+        target.connect()
+
+        # Message without Message-ID header
+        raw_message = b"From: test@example.com\r\n\r\nBody"
+        target.import_message(raw_message, [])
+
+        # Should proceed without search
+        mock_imap.search.assert_not_called()
+        mock_imap.append.assert_called_once()

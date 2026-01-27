@@ -721,3 +721,181 @@ class TestJmapTargetEdgeCases:
         # Use role names instead of folder names
         result = target.translate_folders(["inbox", "sent"])
         assert result == ["mb-1", "mb-2"]
+
+
+class TestJmapTargetDeduplication:
+    """Tests for JMAP message deduplication by Message-ID."""
+
+    def _create_connected_target_with_mailboxes(self) -> JmapTarget:
+        """Create a fully configured target."""
+        target = JmapTarget(
+            identifier="test",
+            server="https://api.example.com",
+            username="user@example.com",
+            token="token"
+        )
+        target.session = SAMPLE_SESSION
+        target.account_id = "acc-123"
+        target.api_url = "https://api.example.com/jmap/api/"
+        target.upload_url = "https://api.example.com/jmap/upload/acc-123/"
+        target._mailbox_map = {
+            "inbox": "mb-1",
+            "sent": "mb-2",
+            "archive": "mb-3"
+        }
+        return target
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_check_message_exists_found(self, mock_post: MagicMock) -> None:
+        """Returns True when message exists in mailbox."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "methodResponses": [
+                ["Email/query", {"ids": ["existing-email-id"]}, "call-0"]
+            ]
+        }
+        mock_post.return_value = mock_response
+
+        target = self._create_connected_target_with_mailboxes()
+        exists = target._check_message_exists("<test@example.com>", ["mb-1"])
+
+        assert exists is True
+        # Verify the query filter
+        call_args = mock_post.call_args[1]['json']
+        assert call_args['methodCalls'][0][1]['filter'] == {
+            "header": ["Message-ID", "<test@example.com>"],
+            "inMailbox": "mb-1"
+        }
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_check_message_exists_not_found(self, mock_post: MagicMock) -> None:
+        """Returns False when message does not exist."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "methodResponses": [
+                ["Email/query", {"ids": []}, "call-0"]
+            ]
+        }
+        mock_post.return_value = mock_response
+
+        target = self._create_connected_target_with_mailboxes()
+        exists = target._check_message_exists("<test@example.com>", ["mb-1"])
+
+        assert exists is False
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_check_message_exists_multiple_mailboxes(self, mock_post: MagicMock) -> None:
+        """Uses OR filter when checking multiple mailboxes."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "methodResponses": [
+                ["Email/query", {"ids": []}, "call-0"]
+            ]
+        }
+        mock_post.return_value = mock_response
+
+        target = self._create_connected_target_with_mailboxes()
+        target._check_message_exists("<test@example.com>", ["mb-1", "mb-2"])
+
+        call_args = mock_post.call_args[1]['json']
+        query_filter = call_args['methodCalls'][0][1]['filter']
+        assert query_filter['operator'] == 'OR'
+        assert len(query_filter['conditions']) == 2
+        assert query_filter['conditions'][0] == {
+            "header": ["Message-ID", "<test@example.com>"],
+            "inMailbox": "mb-1"
+        }
+        assert query_filter['conditions'][1] == {
+            "header": ["Message-ID", "<test@example.com>"],
+            "inMailbox": "mb-2"
+        }
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_check_message_exists_error_returns_false(self, mock_post: MagicMock) -> None:
+        """Returns False on network error (fail-open)."""
+        mock_post.side_effect = requests.RequestException("Network error")
+
+        target = self._create_connected_target_with_mailboxes()
+        exists = target._check_message_exists("<test@example.com>", ["mb-1"])
+
+        assert exists is False
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_import_skips_duplicate(self, mock_post: MagicMock) -> None:
+        """Import is skipped when message already exists in target mailbox."""
+        # First call: Email/query returns existing message
+        query_response = MagicMock()
+        query_response.json.return_value = {
+            "methodResponses": [
+                ["Email/query", {"ids": ["existing-id"]}, "call-0"]
+            ]
+        }
+        mock_post.return_value = query_response
+
+        target = self._create_connected_target_with_mailboxes()
+        raw_message = b"From: test@example.com\r\nMessage-ID: <dup@example.com>\r\n\r\nBody"
+
+        result = target.import_message(raw_message, ["inbox"])
+
+        # Should return skipped result without uploading
+        assert result.get('skipped') is True
+        # Only one call (the query), no upload or import
+        assert mock_post.call_count == 1
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_import_proceeds_when_not_duplicate(self, mock_post: MagicMock) -> None:
+        """Import proceeds normally when message does not exist."""
+        # First call: Email/query returns no matches
+        query_response = MagicMock()
+        query_response.json.return_value = {
+            "methodResponses": [
+                ["Email/query", {"ids": []}, "call-0"]
+            ]
+        }
+
+        # Second call: blob upload
+        upload_response = MagicMock()
+        upload_response.json.return_value = {"blobId": "blob-123"}
+
+        # Third call: Email/import
+        import_response = MagicMock()
+        import_response.json.return_value = {
+            "methodResponses": [
+                ["Email/import", {"created": {"msg1": {"id": "new-email-id"}}}, "call-0"]
+            ]
+        }
+
+        mock_post.side_effect = [query_response, upload_response, import_response]
+
+        target = self._create_connected_target_with_mailboxes()
+        raw_message = b"From: test@example.com\r\nMessage-ID: <new@example.com>\r\n\r\nBody"
+
+        result = target.import_message(raw_message, ["inbox"])
+
+        assert result == {"id": "new-email-id"}
+        assert mock_post.call_count == 3  # query + upload + import
+
+    @patch('korgalore.jmap_target.requests.post')
+    def test_import_proceeds_without_message_id(self, mock_post: MagicMock) -> None:
+        """Import proceeds without dedup check when Message-ID is missing."""
+        # Only upload and import calls, no query
+        upload_response = MagicMock()
+        upload_response.json.return_value = {"blobId": "blob-123"}
+
+        import_response = MagicMock()
+        import_response.json.return_value = {
+            "methodResponses": [
+                ["Email/import", {"created": {"msg1": {"id": "new-email-id"}}}, "call-0"]
+            ]
+        }
+
+        mock_post.side_effect = [upload_response, import_response]
+
+        target = self._create_connected_target_with_mailboxes()
+        # Message without Message-ID header
+        raw_message = b"From: test@example.com\r\n\r\nBody"
+
+        result = target.import_message(raw_message, ["inbox"])
+
+        assert result == {"id": "new-email-id"}
+        assert mock_post.call_count == 2  # upload + import only, no query

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, cast, TYPE_CHECKING
 
 from korgalore import ConfigurationError, RemoteError
+from korgalore.message import RawMessage
 
 if TYPE_CHECKING:
     from korgalore.oauth2_imap import ImapOAuth2Authenticator
@@ -218,6 +219,46 @@ class ImapTarget:
                 ) from e
             raise
 
+    def _check_message_exists(self, message_id: str) -> bool:
+        """Check if a message with this Message-ID exists in the target folder.
+
+        Args:
+            message_id: Message-ID header value (with angle brackets)
+
+        Returns:
+            True if message exists in the folder
+        """
+        imap = self.imap
+        if imap is None:
+            return False
+
+        try:
+            # Select the folder (read-only for search)
+            status, _ = imap.select(self.folder, readonly=True)
+            if status != 'OK':
+                logger.debug('Failed to select folder %s for search', self.folder)
+                return False
+
+            # Search for messages with this Message-ID
+            # The HEADER criterion searches for the specified header field
+            status, data = imap.search(None, 'HEADER', 'Message-ID', message_id)
+            if status != 'OK':
+                logger.debug('IMAP SEARCH failed: %s', data)
+                return False
+
+            # data[0] is a space-separated list of message numbers
+            message_nums = data[0].split() if data[0] else []
+            if message_nums:
+                logger.debug('Message-ID %s already exists in folder %s',
+                            message_id, self.folder)
+                return True
+
+            return False
+        except imaplib.IMAP4.error as e:
+            # On error, log and proceed with import (fail-open)
+            logger.debug('Failed to check for existing message: %s', e)
+            return False
+
     def import_message(self, raw_message: bytes, labels: List[str]) -> Any:
         """Import raw email message to IMAP server.
 
@@ -238,11 +279,15 @@ class ImapTarget:
             if imap is None:
                 raise RemoteError("IMAP connection not established.")
 
-        try:
-            # Normalize line endings to CRLF as required by RFC 2822/5322
-            # Git stores messages with Unix LF endings, but IMAP requires CRLF
-            normalized_message = raw_message.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+        msg = RawMessage(raw_message)
 
+        # Check if message already exists in target folder
+        if msg.message_id and self._check_message_exists(msg.message_id):
+            logger.debug('Skipping import: message %s already in folder %s',
+                        msg.message_id, self.folder)
+            return {'skipped': True}
+
+        try:
             # Append message to folder
             # flags: empty string = no flags set (message will be unread)
             # date_time: empty string = use current time (imaplib doesn't accept None)
@@ -254,7 +299,7 @@ class ImapTarget:
                         self.folder,
                         '',  # No flags (empty string)
                         '',  # Use current time (empty string for default)
-                        normalized_message
+                        msg.as_bytes()
                     )
                 )
 

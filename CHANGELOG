@@ -7,6 +7,24 @@ v0.5 (unreleased)
 New Features
 ~~~~~~~~~~~~
 
+* JMAP and IMAP message deduplication by Message-ID
+
+  - Before importing a message, targets now check if a message with the same
+    Message-ID already exists in the target folder
+  - Prevents duplicate messages when the same email arrives via multiple
+    mailing lists or deliveries
+  - Uses JMAP ``Email/query`` with header filter for JMAP targets
+  - Uses IMAP ``SEARCH HEADER Message-ID`` for IMAP targets
+  - Gmail already deduplicates automatically via its API
+
+* New ``RawMessage`` class for unified message handling
+
+  - Shared message wrapper used by all targets (JMAP, IMAP, Gmail, Maildir, Pipe)
+  - Lazy parsing with cached properties (``message_id``, ``parsed``)
+  - ``as_bytes()`` method for consistent message transformation before delivery
+  - Centralised CRLF line ending normalisation
+  - Prepares for future header insertion capabilities
+
 * New ``main.user_agent_plus`` configuration option to append a unique identifier
   to the User-Agent string sent to remote servers. This helps server operators
   identify traffic from specific korgalore installations and may be used to
