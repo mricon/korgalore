@@ -918,6 +918,115 @@ class TestImapTargetDisconnect:
         assert mock_imap_class.call_count == 2
 
 
+class TestImapTargetSubfolder:
+    """Tests for IMAP subfolder support."""
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_import_with_subfolder(self, mock_imap_class: MagicMock) -> None:
+        """Import with subfolder appends to correct path."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b''])  # No existing message
+        mock_imap.append.return_value = ('OK', [b'Done'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret",
+            folder="INBOX"
+        )
+        target.connect()
+
+        raw_message = b"From: test@example.com\r\nMessage-ID: <test@example.com>\r\n\r\nBody"
+        target.import_message(raw_message, [], subfolder="Lists/LKML")
+
+        # Verify append was called with combined folder path
+        call_args = mock_imap.append.call_args[0]
+        assert call_args[0] == "INBOX/Lists/LKML"
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_import_without_subfolder(self, mock_imap_class: MagicMock) -> None:
+        """Import without subfolder uses base folder."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b''])
+        mock_imap.append.return_value = ('OK', [b'Done'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret",
+            folder="Archive"
+        )
+        target.connect()
+
+        raw_message = b"From: test@example.com\r\nMessage-ID: <test@example.com>\r\n\r\nBody"
+        target.import_message(raw_message, [], subfolder=None)
+
+        call_args = mock_imap.append.call_args[0]
+        assert call_args[0] == "Archive"
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_subfolder_dedup_check_uses_effective_folder(self, mock_imap_class: MagicMock) -> None:
+        """Deduplication check uses effective folder (base + subfolder)."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b'42'])  # Message exists
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret",
+            folder="INBOX"
+        )
+        target.connect()
+
+        raw_message = b"From: test@example.com\r\nMessage-ID: <dup@example.com>\r\n\r\nBody"
+        result = target.import_message(raw_message, [], subfolder="Lists/LKML")
+
+        # Should skip due to duplicate in effective folder
+        assert result.get('skipped') is True
+        mock_imap.append.assert_not_called()
+
+        # Verify select was called with effective folder for search
+        select_calls = [call[0][0] for call in mock_imap.select.call_args_list]
+        assert "INBOX/Lists/LKML" in select_calls
+
+    @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
+    def test_nested_subfolder_path(self, mock_imap_class: MagicMock) -> None:
+        """Nested subfolder path is constructed correctly."""
+        mock_imap = MagicMock()
+        mock_imap_class.return_value = mock_imap
+        mock_imap.login.return_value = ('OK', [])
+        mock_imap.select.return_value = ('OK', [b'1'])
+        mock_imap.search.return_value = ('OK', [b''])
+        mock_imap.append.return_value = ('OK', [b'Done'])
+
+        target = ImapTarget(
+            identifier="test",
+            server="imap.example.com",
+            username="user@example.com",
+            password="secret",
+            folder="Archive/2024"
+        )
+        target.connect()
+
+        raw_message = b"From: test@example.com\r\nMessage-ID: <test@example.com>\r\n\r\nBody"
+        target.import_message(raw_message, [], subfolder="Projects/Korgalore")
+
+        call_args = mock_imap.append.call_args[0]
+        assert call_args[0] == "Archive/2024/Projects/Korgalore"
+
+
 class TestImapTargetDeduplication:
     """Tests for IMAP message deduplication by Message-ID."""
 
@@ -938,7 +1047,7 @@ class TestImapTargetDeduplication:
         )
         target.connect()
 
-        exists = target._check_message_exists("<test@example.com>")
+        exists = target._check_message_exists("<test@example.com>", "INBOX")
         assert exists is True
 
         # Verify search was called correctly
@@ -963,7 +1072,7 @@ class TestImapTargetDeduplication:
         )
         target.connect()
 
-        exists = target._check_message_exists("<test@example.com>")
+        exists = target._check_message_exists("<test@example.com>", "INBOX")
         assert exists is False
 
     @patch('korgalore.imap_target.imaplib.IMAP4_SSL')
@@ -983,7 +1092,7 @@ class TestImapTargetDeduplication:
         )
         target.connect()
 
-        exists = target._check_message_exists("<test@example.com>")
+        exists = target._check_message_exists("<test@example.com>", "INBOX")
         assert exists is False
 
     def test_check_message_exists_no_connection(self) -> None:
@@ -995,7 +1104,7 @@ class TestImapTargetDeduplication:
             password="secret"
         )
         # Not connected
-        exists = target._check_message_exists("<test@example.com>")
+        exists = target._check_message_exists("<test@example.com>", "INBOX")
         assert exists is False
 
     @patch('korgalore.imap_target.imaplib.IMAP4_SSL')

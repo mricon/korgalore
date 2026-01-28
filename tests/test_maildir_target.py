@@ -218,6 +218,103 @@ class TestMaildirTargetImportMessage:
         assert len(set(keys)) == 10  # All unique
 
 
+class TestMaildirTargetSubfolder:
+    """Tests for Maildir subfolder support."""
+
+    def test_import_with_subfolder_creates_directory(self, tmp_path: Path) -> None:
+        """Import with subfolder creates the subfolder maildir."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+        raw_message = b"From: test@example.com\nSubject: Test\n\nBody"
+
+        target.import_message(raw_message, [], subfolder="Lists/LKML")
+
+        subfolder_path = maildir_path / "Lists" / "LKML"
+        assert subfolder_path.exists()
+        assert (subfolder_path / "new").is_dir()
+        assert (subfolder_path / "cur").is_dir()
+        assert (subfolder_path / "tmp").is_dir()
+
+    def test_import_with_subfolder_stores_message(self, tmp_path: Path) -> None:
+        """Message is stored in subfolder's new/ directory."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+        raw_message = b"From: test@example.com\nSubject: Subfolder Test\n\nBody"
+
+        target.import_message(raw_message, [], subfolder="Archive/2024")
+
+        # Message should be in subfolder, not base maildir
+        base_new = list((maildir_path / "new").iterdir())
+        subfolder_new = list((maildir_path / "Archive" / "2024" / "new").iterdir())
+        assert len(base_new) == 0
+        assert len(subfolder_new) == 1
+
+    def test_import_without_subfolder_uses_base(self, tmp_path: Path) -> None:
+        """Import without subfolder uses base maildir."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+        raw_message = b"From: test@example.com\nSubject: Base Test\n\nBody"
+
+        target.import_message(raw_message, [], subfolder=None)
+
+        base_new = list((maildir_path / "new").iterdir())
+        assert len(base_new) == 1
+
+    def test_subfolder_maildir_caching(self, tmp_path: Path) -> None:
+        """Subfolder maildirs are cached for reuse."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+
+        # Deliver multiple messages to same subfolder
+        for i in range(3):
+            raw_message = f"From: test{i}@example.com\nSubject: Test {i}\n\nBody".encode()
+            target.import_message(raw_message, [], subfolder="Lists/Test")
+
+        # Cache should contain one entry
+        assert len(target._subfolder_maildirs) == 1
+        assert "Lists/Test" in target._subfolder_maildirs
+
+        # All messages should be in the subfolder
+        subfolder_new = list((maildir_path / "Lists" / "Test" / "new").iterdir())
+        assert len(subfolder_new) == 3
+
+    def test_multiple_subfolders(self, tmp_path: Path) -> None:
+        """Multiple subfolders can be used independently."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+
+        subfolders = ["Lists/LKML", "Lists/Git", "Archive/2024"]
+        for subfolder in subfolders:
+            raw_message = f"From: test@example.com\nSubject: {subfolder}\n\nBody".encode()
+            target.import_message(raw_message, [], subfolder=subfolder)
+
+        # Each subfolder should have one message
+        for subfolder in subfolders:
+            subfolder_path = maildir_path / Path(subfolder)
+            files = list((subfolder_path / "new").iterdir())
+            assert len(files) == 1
+
+    def test_get_maildir_returns_base_for_none(self, tmp_path: Path) -> None:
+        """_get_maildir returns base maildir when subfolder is None."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+
+        result = target._get_maildir(None)
+        assert result is target.maildir
+
+    def test_nested_subfolder_creates_parents(self, tmp_path: Path) -> None:
+        """Nested subfolder path creates all parent directories."""
+        maildir_path = tmp_path / "mail"
+        target = MaildirTarget("test", str(maildir_path))
+        raw_message = b"From: test@example.com\nSubject: Deep\n\nBody"
+
+        target.import_message(raw_message, [], subfolder="Level1/Level2/Level3")
+
+        deep_path = maildir_path / "Level1" / "Level2" / "Level3"
+        assert deep_path.exists()
+        assert (deep_path / "new").is_dir()
+
+
 class TestMaildirTargetIntegration:
     """Integration tests with real maildir operations."""
 

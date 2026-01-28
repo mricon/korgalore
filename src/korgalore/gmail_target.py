@@ -168,7 +168,8 @@ class GmailTarget:
         raw_message: bytes,
         labels: List[str],
         feed_name: Optional[str] = None,
-        delivery_name: Optional[str] = None
+        delivery_name: Optional[str] = None,
+        subfolder: Optional[str] = None
     ) -> Any:
         """Import a raw email message into Gmail.
 
@@ -177,6 +178,7 @@ class GmailTarget:
             labels: List of label names to apply to the message.
             feed_name: Optional feed name for trace header.
             delivery_name: Optional delivery name for trace header.
+            subfolder: Ignored for Gmail (use labels for folder assignment).
 
         Returns:
             The Gmail API response object for the imported message.

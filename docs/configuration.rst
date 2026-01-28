@@ -2,9 +2,12 @@
 Configuration
 =============
 
-Korgalore uses a TOML configuration file to define targets (Gmail accounts, local
-maildirs, JMAP servers, IMAP servers, pipe commands), feeds (mailing lists or lei
-searches), and deliveries (which feed goes to which target).
+Korgalore uses a TOML file for its configuration. It defines the
+following main sections:
+
+* targets: can be Gmail accounts, local maildirs, JMAP servers, IMAP servers, pipe commands
+* feeds: public-inbox locations or lei searches
+* deliveries: mapping of which feed goes to which target
 
 Configuration File Location
 ===========================
@@ -48,9 +51,10 @@ tracking configurations separately from your main configuration file.
 Gmail Setup
 ===========
 
-Gmail went out of their way to make it super difficult to access your inbox via an API,
-so please be prepared to suffer a bit. You will need to download an OAuth 2.0 Client ID
-file from Google that will authorize your access.
+Gmail went out of their way to make it super difficult to access your
+inbox via an API, so please be prepared to suffer a bit. You will need
+to download an OAuth 2.0 Client ID file from Google that will authorize
+your access.
 
 Creating OAuth Credentials
 ---------------------------
@@ -545,7 +549,47 @@ Delivery Parameters
 
 * ``feed``: Name of a feed defined in the ``feeds`` section, or a direct URL of a lore.kernel.org archive or lei search path (prefixed with ``lei:``)
 * ``target``: Identifier of the target (must match a target name defined in the ``targets`` section)
-* ``labels``: List of labels to apply to imported messages (Gmail only; ignored for maildir targets)
+* ``labels``: List of labels to apply to imported messages (Gmail/JMAP only; ignored for maildir and IMAP targets)
+* ``subfolder``: (Optional) Subfolder path for IMAP and Maildir targets
+
+  - For IMAP: Combined with the target's base folder (e.g., ``INBOX`` + ``Lists/LKML`` = ``INBOX/Lists/LKML``)
+  - For Maildir: Creates a subdirectory under the target's base path
+  - Ignored for Gmail, JMAP, and pipe targets (use ``labels`` for Gmail/JMAP)
+  - Must be a string, not a list
+
+Example with subfolder (IMAP):
+
+.. code-block:: toml
+
+   [targets.imap-server]
+   type = 'imap'
+   server = 'imap.example.com'
+   username = 'user@example.com'
+   folder = 'INBOX'  # Base folder
+   password_file = '~/.config/korgalore/imap-password.txt'
+
+   [deliveries.lkml]
+   feed = 'lkml'
+   target = 'imap-server'
+   subfolder = 'Lists/LKML'  # Results in INBOX/Lists/LKML
+
+Example with subfolder (Maildir):
+
+.. code-block:: toml
+
+   [targets.local]
+   type = 'maildir'
+   path = '~/Mail'  # Base path
+
+   [deliveries.lkml]
+   feed = 'lkml'
+   target = 'local'
+   subfolder = 'Lists/LKML'  # Results in ~/Mail/Lists/LKML
+
+   [deliveries.git]
+   feed = 'git'
+   target = 'local'
+   subfolder = 'Lists/Git'  # Results in ~/Mail/Lists/Git
 
 Gmail Labels
 ------------

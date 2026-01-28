@@ -32,6 +32,23 @@ New Features
   - Helps identify message origin when the same email arrives via multiple paths
   - Header is inserted at the end of the header section before delivery
 
+* Subfolder support for IMAP and Maildir targets
+
+  - New ``subfolder`` parameter at the delivery level allows routing messages to
+    a target folder/directory without creating separate targets for each folder
+  - For IMAP: combines base folder with subfolder (e.g., ``INBOX`` + ``Lists/LKML``
+    becomes ``INBOX/Lists/LKML``)
+  - For Maildir: creates maildir subdirectories under the base path
+  - Subfolder maildirs are cached for efficient reuse within a session
+  - JMAP, Gmail, and Pipe targets ignore subfolder (use ``labels`` for JMAP/Gmail)
+
+  Example configuration::
+
+    [deliveries.lkml]
+    feed = 'lkml'
+    target = 'imap-server'
+    subfolder = 'Lists/LKML'
+
 * New ``main.user_agent_plus`` configuration option to append a unique identifier
   to the User-Agent string sent to remote servers. This helps server operators
   identify traffic from specific korgalore installations and may be used to

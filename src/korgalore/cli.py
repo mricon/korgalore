@@ -516,7 +516,8 @@ def load_config(cfgfile: Path) -> Dict[str, Any]:
 
 
 def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], target_service: Any,
-                         labels: List[str], delivery_name: str) -> None:
+                         labels: List[str], delivery_name: str,
+                         subfolder: Optional[str] = None) -> None:
     """Retry previously failed message deliveries for a specific delivery."""
     failed_commits = pi_feed.get_failed_commits_for_delivery(delivery_name)
 
@@ -534,7 +535,7 @@ def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], targ
             continue
 
         try:
-            target_service.import_message(raw_message, labels=labels)
+            target_service.import_message(raw_message, labels=labels, subfolder=subfolder)
             logger.debug('Successfully retried commit %s', commit_hash)
             pi_feed.mark_successful_delivery(delivery_name, epoch, commit_hash, message=raw_message)
         except RemoteError:
@@ -546,7 +547,8 @@ def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], targ
 
 def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFeed], epoch: int, commit: str,
                    labels: List[str], was_failing: bool = False,
-                   bozofilter: Optional[Set[str]] = None) -> Optional[str]:
+                   bozofilter: Optional[Set[str]] = None,
+                   subfolder: Optional[str] = None) -> Optional[str]:
     """Deliver a single message to the target.
 
     Args:
@@ -558,6 +560,7 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
         labels: Labels/folders to apply.
         was_failing: True if this is a retry of a previously failed delivery.
         bozofilter: Optional set of addresses to skip (from bozofilter).
+        subfolder: Optional subfolder for IMAP/Maildir targets.
 
     Returns:
         The Message-ID of the delivered message on success, None on failure or skip.
@@ -584,7 +587,8 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
             logger.debug(' -> %s', subject)
         target.import_message(raw_message, labels=labels,
                               feed_name=format_key_for_display(feed.feed_key),
-                              delivery_name=delivery_name)
+                              delivery_name=delivery_name,
+                              subfolder=subfolder)
         feed.mark_successful_delivery(delivery_name, epoch, commit, message=raw_message, was_failing=was_failing)
         return msgid
     except Exception as e:
@@ -641,8 +645,8 @@ def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) 
 
 def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
     """Map delivery configurations to their feed and target instances."""
-    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
-    dmap: Dict[str, Tuple[Union[LeiFeed, LoreFeed], Any, List[str]]] = dict()
+    # 'deliveries' is a mapping: delivery_name -> Tuple[feed, target, labels, subfolder]
+    dmap: Dict[str, Tuple[Union[LeiFeed, LoreFeed], Any, List[str], Optional[str]]] = dict()
     logger.debug('Mapping deliveries to their feeds and targets')
     # Pre-map deliveries to their feeds and targets for later use.
     for delivery_name, details in deliveries.items():
@@ -654,8 +658,23 @@ def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
             logger.critical('No target specified for delivery: %s', delivery_name)
             raise ConfigurationError(f'No target specified for delivery: {delivery_name}')
         target = get_target(ctx, target_name)
+        # Extract and validate subfolder
+        subfolder = details.get('subfolder')
+        if subfolder is not None:
+            if isinstance(subfolder, list):
+                raise ConfigurationError(
+                    f"subfolder for delivery '{delivery_name}' must be a string, not a list. "
+                    "Use labels for multiple folders (JMAP only)."
+                )
+            if not isinstance(subfolder, str):
+                raise ConfigurationError(
+                    f"subfolder for delivery '{delivery_name}' must be a string"
+                )
+            # Treat empty string as None
+            if not subfolder:
+                subfolder = None
         # Lock for the entire duration
-        dmap[delivery_name] = (feed, target, details.get('labels', []))
+        dmap[delivery_name] = (feed, target, details.get('labels', []), subfolder)
     ctx.obj['deliveries'] = dmap
 
 
@@ -710,16 +729,16 @@ def retry_all_failed_deliveries(ctx: click.Context) -> None:
     """Retry all previously failed deliveries across all feeds."""
     bozo_set = ctx.obj.get('bozofilter', set())
 
-    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
+    # 'deliveries' is a mapping: delivery_name -> Tuple[feed, target, labels, subfolder]
     deliveries = ctx.obj['deliveries']
-    retry_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
-    for delivery_name, (feed, target, labels) in deliveries.items():
+    retry_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str], Optional[str]]] = list()
+    for delivery_name, (feed, target, labels, subfolder) in deliveries.items():
         to_retry = feed.get_failed_commits_for_delivery(delivery_name)
         if not to_retry:
             logger.debug('No failed commits to retry for delivery: %s', delivery_name)
             continue
         for epoch, commit in to_retry:
-            retry_list.append((delivery_name, target, feed, epoch, commit, labels))
+            retry_list.append((delivery_name, target, feed, epoch, commit, labels, subfolder))
     if not retry_list:
         logger.debug('No failed commits to retry for any delivery.')
         return
@@ -728,9 +747,9 @@ def retry_all_failed_deliveries(ctx: click.Context) -> None:
                            label='Reattempting delivery',
                            show_pos=True,
                            hidden=ctx.obj['hide_bar']) as bar:
-        for (delivery_name, target, feed, epoch, commit, labels) in bar:
+        for (delivery_name, target, feed, epoch, commit, labels, subfolder) in bar:
             deliver_commit(delivery_name, target, feed, epoch, commit, labels,
-                           was_failing=True, bozofilter=bozo_set)
+                           was_failing=True, bozofilter=bozo_set, subfolder=subfolder)
 
 
 @click.group()
@@ -999,7 +1018,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
         logger.debug('Updated feeds: %s', ', '.join(updated_feeds))
         # Build reverse index: feed_key -> delivery names (O(m) once, instead of O(n*m) nested loop)
         feed_to_deliveries: Dict[str, List[str]] = dict()
-        for dname, (feed, _, _) in ctx.obj['deliveries'].items():
+        for dname, (feed, _, _, _) in ctx.obj['deliveries'].items():
             feed_to_deliveries.setdefault(feed.feed_key, []).append(dname)
         # O(1) lookup per updated feed
         for feed_key in updated_feeds:
@@ -1029,15 +1048,15 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
     # Process deliveries now
     for target_name, delivery_names in by_target.items():
         logger.debug('Processing deliveries for target: %s', target_name)
-        run_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str]]] = list()
+        run_list: List[Tuple[str, Any, Union[LeiFeed, LoreFeed], int, str, List[str], Optional[str]]] = list()
         for dname in delivery_names:
-            feed, target, labels = ctx.obj['deliveries'][dname]
+            feed, target, labels, subfolder = ctx.obj['deliveries'][dname]
             commits = feed.get_latest_commits_for_delivery(dname)
             if not commits:
                 logger.debug('No new commits for delivery: %s', dname)
                 continue
             for epoch, commit in commits:
-                run_list.append((dname, target, feed, epoch, commit, labels))
+                run_list.append((dname, target, feed, epoch, commit, labels, subfolder))
         if not run_list:
             logger.debug('No deliveries with new commits for target: %s', target_name)
             continue
@@ -1051,7 +1070,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
             # We bail on a target if we have more than 5 consecutive failures
             consecutive_failures = 0
             prev_dname: Optional[str] = None
-            for dname, target, feed, epoch, commit, labels in bar:
+            for dname, target, feed, epoch, commit, labels, subfolder in bar:
                 if status_callback and dname != prev_dname:
                     status_callback(f"Delivering {format_key_for_display(dname)}...")
                     prev_dname = dname
@@ -1059,7 +1078,7 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                     logger.error('Aborting deliveries to target "%s" due to repeated failures.', target_name)
                     break
                 msgid = deliver_commit(dname, target, feed, epoch, commit, labels,
-                                       was_failing=False, bozofilter=bozo_set)
+                                       was_failing=False, bozofilter=bozo_set, subfolder=subfolder)
                 if msgid is None:
                     consecutive_failures += 1
                     continue

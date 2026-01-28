@@ -314,7 +314,8 @@ class JmapTarget:
         raw_message: bytes,
         labels: List[str],
         feed_name: Optional[str] = None,
-        delivery_name: Optional[str] = None
+        delivery_name: Optional[str] = None,
+        subfolder: Optional[str] = None
     ) -> Any:
         """Import raw email message to JMAP server.
 
@@ -323,6 +324,7 @@ class JmapTarget:
             labels: List of folder names (e.g., ['INBOX', 'Lists/LKML'])
             feed_name: Optional feed name for trace header
             delivery_name: Optional delivery name for trace header
+            subfolder: Ignored for JMAP (use labels for multiple folders)
 
         Returns:
             JMAP import result dict

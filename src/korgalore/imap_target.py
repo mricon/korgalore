@@ -219,11 +219,12 @@ class ImapTarget:
                 ) from e
             raise
 
-    def _check_message_exists(self, message_id: str) -> bool:
+    def _check_message_exists(self, message_id: str, folder: str) -> bool:
         """Check if a message with this Message-ID exists in the target folder.
 
         Args:
             message_id: Message-ID header value (with angle brackets)
+            folder: Folder to check for the message
 
         Returns:
             True if message exists in the folder
@@ -234,9 +235,9 @@ class ImapTarget:
 
         try:
             # Select the folder (read-only for search)
-            status, _ = imap.select(self.folder, readonly=True)
+            status, _ = imap.select(folder, readonly=True)
             if status != 'OK':
-                logger.debug('Failed to select folder %s for search', self.folder)
+                logger.debug('Failed to select folder %s for search', folder)
                 return False
 
             # Search for messages with this Message-ID
@@ -250,7 +251,7 @@ class ImapTarget:
             message_nums = data[0].split() if data[0] else []
             if message_nums:
                 logger.debug('Message-ID %s already exists in folder %s',
-                            message_id, self.folder)
+                            message_id, folder)
                 return True
 
             return False
@@ -264,7 +265,8 @@ class ImapTarget:
         raw_message: bytes,
         labels: List[str],
         feed_name: Optional[str] = None,
-        delivery_name: Optional[str] = None
+        delivery_name: Optional[str] = None,
+        subfolder: Optional[str] = None
     ) -> Any:
         """Import raw email message to IMAP server.
 
@@ -273,6 +275,7 @@ class ImapTarget:
             labels: Ignored for IMAP (single folder only)
             feed_name: Optional feed name for trace header
             delivery_name: Optional delivery name for trace header
+            subfolder: Optional subfolder path relative to target's folder
 
         Returns:
             IMAP response from APPEND command
@@ -287,12 +290,17 @@ class ImapTarget:
             if imap is None:
                 raise RemoteError("IMAP connection not established.")
 
+        # Compute effective folder: base folder + subfolder if specified
+        effective_folder = self.folder
+        if subfolder:
+            effective_folder = self.folder + '/' + subfolder
+
         msg = RawMessage(raw_message)
 
         # Check if message already exists in target folder
-        if msg.message_id and self._check_message_exists(msg.message_id):
+        if msg.message_id and self._check_message_exists(msg.message_id, effective_folder):
             logger.debug('Skipping import: message %s already in folder %s',
-                        msg.message_id, self.folder)
+                        msg.message_id, effective_folder)
             return {'skipped': True}
 
         try:
@@ -304,7 +312,7 @@ class ImapTarget:
                 typ, data = cast(
                     Tuple[str, List[Any]],
                     imap.append(
-                        self.folder,
+                        effective_folder,
                         '',  # No flags (empty string)
                         '',  # Use current time (empty string for default)
                         msg.as_bytes(feed_name, delivery_name)
@@ -317,11 +325,11 @@ class ImapTarget:
                     )
 
                 logger.debug('Delivered message to IMAP folder %s: %s',
-                           self.folder, data)
+                           effective_folder, data)
 
             except imaplib.IMAP4.error as e:
                 raise RemoteError(
-                    f"Failed to append message to folder '{self.folder}': {e}"
+                    f"Failed to append message to folder '{effective_folder}': {e}"
                 ) from e
 
             return data
