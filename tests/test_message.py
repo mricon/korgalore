@@ -100,7 +100,9 @@ class TestRawMessageTraceHeader:
         assert b"X-Korgalore-Trace:" in result
         assert b"from feed=linux-kernel" in result
         assert b"for delivery=my-delivery" in result
-        assert b"by korgalore/" in result
+        # Header may be wrapped, so check with continuation unfolded
+        unfolded = result.replace(b"\r\n ", b" ")
+        assert b"; v" in unfolded  # version marker
 
     def test_trace_header_not_injected_without_params(self) -> None:
         """Trace header is not injected when parameters are None."""
@@ -158,11 +160,23 @@ class TestRawMessageTraceHeader:
         # e.g., "Tue, 27 Jan 2026 16:56:44 -0500"
         # Check for semicolon separator before date
         assert b"; " in result
-        # Should have a comma (after day name) somewhere in the trace header
+        # Extract full trace header (may be multi-line with continuations)
         trace_start = result.find(b"X-Korgalore-Trace:")
-        trace_end = result.find(b"\r\n", trace_start)
+        trace_end = trace_start
+        while True:
+            next_line = result.find(b"\r\n", trace_end)
+            if next_line == -1:
+                break
+            # Check if next line is a continuation (starts with whitespace)
+            if next_line + 2 < len(result) and result[next_line + 2:next_line + 3] in (b" ", b"\t"):
+                trace_end = next_line + 2
+            else:
+                trace_end = next_line
+                break
         trace_header = result[trace_start:trace_end]
-        assert b", " in trace_header  # Day name comma, e.g., "Tue, "
+        # Unfold continuations for checking
+        trace_unfolded = trace_header.replace(b"\r\n ", b" ")
+        assert b", " in trace_unfolded  # Day name comma, e.g., "Tue, "
 
     def test_trace_header_message_without_body(self) -> None:
         """Trace header works on message with headers only (no body)."""
@@ -184,3 +198,41 @@ class TestRawMessageTraceHeader:
 
         assert b"from feed=lei:/path/to/feed" in result
         assert b"for delivery=my-delivery_v2" in result
+
+    def test_trace_header_wrapped_at_75_chars(self) -> None:
+        """Trace header lines are wrapped at 75 characters."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="linux-kernel", delivery_name="my-delivery")
+
+        # Find the trace header and check line lengths
+        trace_start = result.find(b"X-Korgalore-Trace:")
+        # Find the end of the trace header (next header or body separator)
+        trace_end = trace_start
+        while True:
+            next_line = result.find(b"\r\n", trace_end)
+            if next_line == -1:
+                break
+            # Check if next line is a continuation (starts with whitespace)
+            if next_line + 2 < len(result) and result[next_line + 2:next_line + 3] in (b" ", b"\t"):
+                trace_end = next_line + 2
+            else:
+                trace_end = next_line
+                break
+
+        trace_header = result[trace_start:trace_end]
+        # Check each line (split by CRLF)
+        lines = trace_header.split(b"\r\n")
+        for line in lines:
+            assert len(line) <= 75, f"Line too long ({len(line)} chars): {line}"
+
+    def test_trace_header_continuation_format(self) -> None:
+        """Wrapped trace header uses proper continuation format (space prefix)."""
+        raw = b"From: test@example.com\nSubject: Test\n\nBody"
+        msg = RawMessage(raw)
+        result = msg.as_bytes(feed_name="linux-kernel", delivery_name="my-delivery")
+
+        # The trace header should span multiple lines due to length
+        trace_start = result.find(b"X-Korgalore-Trace:")
+        # Find continuation lines (CRLF followed by space)
+        assert b"\r\n " in result[trace_start:], "Header should have continuation lines"

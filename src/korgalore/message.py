@@ -109,6 +109,47 @@ class RawMessage:
         # Convert to CRLF
         return normalized.replace(b'\n', b'\r\n')
 
+    def _wrap_header(self, name: str, value: str, max_line: int = 75) -> str:
+        """Wrap a header value with proper email header continuation.
+
+        Args:
+            name: Header name (e.g., 'X-Korgalore-Trace')
+            value: Header value to wrap
+            max_line: Maximum line length (default 75)
+
+        Returns:
+            Wrapped header string with continuation lines
+        """
+        first_line_max = max_line - len(name) - 2  # account for ": "
+        if len(value) <= first_line_max:
+            return f"{name}: {value}"
+
+        # Split value into words for wrapping
+        words = value.split(' ')
+        lines = []
+        current_line = f"{name}:"
+
+        for word in words:
+            # Check if adding this word exceeds max length
+            test_line = current_line + ' ' + word if current_line.endswith(':') is False else current_line + ' ' + word
+            if current_line == f"{name}:":
+                test_line = current_line + ' ' + word
+            else:
+                test_line = current_line + ' ' + word
+
+            if len(test_line) <= max_line:
+                if current_line.endswith(':'):
+                    current_line = current_line + ' ' + word
+                else:
+                    current_line = current_line + ' ' + word
+            else:
+                lines.append(current_line)
+                # Continuation line starts with space
+                current_line = ' ' + word
+
+        lines.append(current_line)
+        return '\n'.join(lines)
+
     def _inject_trace_header(
         self,
         message: bytes,
@@ -128,13 +169,14 @@ class RawMessage:
             Message bytes with trace header injected
         """
         # Build the trace header
-        # Format: X-Korgalore-Trace: from feed=[feed] for delivery=[delivery] by korgalore/[ver]; [date]
+        # Format: X-Korgalore-Trace: from feed=[feed] for delivery=[delivery]; v[ver]; [date]
         date_str = formatdate(localtime=True)
         trace_value = (
-            f"from feed={feed_name} for delivery={delivery_name} "
-            f"by korgalore/{__version__}; {date_str}"
+            f"from feed={feed_name} for delivery={delivery_name}; "
+            f"v{__version__}; {date_str}"
         )
-        trace_header = f"X-Korgalore-Trace: {trace_value}\n".encode('utf-8')
+        trace_header = self._wrap_header('X-Korgalore-Trace', trace_value) + '\n'
+        trace_header = trace_header.encode('utf-8')
 
         # Find the header/body boundary (empty line)
         # Headers end with \n\n (after LF normalization)

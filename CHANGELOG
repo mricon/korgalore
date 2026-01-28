@@ -27,8 +27,8 @@ New Features
 * X-Korgalore-Trace header injection
 
   - Messages now include provenance information when delivered to targets
-  - Header format: ``X-Korgalore-Trace: from feed=<feed> for delivery=<delivery>
-    by korgalore/<version>; <RFC 2822 date>``
+  - Header format: ``X-Korgalore-Trace: from feed=<feed> for delivery=<delivery>;
+    v<version>; <RFC 2822 date>``
   - Helps identify message origin when the same email arrives via multiple paths
   - Header is inserted at the end of the header section before delivery
 
