@@ -378,15 +378,28 @@ class PIFeed:
             COMMIT_SUBJECT_CACHE[commitish] = subject
             return subject
 
+    def is_empty_repo(self, epoch: int) -> bool:
+        """Check if a repository has no commits."""
+        gitdir = self.get_gitdir(epoch)
+        retcode, output = run_git_command(str(gitdir), ['rev-list', '-n', '1', '--all'])
+        if retcode != 0:
+            raise GitError(f"Git rev-list --all failed: {output.decode()}")
+        return not output.strip()
+
     def get_top_commit(self, epoch: int) -> str:
-        """Get the most recent commit hash in an epoch."""
+        """Get the most recent commit hash in an epoch.
+
+        Returns an empty string if the repository has no commits.
+        """
+        if self.is_empty_repo(epoch):
+            return ''
         gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '-n', '1', branch]
         retcode, output = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise GitError(f"Git rev-list failed: {output.decode()}")
-        top_commit = output.decode()
+        top_commit = output.decode().strip()
         return top_commit
 
     def get_first_commit(self, epoch: int) -> str:
@@ -394,13 +407,9 @@ class PIFeed:
 
         Returns an empty string if the repository has no commits.
         """
-        gitdir = self.get_gitdir(epoch)
-        # Check if the repository has any commits at all
-        retcode, output = run_git_command(str(gitdir), ['rev-list', '-n', '1', '--all'])
-        if retcode != 0:
-            raise GitError(f"Git rev-list --all failed: {output.decode()}")
-        if not output.strip():
+        if self.is_empty_repo(epoch):
             return ''
+        gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '--max-parents=0', branch]
         retcode, output = run_git_command(str(gitdir), gitargs)

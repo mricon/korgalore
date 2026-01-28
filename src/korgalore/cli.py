@@ -1842,9 +1842,9 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
                     feed.save_delivery_info(delivery_name, epoch=epoch,
                                             latest_commit=first_commit)
                 else:
-                    # No messages matched the query, initialize normally
+                    # No messages matched the query; skip init_feed since the
+                    # repo is empty and will be populated on the next lei up.
                     logger.warning('No messages found for mailinglist query')
-                    feed.init_feed(from_start=False)
                 queries_created += 1
                 mailinglist_created = True
         except PublicInboxError as e:
@@ -1877,9 +1877,9 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
                     feed.save_delivery_info(delivery_name, epoch=epoch,
                                             latest_commit=first_commit)
                 else:
-                    # No messages matched the query, initialize normally
+                    # No messages matched the query; skip init_feed since the
+                    # repo is empty and will be populated on the next lei up.
                     logger.warning('No messages found for patches query')
-                    feed.init_feed(from_start=False)
                 queries_created += 1
                 patches_created = True
         except PublicInboxError as e:
