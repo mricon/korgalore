@@ -54,6 +54,7 @@ where = ["src"]
 
 [tool.setuptools.data-files]
 "share/man/man1" = ["man/kgl.1"]
+"share/man/man5" = ["man/korgalore.toml.5"]
 "share/bash-completion/completions" = ["completions/kgl.bash"]
 "share/zsh/site-functions" = ["completions/kgl.zsh"]
 "share/fish/vendor_completions.d" = ["completions/kgl.fish"]

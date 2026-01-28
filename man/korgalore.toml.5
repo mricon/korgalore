@@ -1,0 +1,322 @@
+.\" Manpage for korgalore.toml configuration file
+.\" Contact konstantin@linuxfoundation.org for corrections.
+.TH KORGALORE.TOML 5 "January 2026" "korgalore 0.5-dev" "File Formats"
+.SH NAME
+korgalore.toml \- configuration file for kgl (korgalore)
+.SH SYNOPSIS
+.I ~/.config/korgalore/korgalore.toml
+.SH DESCRIPTION
+The
+.B korgalore.toml
+file configures korgalore (kgl), a tool for feeding public-inbox git
+repositories and lei search results into mail targets. The file uses
+TOML format and consists of several sections: targets, feeds, deliveries,
+gui, and main.
+.PP
+Additional configuration files can be placed in the
+.I ~/.config/korgalore/conf.d/
+directory. Files matching
+.I *.toml
+are loaded in alphabetical order and merged with the main configuration.
+.SH SECTIONS
+.SS [targets.<name>]
+Targets define where messages will be delivered. Each target has a unique
+name and a type that determines which parameters are required.
+.PP
+.B Gmail Targets
+.RS
+.TP
+.B type
+Must be \fI'gmail'\fR.
+.TP
+.B credentials
+Path to the OAuth credentials JSON file from Google Cloud Console.
+.TP
+.B token
+(Optional) Path to store the OAuth token. Defaults to
+\fI~/.config/korgalore/gmail-<name>-token.json\fR.
+.RE
+.PP
+.B Maildir Targets
+.RS
+.TP
+.B type
+Must be \fI'maildir'\fR.
+.TP
+.B path
+Path to the maildir directory. Created automatically if it doesn't exist.
+Tilde expansion is supported.
+.RE
+.PP
+.B IMAP Targets
+.RS
+.TP
+.B type
+Must be \fI'imap'\fR.
+.TP
+.B server
+IMAP server hostname (e.g., \fI'imap.example.com'\fR).
+.TP
+.B username
+Account username or email address.
+.TP
+.B folder
+(Optional) Target folder for delivery. Default: \fI'INBOX'\fR.
+.TP
+.B auth_type
+(Optional) Authentication type: \fI'password'\fR (default) or \fI'oauth2'\fR.
+.TP
+.B timeout
+(Optional) Connection timeout in seconds. Default: 60.
+.PP
+For password authentication:
+.TP
+.B password
+Password provided inline (less secure).
+.TP
+.B password_file
+Path to file containing password (recommended). Either \fBpassword\fR or
+\fBpassword_file\fR must be provided.
+.PP
+For OAuth2 authentication (Microsoft 365):
+.TP
+.B client_id
+(Optional) Azure AD Application ID. Uses built-in default if not specified.
+.TP
+.B tenant
+(Optional) Azure AD tenant ID. Default: \fI'common'\fR.
+.TP
+.B token
+(Optional) Path to OAuth2 token file.
+.RE
+.PP
+.B JMAP Targets
+.RS
+.TP
+.B type
+Must be \fI'jmap'\fR.
+.TP
+.B server
+JMAP server URL (e.g., \fI'https://api.fastmail.com'\fR).
+.TP
+.B username
+Account email address.
+.TP
+.B token
+Bearer token provided inline (less secure).
+.TP
+.B token_file
+Path to file containing bearer token. Either \fBtoken\fR or \fBtoken_file\fR
+must be provided.
+.TP
+.B timeout
+(Optional) Request timeout in seconds. Default: 60.
+.RE
+.PP
+.B Pipe Targets
+.RS
+.TP
+.B type
+Must be \fI'pipe'\fR.
+.TP
+.B command
+Command to pipe messages to. Labels are appended as arguments.
+.RE
+.SS [feeds.<name>]
+Feeds define reusable feed URLs that can be referenced by multiple deliveries.
+.TP
+.B url
+The URL of the feed. Must start with \fIhttps:\fR for lore feeds or
+\fIlei:\fR for lei searches.
+.SS [deliveries.<name>]
+Deliveries define which feeds are delivered to which targets.
+.TP
+.B feed
+Name of a feed defined in the \fB[feeds]\fR section, or a direct URL
+(lore.kernel.org URL or \fIlei:/path\fR).
+.TP
+.B target
+Name of a target defined in the \fB[targets]\fR section.
+.TP
+.B labels
+(Optional) List of labels/folders to apply. Used by Gmail and JMAP targets.
+Ignored by Maildir and IMAP targets. For pipe targets, labels are appended
+as command-line arguments.
+.TP
+.B subfolder
+(Optional) Subfolder path for IMAP and Maildir targets.
+.RS
+.PP
+For IMAP: Combined with the target's base folder using \fI/\fR as separator
+(e.g., \fIINBOX\fR + \fILists/LKML\fR = \fIINBOX/Lists/LKML\fR).
+.PP
+For Maildir: Creates a subdirectory under the target's base path.
+.PP
+Maildir subfolders support strftime(3) format codes for date-based directories
+(e.g., \fI%Y/%m\fR becomes \fI2026/01\fR). Templates are validated at startup
+and refreshed before each GUI sync.
+.PP
+Ignored for Gmail, JMAP, and pipe targets.
+.RE
+.SS [gui]
+Configuration for the GNOME taskbar application (\fBkgl gui\fR).
+.TP
+.B sync_interval
+Time in seconds between automatic syncs. Default: 300 (5 minutes).
+.SS [main]
+Global korgalore configuration.
+.TP
+.B user_agent_plus
+(Optional) String appended to the User-Agent header sent to remote servers.
+Helps server operators identify traffic from specific installations.
+.TP
+.B catchall_lists
+(Optional) List of mailing list addresses to exclude from \fBtrack-subsystem\fR
+queries. Default: \fI["linux-kernel@vger.kernel.org", "patches@lists.linux.dev"]\fR.
+.SH EXAMPLES
+Minimal Gmail configuration:
+.PP
+.RS
+.nf
+[targets.personal]
+type = 'gmail'
+credentials = '~/.config/korgalore/credentials.json'
+
+[deliveries.lkml]
+feed = 'https://lore.kernel.org/lkml'
+target = 'personal'
+labels = ['Lists/LKML']
+.fi
+.RE
+.PP
+Maildir with date-based archiving:
+.PP
+.RS
+.nf
+[targets.archive]
+type = 'maildir'
+path = '~/Mail'
+
+[deliveries.lkml]
+feed = 'https://lore.kernel.org/lkml'
+target = 'archive'
+subfolder = 'Lists/LKML/%Y/%m'
+.fi
+.RE
+.PP
+IMAP with password authentication:
+.PP
+.RS
+.nf
+[targets.myserver]
+type = 'imap'
+server = 'imap.example.com'
+username = 'user@example.com'
+folder = 'INBOX'
+password_file = '~/.config/korgalore/imap-password.txt'
+
+[deliveries.lkml]
+feed = 'https://lore.kernel.org/lkml'
+target = 'myserver'
+subfolder = 'Lists/LKML'
+.fi
+.RE
+.PP
+IMAP with OAuth2 (Microsoft 365):
+.PP
+.RS
+.nf
+[targets.office365]
+type = 'imap'
+auth_type = 'oauth2'
+server = 'outlook.office365.com'
+username = 'user@company.com'
+
+[deliveries.lkml]
+feed = 'https://lore.kernel.org/lkml'
+target = 'office365'
+.fi
+.RE
+.PP
+JMAP (Fastmail):
+.PP
+.RS
+.nf
+[targets.fastmail]
+type = 'jmap'
+server = 'https://api.fastmail.com'
+username = 'user@fastmail.com'
+token_file = '~/.config/korgalore/fastmail-token.txt'
+
+[deliveries.lkml]
+feed = 'https://lore.kernel.org/lkml'
+target = 'fastmail'
+labels = ['Lists/LKML']
+.fi
+.RE
+.PP
+Pipe target for custom processing:
+.PP
+.RS
+.nf
+[targets.processor]
+type = 'pipe'
+command = '/usr/local/bin/process-mail.sh'
+
+[deliveries.lkml]
+feed = 'https://lore.kernel.org/lkml'
+target = 'processor'
+labels = ['--list=lkml']
+.fi
+.RE
+.PP
+Lei search delivery:
+.PP
+.RS
+.nf
+[deliveries.mentions]
+feed = 'lei:/home/user/lei/mentions'
+target = 'personal'
+labels = ['INBOX', 'UNREAD']
+.fi
+.RE
+.PP
+Using named feeds for multiple deliveries:
+.PP
+.RS
+.nf
+[feeds.lkml]
+url = 'https://lore.kernel.org/lkml'
+
+[deliveries.lkml-gmail]
+feed = 'lkml'
+target = 'personal'
+labels = ['Lists/LKML']
+
+[deliveries.lkml-archive]
+feed = 'lkml'
+target = 'archive'
+subfolder = 'Lists/LKML'
+.fi
+.RE
+.SH FILES
+.TP
+.I ~/.config/korgalore/korgalore.toml
+Main configuration file.
+.TP
+.I ~/.config/korgalore/conf.d/*.toml
+Additional configuration files, merged alphabetically.
+.TP
+.I ~/.config/korgalore/bozofilter.txt
+Sender blocking filter (see \fBkgl bozofilter\fR).
+.TP
+.I ~/.local/share/korgalore/
+Feed state and tracking data.
+.SH SEE ALSO
+.BR kgl (1),
+.BR strftime (3),
+.BR toml (5)
+.PP
+Full documentation: https://korgalore.docs.kernel.org/
+.SH AUTHOR
+Konstantin Ryabitsev <konstantin@linuxfoundation.org>

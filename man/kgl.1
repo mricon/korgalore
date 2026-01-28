@@ -1,6 +1,6 @@
 .\" Manpage for kgl (korgalore)
 .\" Contact konstantin@linuxfoundation.org for corrections.
-.TH KGL 1 "January 2026" "korgalore 0.4-dev" "User Commands"
+.TH KGL 1 "January 2026" "korgalore 0.5-dev" "User Commands"
 .SH NAME
 kgl \- feed public-inbox messages into mail targets
 .SH SYNOPSIS
@@ -132,7 +132,8 @@ Track a kernel subsystem from MAINTAINERS file.
 [\fIOPTIONS\fR] \fISUBSYSTEM_NAME\fR
 .TP
 .BR \-m ", " \-\-maintainers " " \fIPATH\fR
-Path to MAINTAINERS file (required).
+Path to MAINTAINERS file. If not specified, looks for ./MAINTAINERS in the
+current directory, then fetches from kernel.org (cached for 24 hours).
 .TP
 .BR \-t ", " \-\-target " " \fINAME\fR
 Target for deliveries.
@@ -228,6 +229,7 @@ kgl bozofilter --add spammer@example.com
 .fi
 .RE
 .SH SEE ALSO
+.BR korgalore.toml (5),
 .BR lei (1),
 .BR git (1),
 .BR notmuch (1)
