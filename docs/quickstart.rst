@@ -1,6 +1,6 @@
-==========
-Quickstart
-==========
+================
+Gmail Quickstart
+================
 
 This guide will help you get started with Korgalore quickly.
 
