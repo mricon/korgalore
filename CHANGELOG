@@ -25,6 +25,11 @@ New Features
 Bug Fixes
 ~~~~~~~~~
 
+* Fix ``track-subsystem`` crash when a lei query matches no messages
+
+  - ``get_first_commit()`` now detects empty repositories and returns an
+    empty string instead of raising a ``GitError``
+
 * GUI: automatically detect and reload configuration files changed on disk
 
   - Before each sync cycle, the GUI now checks mtimes of the main config
