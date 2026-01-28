@@ -12,6 +12,14 @@ Bug Fixes
   - ``get_first_commit()`` now detects empty repositories and returns an
     empty string instead of raising a ``GitError``
 
+* Fix ``track-subsystem --forget`` with partial subsystem names
+
+  - The user may supply a substring of the original subsystem name
+    (e.g., ``REGISTER MAP`` for ``REGISTER MAP ABSTRACTION LAYER``)
+  - Matching uses word-boundary-aligned substring search against conf.d
+    filenames
+  - Aborts with an error if the match is ambiguous
+
 v0.5 (2026-01-28)
 -----------------
 
