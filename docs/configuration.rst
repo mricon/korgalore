@@ -556,6 +556,11 @@ Delivery Parameters
   - For Maildir: Creates a subdirectory under the target's base path
   - Ignored for Gmail, JMAP, and pipe targets (use ``labels`` for Gmail/JMAP)
   - Must be a string, not a list
+  - **Maildir only**: Supports strftime format codes for date-based directories
+    (e.g., ``Archive/%Y/%m`` becomes ``Archive/2026/01``). The template is
+    validated at startup. For CLI commands, the template is expanded once per
+    invocation. For the GUI, the template is refreshed before each periodic
+    sync to ensure messages are delivered to the correct date-based folder.
 
 Example with subfolder (IMAP):
 
@@ -590,6 +595,19 @@ Example with subfolder (Maildir):
    feed = 'git'
    target = 'local'
    subfolder = 'Lists/Git'  # Results in ~/Mail/Lists/Git
+
+Example with date-based archiving (Maildir only):
+
+.. code-block:: toml
+
+   [targets.archive]
+   type = 'maildir'
+   path = '~/Mail/Archive'
+
+   [deliveries.lkml-archive]
+   feed = 'lkml'
+   target = 'archive'
+   subfolder = '%Y/%m'  # Results in ~/Mail/Archive/2026/01
 
 Gmail Labels
 ------------

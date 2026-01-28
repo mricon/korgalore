@@ -41,6 +41,9 @@ New Features
   - For Maildir: creates maildir subdirectories under the base path
   - Subfolder maildirs are cached for efficient reuse within a session
   - JMAP, Gmail, and Pipe targets ignore subfolder (use ``labels`` for JMAP/Gmail)
+  - Maildir subfolders support strftime format codes (e.g., ``%Y/%m``) for
+    date-based directory organisation; templates are validated at startup and
+    refreshed before each sync (ensuring correct folder for long-running GUI)
 
   Example configuration::
 
@@ -48,6 +51,12 @@ New Features
     feed = 'lkml'
     target = 'imap-server'
     subfolder = 'Lists/LKML'
+
+    # Maildir with date-based archiving
+    [deliveries.archive]
+    feed = 'lkml'
+    target = 'local-maildir'
+    subfolder = 'Archive/%Y/%m'  # e.g., Archive/2026/01
 
 * New ``main.user_agent_plus`` configuration option to append a unique identifier
   to the User-Agent string sent to remote servers. This helps server operators

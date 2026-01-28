@@ -13,7 +13,10 @@ from typing import Optional, Any
 import click
 
 from korgalore import AuthenticationError
-from korgalore.cli import perform_pull, perform_yank, get_xdg_config_dir, validate_config_file, load_config
+from korgalore.cli import (
+    perform_pull, perform_yank, get_xdg_config_dir, validate_config_file,
+    load_config, refresh_subfolder_templates
+)
 from korgalore import RemoteError
 from korgalore.bozofilter import ensure_bozofilter_exists, load_bozofilter
 from korgalore.gmail_target import GmailTarget
@@ -430,6 +433,9 @@ class KorgaloreApp:
 
         try:
             logger.info("Starting sync...")
+
+            # Refresh strftime templates for date-based subfolders
+            refresh_subfolder_templates(self.ctx)
 
             # Run the pull command logic
             # We wrap this to catch any exceptions and update UI

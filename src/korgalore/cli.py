@@ -645,8 +645,12 @@ def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) 
 
 def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
     """Map delivery configurations to their feed and target instances."""
+    from datetime import datetime
+
     # 'deliveries' is a mapping: delivery_name -> Tuple[feed, target, labels, subfolder]
     dmap: Dict[str, Tuple[Union[LeiFeed, LoreFeed], Any, List[str], Optional[str]]] = dict()
+    # Store original strftime templates for refresh (used by GUI for long-running processes)
+    templates: Dict[str, str] = dict()
     logger.debug('Mapping deliveries to their feeds and targets')
     # Pre-map deliveries to their feeds and targets for later use.
     for delivery_name, details in deliveries.items():
@@ -673,9 +677,57 @@ def map_deliveries(ctx: click.Context, deliveries: Dict[str, Any]) -> None:
             # Treat empty string as None
             if not subfolder:
                 subfolder = None
+            elif '%' in subfolder:
+                # Only Maildir targets support strftime templates in subfolder
+                if isinstance(target, MaildirTarget):
+                    try:
+                        # Validate the strftime template and store original for refresh
+                        templates[delivery_name] = subfolder
+                        subfolder = datetime.now().strftime(subfolder)
+                        logger.debug('Expanded subfolder template to: %s', subfolder)
+                    except ValueError as e:
+                        raise ConfigurationError(
+                            f"Invalid strftime format in subfolder for delivery '{delivery_name}': {e}"
+                        )
+                else:
+                    raise ConfigurationError(
+                        f"strftime templates in subfolder are only supported for Maildir targets "
+                        f"(delivery '{delivery_name}' uses {type(target).__name__})"
+                    )
+        # Validate labels don't contain strftime templates
+        labels = details.get('labels', [])
+        for label in labels:
+            if '%' in label:
+                raise ConfigurationError(
+                    f"strftime templates in labels are not supported "
+                    f"(delivery '{delivery_name}' has label '{label}')"
+                )
         # Lock for the entire duration
-        dmap[delivery_name] = (feed, target, details.get('labels', []), subfolder)
+        dmap[delivery_name] = (feed, target, labels, subfolder)
     ctx.obj['deliveries'] = dmap
+    ctx.obj['subfolder_templates'] = templates
+
+
+def refresh_subfolder_templates(ctx: click.Context) -> None:
+    """Re-expand strftime templates in subfolder paths.
+
+    For long-running processes (like the GUI), this should be called before
+    each sync to ensure date-based subfolder paths are current.
+    """
+    from datetime import datetime
+
+    templates = ctx.obj.get('subfolder_templates', {})
+    if not templates:
+        return
+
+    deliveries = ctx.obj.get('deliveries', {})
+    for delivery_name, template in templates.items():
+        if delivery_name not in deliveries:
+            continue
+        feed, target, labels, _ = deliveries[delivery_name]
+        new_subfolder = datetime.now().strftime(template)
+        deliveries[delivery_name] = (feed, target, labels, new_subfolder)
+        logger.debug('Refreshed subfolder template for %s: %s', delivery_name, new_subfolder)
 
 
 def lock_all_feeds(ctx: click.Context) -> None:
