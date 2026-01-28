@@ -46,7 +46,10 @@ added, existing entries with the same key are overwritten). The ``gui`` section
 is replaced entirely if present in a conf.d file.
 
 This feature is used by the ``track-subsystem`` command to store subsystem
-tracking configurations separately from your main configuration file.
+tracking configurations separately from your main configuration file. Each
+generated file includes a ``[subsystem]`` section with the human-readable
+subsystem name, used by ``track-subsystem --list`` for display and by
+``--forget`` for identification.
 
 Gmail Setup
 ===========

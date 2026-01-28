@@ -129,7 +129,7 @@ Resume a paused or expired thread.
 Track a kernel subsystem from MAINTAINERS file.
 .PP
 .B kgl track-subsystem
-[\fIOPTIONS\fR] \fISUBSYSTEM_NAME\fR
+[\fIOPTIONS\fR] [\fISUBSYSTEM_NAME\fR]
 .TP
 .BR \-m ", " \-\-maintainers " " \fIPATH\fR
 Path to MAINTAINERS file. If not specified, looks for ./MAINTAINERS in the
@@ -149,10 +149,17 @@ Include entire threads when any message matches.
 .TP
 .B \-\-forget
 Remove tracking for the subsystem.
+.TP
+.BR \-L ", " \-\-list
+List all tracked subsystems. Shows the subsystem name, configuration file
+path, and delivery details (target and labels) for each tracked subsystem.
+When used, \fISUBSYSTEM_NAME\fR is not required.
 .PP
 Creates lei queries for mailing list traffic and patches touching
 subsystem files. Configuration is stored in
-\fI~/.config/korgalore/conf.d/\fR.
+\fI~/.config/korgalore/conf.d/\fR. Each generated configuration file
+includes a \fB[subsystem]\fR section with the human-readable subsystem
+name for identification.
 .SS yank
 Yank a single message or entire thread to a target.
 .PP

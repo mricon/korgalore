@@ -442,11 +442,12 @@ list and patches without manually configuring lei queries.
 
 .. code-block:: bash
 
-   kgl track-subsystem [OPTIONS] SUBSYSTEM_NAME
+   kgl track-subsystem [OPTIONS] [SUBSYSTEM_NAME]
 
 Arguments:
 
-* ``SUBSYSTEM_NAME``: Name of the subsystem (or substring) from the MAINTAINERS file
+* ``SUBSYSTEM_NAME``: Name of the subsystem (or substring) from the MAINTAINERS file.
+  Required unless ``--list`` is specified.
 
 Options:
 
@@ -456,6 +457,7 @@ Options:
 * ``--since TEXT``: Start date for query (default: ``7.days.ago``)
 * ``--threads / --no-threads``: Include entire threads when any message matches (default: off)
 * ``--forget``: Remove tracking for the subsystem (deletes config and lei queries)
+* ``-L, --list``: List all tracked subsystems with their configuration details
 
 MAINTAINERS File Location
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -498,6 +500,40 @@ Examples
    # Stop tracking a subsystem (removes config and lei queries)
    kgl track-subsystem --forget '9P FILE SYSTEM'
 
+   # List all tracked subsystems
+   kgl track-subsystem --list
+
+Listing Tracked Subsystems
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``--list`` flag displays all currently tracked subsystems:
+
+.. code-block:: bash
+
+   $ kgl track-subsystem --list
+   SELINUX SECURITY MODULE
+       config: ~/.config/korgalore/conf.d/selinux_security_module.toml
+       mailing list:
+           target: personal
+           labels: INBOX, UNREAD
+       patches:
+           target: personal
+           labels: INBOX, UNREAD
+
+   9P FILE SYSTEM
+       config: ~/.config/korgalore/conf.d/9p_file_system.toml
+       mailing list:
+           target: personal
+           labels: INBOX, UNREAD
+       patches:
+           target: personal
+           labels: INBOX, UNREAD
+
+The subsystem name is read from the ``[subsystem]`` section in each
+configuration file. Legacy configuration files without this section fall
+back to deriving the display name from the filename (e.g.,
+``amd_gpu.toml`` displays as ``AMD GPU``).
+
 How It Works
 ~~~~~~~~~~~~
 
@@ -510,7 +546,8 @@ When you run ``track-subsystem``, korgalore:
    * **{name}-patches**: Patches touching subsystem files (from ``F:``, ``X:``, ``N:``, ``K:`` entries)
 
 3. Initializes the lei searches and feed state
-4. Writes a configuration file to ``~/.config/korgalore/conf.d/{subsystem_key}.toml``
+4. Writes a configuration file to ``~/.config/korgalore/conf.d/{subsystem_key}.toml``,
+   including a ``[subsystem]`` section with the human-readable subsystem name
 
 The configuration is stored in the ``conf.d/`` directory, which is automatically
 loaded by korgalore alongside the main configuration file. This keeps subsystem

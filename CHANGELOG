@@ -1,6 +1,27 @@
 Korgalore Changelog
 ===================
 
+v0.6 (unreleased)
+-----------------
+
+New Features
+~~~~~~~~~~~~
+
+* ``track-subsystem --list`` (``-L``) flag to display all tracked subsystems
+
+  - Shows the subsystem name, configuration file path, and delivery details
+    (target and labels) for each tracked subsystem
+  - Subsystem name is read from the ``[subsystem]`` section in each conf.d
+    configuration file
+  - Falls back to deriving the display name from the filename for legacy
+    configurations without a ``[subsystem]`` section
+
+* ``[subsystem]`` metadata section in generated conf.d configuration files
+
+  - Stores the human-readable subsystem name (e.g., ``name = 'SELINUX
+    SECURITY MODULE'``)
+  - Used by ``--list`` for display and by ``--forget`` for log messages
+
 v0.5 (2026-01-28)
 -----------------
 
