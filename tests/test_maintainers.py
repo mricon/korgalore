@@ -674,6 +674,32 @@ M:\ttest@example.com
         entry = get_subsystem(maintainers, "GPU")
         assert entry.name == "GPU"
 
+    def test_substring_resolves_to_canonical_name(self, tmp_path: Path) -> None:
+        """Substring match resolves to full canonical name for consistent normalisation.
+
+        Regression test: track-subsystem --forget must use the same normalised
+        key as track-subsystem when creating config. The user may supply a
+        substring (e.g., "REGISTER MAP") that matches a longer entry name
+        (e.g., "REGISTER MAP ABSTRACTION LAYER"). The normalised key must come
+        from the full entry name, not the user input.
+        """
+        maintainers = tmp_path / "MAINTAINERS"
+        maintainers.write_text(
+            "REGISTER MAP ABSTRACTION LAYER\n"
+            "M:\tbroonie@kernel.org\n"
+            "L:\tlinux-kernel@vger.kernel.org\n"
+            "F:\tdrivers/base/regmap/\n"
+        )
+        # User supplies substring "REGISTER MAP"
+        entry = get_subsystem(maintainers, "REGISTER MAP")
+        assert entry.name == "REGISTER MAP ABSTRACTION LAYER"
+        # The normalised key must match what the create path uses
+        canonical_key = normalize_subsystem_name(entry.name)
+        user_input_key = normalize_subsystem_name("REGISTER MAP")
+        assert canonical_key == "register_map_abstraction_layer"
+        assert user_input_key == "register_map"
+        assert canonical_key != user_input_key  # confirms the bug scenario
+
 
 class TestGenerateSubsystemConfig:
     """Tests for generate_subsystem_config function."""
@@ -699,6 +725,25 @@ class TestGenerateSubsystemConfig:
         assert "test_subsystem-patches" in config["feeds"]
         assert "test_subsystem-mailinglist" in config["deliveries"]
         assert "test_subsystem-patches" in config["deliveries"]
+
+        # Check subsystem metadata
+        assert config["subsystem"]["name"] == "TEST SUBSYSTEM"
+
+    def test_subsystem_name_matches_input(self, tmp_path: Path) -> None:
+        """Subsystem name in config matches the input parameter."""
+        import tomllib
+
+        content = generate_subsystem_config(
+            key="9p_file_system",
+            target="personal",
+            labels=["INBOX"],
+            lei_base_path=tmp_path / "lei",
+            since="30.days.ago",
+            subsystem_name="9P FILE SYSTEM",
+        )
+
+        config = tomllib.loads(content)
+        assert config["subsystem"]["name"] == "9P FILE SYSTEM"
 
     def test_labels_formatted_correctly(self, tmp_path: Path) -> None:
         """Labels are formatted as TOML array."""

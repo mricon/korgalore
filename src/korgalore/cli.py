@@ -1682,7 +1682,7 @@ def gui(ctx: click.Context) -> None:
 
 
 @main.command('track-subsystem')
-@click.argument('subsystem_name', type=str)
+@click.argument('subsystem_name', type=str, required=False, default=None)
 @click.option('--maintainers', '-m', default=None,
               type=click.Path(), help='Path to MAINTAINERS file (default: ./MAINTAINERS)')
 @click.option('--target', '-t', default=None, help='Target for deliveries')
@@ -1694,11 +1694,13 @@ def gui(ctx: click.Context) -> None:
               help='Include entire threads when any message matches (can produce many results)')
 @click.option('--forget', is_flag=True, default=False,
               help='Remove tracking for the subsystem (deletes config and lei queries)')
+@click.option('--list', '-L', 'do_list', is_flag=True, default=False,
+              help='List tracked subsystems')
 @click.pass_context
-def track_subsystem(ctx: click.Context, subsystem_name: str,
+def track_subsystem(ctx: click.Context, subsystem_name: Optional[str],
                     maintainers: Optional[str], target: Optional[str],
                     labels: Tuple[str, ...], since: str,
-                    threads: bool, forget: bool) -> None:
+                    threads: bool, forget: bool, do_list: bool) -> None:
     """Track a kernel subsystem from MAINTAINERS file.
 
     Creates lei queries for the subsystem:
@@ -1710,17 +1712,94 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     The configuration is written to conf.d/{subsystem_key}.toml
 
     Use --forget to remove tracking for a previously tracked subsystem.
+    Use --list to display all currently tracked subsystems.
     """
+    # Parameter validation
+    if not do_list and not subsystem_name:
+        raise click.UsageError('SUBSYSTEM_NAME is required unless --list is specified.')
+    # Handle --list mode
+    if do_list:
+        config_dir = get_xdg_config_dir()
+        conf_d = config_dir / 'conf.d'
+        if not conf_d.is_dir():
+            click.echo('No tracked subsystems found.')
+            return
+        toml_files = sorted(conf_d.glob('*.toml'))
+        if not toml_files:
+            click.echo('No tracked subsystems found.')
+            return
+        home = Path.home()
+        for i, toml_file in enumerate(toml_files):
+            try:
+                config_data = tomllib.loads(toml_file.read_text())
+            except Exception:
+                logger.warning('Failed to parse %s, skipping', toml_file.name)
+                continue
+            subsystem_info = config_data.get('subsystem', {})
+            display_name = subsystem_info.get('name')
+            if not display_name:
+                display_name = toml_file.stem.replace('_', ' ').upper()
+            # Use ~ shorthand for home directory
+            try:
+                display_path = '~' / toml_file.relative_to(home)
+            except ValueError:
+                display_path = toml_file
+            click.echo(display_name)
+            click.echo(f'    config: {display_path}')
+            deliveries = config_data.get('deliveries', {})
+            for dname, dconf in deliveries.items():
+                if dname.endswith('-patches'):
+                    dtype = 'patches'
+                elif dname.endswith('-mailinglist'):
+                    dtype = 'mailing list'
+                else:
+                    dtype = dname
+                dtarget = dconf.get('target', 'unknown')
+                dlabels = dconf.get('labels', [])
+                click.echo(f'    {dtype}:')
+                click.echo(f'        target: {dtarget}')
+                if dlabels:
+                    click.echo(f'        labels: {", ".join(dlabels)}')
+            if i < len(toml_files) - 1:
+                click.echo('')
+        return
+
     # Handle --forget mode
     if forget:
-        # Normalize the subsystem name to find the config and lei paths
-        key = normalize_subsystem_name(subsystem_name)
         config_dir = get_xdg_config_dir()
         data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
 
-        # Find and remove config file
-        config_file = config_dir / 'conf.d' / f'{key}.toml'
+        # Match the normalised user input against existing conf.d/ files.
+        # The user may supply a substring (e.g., "REGISTER MAP") that was
+        # resolved to a longer canonical name during creation (e.g.,
+        # "register_map_abstraction_layer.toml").  Match by checking if
+        # the normalised key appears as a word-boundary-aligned substring
+        # of the config filename, without needing to re-parse MAINTAINERS.
+        key = normalize_subsystem_name(subsystem_name)
+        conf_d = config_dir / 'conf.d'
+        config_file = conf_d / f'{key}.toml'
+        if not config_file.exists() and conf_d.is_dir():
+            candidates = sorted(p for p in conf_d.glob('*.toml')
+                                if f'_{key}_' in f'_{p.stem}_')
+            if len(candidates) == 1:
+                config_file = candidates[0]
+                key = config_file.stem
+            elif len(candidates) > 1:
+                logger.critical('Ambiguous match for "%s". Matching config files:', subsystem_name)
+                for c in candidates:
+                    logger.critical('  %s', c.name)
+                raise click.Abort()
+
+        # Read subsystem name from config before removing, for better log output
+        forget_display_name = subsystem_name
         if config_file.exists():
+            try:
+                config_data = tomllib.loads(config_file.read_text())
+                stored_name = config_data.get('subsystem', {}).get('name')
+                if stored_name:
+                    forget_display_name = stored_name
+            except Exception:
+                pass
             config_file.unlink()
             logger.info('Removed config file: %s', config_file)
         else:
@@ -1743,7 +1822,7 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
             else:
                 logger.debug('Lei search not found: %s', lei_path)
 
-        logger.info('Removed tracking for subsystem: %s', subsystem_name)
+        logger.info('Removed tracking for subsystem: %s', forget_display_name)
         return
 
     # Find MAINTAINERS file: explicit path, ./MAINTAINERS, or fetch from kernel.org

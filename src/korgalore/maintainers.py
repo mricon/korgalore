@@ -401,6 +401,9 @@ def generate_subsystem_config(
         f"# Generated: {timestamp}",
         f"# Query date range: d:{since}..",
         "",
+        "[subsystem]",
+        f"name = '{subsystem_name}'",
+        "",
     ]
 
     if include_mailinglist:
