@@ -370,7 +370,12 @@ class TestGetFirstCommit:
     """Tests for get_first_commit with empty and non-empty repositories."""
 
     def _make_feed(self, feed_dir: Path) -> PIFeed:
-        """Create a concrete PIFeed subclass for testing."""
+        """Create a concrete PIFeed subclass for testing.
+
+        Only overrides the abstract methods; get_top_commit and
+        get_first_commit use the real implementations so they can be
+        tested against actual git repositories.
+        """
         class TestPIFeed(PIFeed):
             def __init__(self, fd: Path) -> None:
                 super().__init__(feed_key="test-feed", feed_dir=fd)
@@ -381,9 +386,6 @@ class TestGetFirstCommit:
 
             def get_highest_epoch(self) -> int:
                 return 0
-
-            def get_top_commit(self, epoch: int) -> str:
-                return "abc123"
 
         return TestPIFeed(feed_dir)
 
@@ -449,4 +451,29 @@ class TestGetFirstCommit:
 
         feed = self._make_feed(feed_dir)
         result = feed.get_first_commit(0)
+        assert result == expected
+
+    def test_top_commit_empty_repo_returns_empty_string(self, tmp_path: Path) -> None:
+        """get_top_commit returns '' for a repository with no commits."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        result = feed.get_top_commit(0)
+        assert result == ''
+
+    def test_top_commit_nonempty_repo_returns_commit_hash(self, tmp_path: Path) -> None:
+        """get_top_commit returns the latest commit hash."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+        expected = self._add_commit(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        result = feed.get_top_commit(0)
         assert result == expected
