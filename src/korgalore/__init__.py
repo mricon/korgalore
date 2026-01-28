@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 from typing import List, Optional, Tuple
 
-__version__ = "0.5"
+__version__ = "0.5.1-dev"
 __author__ = "Konstantin Ryabitsev"
 __email__ = "konstantin@linuxfoundation.org"
 __user_agent__ = f"korgalore/{__version__}"

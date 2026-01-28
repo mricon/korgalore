@@ -1,6 +1,17 @@
 Korgalore Changelog
 ===================
 
+v0.5.1 (unreleased)
+--------------------
+
+Bug Fixes
+~~~~~~~~~
+
+* Fix ``track-subsystem`` crash when a lei query matches no messages
+
+  - ``get_first_commit()`` now detects empty repositories and returns an
+    empty string instead of raising a ``GitError``
+
 v0.5 (2026-01-28)
 -----------------
 
