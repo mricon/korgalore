@@ -1,9 +1,10 @@
 """Tests for CLI configuration loading and merging."""
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from korgalore.cli import merge_config, load_config
+from korgalore.maintainers import normalize_subsystem_name
 
 
 class TestMergeConfig:
@@ -283,3 +284,62 @@ class TestLoadConfigWithConfD:
         config = load_config(config_file)
         assert 'main_delivery' in config['deliveries']
         assert 'extra_delivery' in config['deliveries']
+
+
+def _find_forget_config(conf_d: Path, subsystem_name: str) -> Path:
+    """Replicate the forget path's conf.d matching logic from cli.py."""
+    key = normalize_subsystem_name(subsystem_name)
+    config_file = conf_d / f'{key}.toml'
+    if not config_file.exists() and conf_d.is_dir():
+        candidates: List[Path] = sorted(
+            p for p in conf_d.glob('*.toml')
+            if f'_{key}_' in f'_{p.stem}_'
+        )
+        if len(candidates) == 1:
+            config_file = candidates[0]
+    return config_file
+
+
+class TestForgetConfDMatching:
+    """Tests for --forget conf.d file matching by normalised substring."""
+
+    def test_exact_match(self, tmp_path: Path) -> None:
+        """Exact normalised name matches directly."""
+        conf_d = tmp_path / 'conf.d'
+        conf_d.mkdir()
+        (conf_d / 'register_map_abstraction_layer.toml').touch()
+        result = _find_forget_config(conf_d, 'REGISTER MAP ABSTRACTION LAYER')
+        assert result.name == 'register_map_abstraction_layer.toml'
+
+    def test_prefix_substring_match(self, tmp_path: Path) -> None:
+        """Substring at the start of the canonical name matches."""
+        conf_d = tmp_path / 'conf.d'
+        conf_d.mkdir()
+        (conf_d / 'register_map_abstraction_layer.toml').touch()
+        result = _find_forget_config(conf_d, 'REGISTER MAP')
+        assert result.name == 'register_map_abstraction_layer.toml'
+
+    def test_middle_substring_match(self, tmp_path: Path) -> None:
+        """Substring in the middle of the canonical name matches."""
+        conf_d = tmp_path / 'conf.d'
+        conf_d.mkdir()
+        (conf_d / 'selinux_security_module.toml').touch()
+        result = _find_forget_config(conf_d, 'SECURITY')
+        assert result.name == 'selinux_security_module.toml'
+
+    def test_suffix_substring_match(self, tmp_path: Path) -> None:
+        """Substring at the end of the canonical name matches."""
+        conf_d = tmp_path / 'conf.d'
+        conf_d.mkdir()
+        (conf_d / 'selinux_security_module.toml').touch()
+        result = _find_forget_config(conf_d, 'SECURITY MODULE')
+        assert result.name == 'selinux_security_module.toml'
+
+    def test_no_partial_word_match(self, tmp_path: Path) -> None:
+        """Partial word does not match across underscore boundaries."""
+        conf_d = tmp_path / 'conf.d'
+        conf_d.mkdir()
+        (conf_d / 'selinux_security_module.toml').touch()
+        # "CURITY" is a substring of "security" but not on word boundaries
+        result = _find_forget_config(conf_d, 'CURITY')
+        assert not result.exists()

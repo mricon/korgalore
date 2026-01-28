@@ -1713,13 +1713,30 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     """
     # Handle --forget mode
     if forget:
-        # Normalize the subsystem name to find the config and lei paths
-        key = normalize_subsystem_name(subsystem_name)
         config_dir = get_xdg_config_dir()
         data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
 
-        # Find and remove config file
-        config_file = config_dir / 'conf.d' / f'{key}.toml'
+        # Match the normalised user input against existing conf.d/ files.
+        # The user may supply a substring (e.g., "REGISTER MAP") that was
+        # resolved to a longer canonical name during creation (e.g.,
+        # "register_map_abstraction_layer.toml").  Match by checking if
+        # the normalised key appears as a word-boundary-aligned substring
+        # of the config filename, without needing to re-parse MAINTAINERS.
+        key = normalize_subsystem_name(subsystem_name)
+        conf_d = config_dir / 'conf.d'
+        config_file = conf_d / f'{key}.toml'
+        if not config_file.exists() and conf_d.is_dir():
+            candidates = sorted(p for p in conf_d.glob('*.toml')
+                                if f'_{key}_' in f'_{p.stem}_')
+            if len(candidates) == 1:
+                config_file = candidates[0]
+                key = config_file.stem
+            elif len(candidates) > 1:
+                logger.critical('Ambiguous match for "%s". Matching config files:', subsystem_name)
+                for c in candidates:
+                    logger.critical('  %s', c.name)
+                raise click.Abort()
+
         if config_file.exists():
             config_file.unlink()
             logger.info('Removed config file: %s', config_file)
