@@ -22,6 +22,21 @@ New Features
     SECURITY MODULE'``)
   - Used by ``--list`` for display and by ``--forget`` for log messages
 
+Bug Fixes
+~~~~~~~~~
+
+* GUI: automatically detect and reload configuration files changed on disk
+
+  - Before each sync cycle, the GUI now checks mtimes of the main config
+    file and all ``conf.d/*.toml`` files
+  - If any file has been modified (e.g., by ``kgl track-subsystem`` or
+    manual editing), the configuration is validated and reloaded before
+    syncing
+  - Invalid configuration changes are logged and skipped, keeping the
+    previous working configuration
+  - Prevents crashes caused by stale in-memory configuration after
+    external config changes
+
 v0.5 (2026-01-28)
 -----------------
 

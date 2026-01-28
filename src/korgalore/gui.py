@@ -64,6 +64,10 @@ class KorgaloreApp:
         self.ind.set_title("Korgalore")
         self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
 
+        # Config path and mtime tracking for change detection
+        self.cfgpath = ctx.obj.get('cfgpath', get_xdg_config_dir() / 'korgalore.toml')
+        self._config_mtime = self._get_config_mtime()
+
         # Load config
         config = ctx.obj.get('config', {})
         gui_config = config.get('gui', {})
@@ -87,6 +91,44 @@ class KorgaloreApp:
 
         self.sync_thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
+
+    def _get_config_mtime(self) -> float:
+        """Return the newest mtime of config files."""
+        mtime = 0.0
+        try:
+            mtime = self.cfgpath.stat().st_mtime
+        except OSError:
+            pass
+        conf_d = self.cfgpath.parent / 'conf.d'
+        try:
+            # Check conf.d directory itself (detects added/removed files)
+            mtime = max(mtime, conf_d.stat().st_mtime)
+            for f in conf_d.glob('*.toml'):
+                mtime = max(mtime, f.stat().st_mtime)
+        except OSError:
+            pass
+        return mtime
+
+    def _check_reload_config(self) -> None:
+        """Reload configuration if files have changed on disk."""
+        current_mtime = self._get_config_mtime()
+        if current_mtime <= self._config_mtime:
+            return
+        logger.info("Configuration files changed on disk, reloading...")
+        is_valid, error_msg = validate_config_file(self.cfgpath)
+        if is_valid:
+            self.ctx.obj['config'] = load_config(self.cfgpath)
+            self.ctx.obj['targets'] = dict()
+            self.ctx.obj['feeds'] = dict()
+            self.ctx.obj['deliveries'] = dict()
+            gui_config = self.ctx.obj['config'].get('gui', {})
+            self.sync_interval = gui_config.get('sync_interval', 300)
+            self._config_mtime = current_mtime
+            logger.info("Configuration reloaded successfully.")
+        else:
+            logger.error("Changed config has errors, keeping previous: %s", error_msg)
+            # Update mtime so we don't retry every sync cycle
+            self._config_mtime = current_mtime
 
     def build_menu(self) -> Any:
         menu = Gtk.Menu()
@@ -368,6 +410,8 @@ class KorgaloreApp:
                 # Update sync interval if changed
                 gui_config = self.ctx.obj['config'].get('gui', {})
                 self.sync_interval = gui_config.get('sync_interval', 300)
+                # Update mtime to avoid redundant reload on next sync
+                self._config_mtime = self._get_config_mtime()
                 logger.info("Configuration reloaded successfully.")
             else:
                 logger.error("Configuration file has errors: %s", error_msg)
@@ -424,6 +468,9 @@ class KorgaloreApp:
             # will trigger sooner if network comes back
             self.next_sync_time = time.time() + self.sync_interval
             return
+
+        # Check for config changes before syncing
+        self._check_reload_config()
 
         self.is_syncing = True
         GLib.idle_add(lambda: self.item_sync.set_sensitive(False))

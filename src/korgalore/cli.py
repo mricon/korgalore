@@ -831,6 +831,7 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
     if ctx.invoked_subcommand != 'edit-config':
         config = load_config(cfgpath)
         ctx.obj['config'] = config
+        ctx.obj['cfgpath'] = cfgpath
 
         # Check for user_agent_plus in config
         main_config = config.get('main', {})
