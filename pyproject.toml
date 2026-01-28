@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "korgalore"
-version = "0.5"
+version = "0.6-dev"
 description = "A tool to put public-inbox messages into your Gmail inbox."
 readme = "README.md"
 requires-python = ">=3.11"
