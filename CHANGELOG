@@ -63,6 +63,14 @@ Improvements
   to the systemd journal. This prevents I/O errors when the terminal is closed
   after launching with ``kgl gui &``.
 
+Bug Fixes
+~~~~~~~~~
+
+* Maildir target now creates parent directories if they don't exist. Python's
+  ``mailbox.Maildir`` only creates the maildir structure (cur/new/tmp), not
+  parent directories, causing failures when using paths like ``~/Mail/rfl``
+  where ``~/Mail`` exists but ``rfl`` does not.
+
 v0.4 (2026-01-20)
 -----------------
 

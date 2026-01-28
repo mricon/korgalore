@@ -29,7 +29,10 @@ class MaildirTarget:
         self.maildir_path = Path(maildir_path).expanduser()
 
         try:
-            # Use Python's mailbox.Maildir - creates structure if needed
+            # Ensure parent directories exist (mailbox.Maildir only creates
+            # the maildir structure itself, not parent directories)
+            self.maildir_path.parent.mkdir(parents=True, exist_ok=True)
+            # Use Python's mailbox.Maildir - creates cur/new/tmp structure
             self.maildir = mailbox.Maildir(str(self.maildir_path), create=True)
         except Exception as e:
             raise ConfigurationError(

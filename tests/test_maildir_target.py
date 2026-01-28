@@ -22,6 +22,18 @@ class TestMaildirTargetInit:
         assert (maildir_path / "cur").is_dir()
         assert (maildir_path / "tmp").is_dir()
 
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        """Initializing creates parent directories if they don't exist."""
+        maildir_path = tmp_path / "nonexistent" / "parent" / "maildir"
+        assert not maildir_path.parent.exists()
+
+        MaildirTarget("test", str(maildir_path))
+
+        assert maildir_path.exists()
+        assert (maildir_path / "new").is_dir()
+        assert (maildir_path / "cur").is_dir()
+        assert (maildir_path / "tmp").is_dir()
+
     def test_uses_existing_maildir(self, tmp_path: Path) -> None:
         """Initializing with existing maildir works."""
         maildir_path = tmp_path / "existing_maildir"
