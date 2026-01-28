@@ -390,14 +390,23 @@ class PIFeed:
         return top_commit
 
     def get_first_commit(self, epoch: int) -> str:
-        """Get the first (oldest) commit hash in an epoch."""
+        """Get the first (oldest) commit hash in an epoch.
+
+        Returns an empty string if the repository has no commits.
+        """
         gitdir = self.get_gitdir(epoch)
+        # Check if the repository has any commits at all
+        retcode, output = run_git_command(str(gitdir), ['rev-list', '-n', '1', '--all'])
+        if retcode != 0:
+            raise GitError(f"Git rev-list --all failed: {output.decode()}")
+        if not output.strip():
+            return ''
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '--max-parents=0', branch]
         retcode, output = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise GitError(f"Git rev-list failed: {output.decode()}")
-        first_commit = output.decode()
+        first_commit = output.decode().strip()
         return first_commit
 
     def feed_lock(self) -> None:
