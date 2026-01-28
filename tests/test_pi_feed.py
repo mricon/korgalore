@@ -364,3 +364,89 @@ class TestLegacyMigration:
 
         # This should not raise an error - it should just return early
         feed._perform_legacy_migration()  # Should not crash
+
+
+class TestGetFirstCommit:
+    """Tests for get_first_commit with empty and non-empty repositories."""
+
+    def _make_feed(self, feed_dir: Path) -> PIFeed:
+        """Create a concrete PIFeed subclass for testing."""
+        class TestPIFeed(PIFeed):
+            def __init__(self, fd: Path) -> None:
+                super().__init__(feed_key="test-feed", feed_dir=fd)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+            def get_highest_epoch(self) -> int:
+                return 0
+
+            def get_top_commit(self, epoch: int) -> str:
+                return "abc123"
+
+        return TestPIFeed(feed_dir)
+
+    def _init_bare_repo(self, gitdir: Path) -> None:
+        """Initialise a bare git repository at gitdir."""
+        import subprocess
+        subprocess.run(
+            ['git', 'init', '--bare', str(gitdir)],
+            check=True, capture_output=True,
+        )
+
+    def _add_commit(self, gitdir: Path) -> str:
+        """Add a single commit to a bare repo and return its hash."""
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as work:
+            subprocess.run(
+                ['git', 'clone', str(gitdir), work],
+                check=True, capture_output=True,
+            )
+            dummy = Path(work) / 'dummy'
+            dummy.write_text('content')
+            subprocess.run(
+                ['git', '-C', work, 'add', 'dummy'],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ['git', '-C', work,
+                 '-c', 'user.name=Test', '-c', 'user.email=test@test',
+                 'commit', '-m', 'initial'],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ['git', '-C', work, 'push'],
+                check=True, capture_output=True,
+            )
+            result = subprocess.run(
+                ['git', '-C', work, 'rev-parse', 'HEAD'],
+                check=True, capture_output=True, text=True,
+            )
+            return result.stdout.strip()
+
+    def test_empty_repo_returns_empty_string(self, tmp_path: Path) -> None:
+        """get_first_commit returns '' for a repository with no commits."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        result = feed.get_first_commit(0)
+        assert result == ''
+
+    def test_nonempty_repo_returns_commit_hash(self, tmp_path: Path) -> None:
+        """get_first_commit returns the root commit hash."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+        expected = self._add_commit(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        result = feed.get_first_commit(0)
+        assert result == expected
