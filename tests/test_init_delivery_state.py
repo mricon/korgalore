@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock, patch
 
 import click
-import pytest
 
 from korgalore import StateError
 from korgalore.pi_feed import PIFeed

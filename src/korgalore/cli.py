@@ -757,7 +757,9 @@ def unlock_all_feeds(ctx: click.Context) -> None:
         feed.feed_unlock()
 
 
-def update_all_feeds(ctx: click.Context, status_callback: Optional[Callable[[str], None]] = None) -> Tuple[List[str], List[str]]:
+def update_all_feeds(ctx: click.Context,
+                     status_callback: Optional[Callable[[str], None]] = None,
+                     ) -> Tuple[List[str], List[str]]:
     """Update all feeds and return (updated_feeds, initialized_feeds)."""
     updated_feeds: List[str] = []
     initialized_feeds: List[str] = []
