@@ -477,3 +477,131 @@ class TestGetFirstCommit:
         feed = self._make_feed(feed_dir)
         result = feed.get_top_commit(0)
         assert result == expected
+
+
+class TestIsEmptyRepoCache:
+    """Tests for is_empty_repo caching and cache invalidation."""
+
+    def _make_feed(self, feed_dir: Path) -> PIFeed:
+        """Create a concrete PIFeed subclass for testing."""
+        class TestPIFeed(PIFeed):
+            def __init__(self, fd: Path) -> None:
+                super().__init__(feed_key="test-feed", feed_dir=fd)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+            def get_highest_epoch(self) -> int:
+                return 0
+
+        return TestPIFeed(feed_dir)
+
+    def _init_bare_repo(self, gitdir: Path) -> None:
+        """Initialise a bare git repository at gitdir."""
+        import subprocess
+        subprocess.run(
+            ['git', 'init', '--bare', str(gitdir)],
+            check=True, capture_output=True,
+        )
+
+    def _add_commit(self, gitdir: Path) -> str:
+        """Add a single commit to a bare repo and return its hash."""
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as work:
+            subprocess.run(
+                ['git', 'clone', str(gitdir), work],
+                check=True, capture_output=True,
+            )
+            dummy = Path(work) / 'dummy'
+            dummy.write_text('content')
+            subprocess.run(
+                ['git', '-C', work, 'add', 'dummy'],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ['git', '-C', work,
+                 '-c', 'user.name=Test', '-c', 'user.email=test@test',
+                 'commit', '-m', 'initial'],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ['git', '-C', work, 'push'],
+                check=True, capture_output=True,
+            )
+            result = subprocess.run(
+                ['git', '-C', work, 'rev-parse', 'HEAD'],
+                check=True, capture_output=True, text=True,
+            )
+            return result.stdout.strip()
+
+    def test_result_is_cached(self, tmp_path: Path) -> None:
+        """Repeated is_empty_repo calls use the cache."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        assert feed.is_empty_repo(0) is True
+        assert 0 in feed._empty_repo_cache
+        assert feed._empty_repo_cache[0] is True
+
+        # Second call should return cached value without git command
+        # Verify by checking the cache is still populated
+        assert feed.is_empty_repo(0) is True
+
+    def test_cache_cleared_on_unlock(self, tmp_path: Path) -> None:
+        """feed_unlock clears the is_empty_repo cache."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        assert feed.is_empty_repo(0) is True
+        assert 0 in feed._empty_repo_cache
+
+        feed.feed_lock()
+        try:
+            # Cache should still be present while locked
+            assert 0 in feed._empty_repo_cache
+        finally:
+            feed.feed_unlock()
+
+        # Cache should be cleared after unlock
+        assert 0 not in feed._empty_repo_cache
+
+    def test_cache_reflects_repo_state_after_unlock(self, tmp_path: Path) -> None:
+        """After unlock and adding a commit, is_empty_repo returns False."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        assert feed.is_empty_repo(0) is True
+
+        feed.feed_lock()
+        self._add_commit(gitdir)
+        feed.feed_unlock()
+
+        # Cache was cleared by unlock, so this re-checks the repo
+        assert feed.is_empty_repo(0) is False
+
+    def test_nonempty_repo_cached_as_false(self, tmp_path: Path) -> None:
+        """Non-empty repos are cached as False."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+        self._add_commit(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        assert feed.is_empty_repo(0) is False
+        assert feed._empty_repo_cache[0] is False

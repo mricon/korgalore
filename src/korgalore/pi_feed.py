@@ -43,6 +43,7 @@ class PIFeed:
 
     def __init__(self, feed_key: str, feed_dir: Path) -> None:
         self._branch_cache: Dict[str, str] = dict()
+        self._empty_repo_cache: Dict[int, bool] = dict()
         self.feed_key: str = feed_key
         self.feed_dir: Path = feed_dir
         self.feed_type: str = 'unknown'
@@ -379,12 +380,19 @@ class PIFeed:
             return subject
 
     def is_empty_repo(self, epoch: int) -> bool:
-        """Check if a repository has no commits."""
+        """Check if a repository has no commits.
+
+        Results are cached per epoch and cleared on feed_unlock().
+        """
+        if epoch in self._empty_repo_cache:
+            return self._empty_repo_cache[epoch]
         gitdir = self.get_gitdir(epoch)
-        retcode, output = run_git_command(str(gitdir), ['rev-list', '-n', '1', '--all'])
+        retcode, output = run_git_command(str(gitdir), ['branch', '--list'])
         if retcode != 0:
-            raise GitError(f"Git rev-list --all failed: {output.decode()}")
-        return not output.strip()
+            raise GitError(f"Git branch --list failed: {output.decode()}")
+        empty = not output.strip()
+        self._empty_repo_cache[epoch] = empty
+        return empty
 
     def get_top_commit(self, epoch: int) -> str:
         """Get the most recent commit hash in an epoch.
@@ -446,6 +454,7 @@ class PIFeed:
             lockf(lockfh, LOCK_UN)
             lockfh.close()
             del LOCKED_FEEDS[key]
+            self._empty_repo_cache.clear()
             logger.debug("Released lock for feed '%s'.", key)
         except KeyError:
             raise PublicInboxError(f"Feed '{key}' is not locked.")
