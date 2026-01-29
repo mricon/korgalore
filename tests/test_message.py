@@ -224,7 +224,7 @@ class TestRawMessageTraceHeader:
         # Check each line (split by CRLF)
         lines = trace_header.split(b"\r\n")
         for line in lines:
-            assert len(line) <= 75, f"Line too long ({len(line)} chars): {line}"
+            assert len(line) <= 75, f"Line too long ({len(line)} chars): {line!r}"
 
     def test_trace_header_continuation_format(self) -> None:
         """Wrapped trace header uses proper continuation format (space prefix)."""

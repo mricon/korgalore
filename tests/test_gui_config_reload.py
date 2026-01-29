@@ -7,7 +7,10 @@ mtime update in _run_edit_config without requiring GTK or AppIndicator3.
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from korgalore.gui import KorgaloreApp
 from unittest.mock import MagicMock, patch
 
 import click
@@ -27,7 +30,7 @@ def _make_ctx(config: Dict[str, Any], cfgpath: Path) -> click.Context:
     return ctx
 
 
-def _make_app(ctx: click.Context):
+def _make_app(ctx: click.Context) -> 'KorgaloreApp':
     """Construct a KorgaloreApp without GTK by stubbing __init__."""
     from korgalore.gui import KorgaloreApp
 

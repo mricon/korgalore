@@ -1718,7 +1718,6 @@ def track_subsystem(ctx: click.Context, subsystem_name: Optional[str],
     # Parameter validation
     if not do_list and not subsystem_name:
         raise click.UsageError('SUBSYSTEM_NAME is required unless --list is specified.')
-    # Handle --list mode
     if do_list:
         config_dir = get_xdg_config_dir()
         conf_d = config_dir / 'conf.d'
@@ -1767,6 +1766,7 @@ def track_subsystem(ctx: click.Context, subsystem_name: Optional[str],
 
     # Handle --forget mode
     if forget:
+        assert subsystem_name is not None
         config_dir = get_xdg_config_dir()
         data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
 
@@ -1825,6 +1825,8 @@ def track_subsystem(ctx: click.Context, subsystem_name: Optional[str],
 
         logger.info('Removed tracking for subsystem: %s', forget_display_name)
         return
+
+    assert subsystem_name is not None
 
     # Find MAINTAINERS file: explicit path, ./MAINTAINERS, or fetch from kernel.org
     if maintainers:
