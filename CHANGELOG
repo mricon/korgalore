@@ -39,6 +39,10 @@ Bug Fixes
   - ``get_first_commit()`` now detects empty repositories and returns an
     empty string instead of raising a ``GitError``
 
+* Cache ``is_empty_repo()`` check to avoid redundant git subprocesses
+
+  - Result is cached per epoch and cleared on ``feed_unlock()``
+
 * GUI: automatically detect and reload configuration files changed on disk
 
   - Before each sync cycle, the GUI now checks mtimes of the main config
