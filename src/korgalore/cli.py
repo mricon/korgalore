@@ -757,8 +757,8 @@ def unlock_all_feeds(ctx: click.Context) -> None:
         feed.feed_unlock()
 
 
-def update_all_feeds(ctx: click.Context, status_callback: Optional[Callable[[str], None]] = None) -> List[str]:
-    """Update all feeds and return list of feed keys that had updates."""
+def update_all_feeds(ctx: click.Context, status_callback: Optional[Callable[[str], None]] = None) -> Tuple[List[str], List[str]]:
+    """Update all feeds and return (updated_feeds, initialized_feeds)."""
     updated_feeds: List[str] = []
     initialized_feeds: List[str] = []
     feeds = ctx.obj.get('feeds', {})  # type: Dict[str, Union[LeiFeed, LoreFeed]]
@@ -785,7 +785,7 @@ def update_all_feeds(ctx: click.Context, status_callback: Optional[Callable[[str
     for feed_key in initialized_feeds:
         logger.info('Initialized new feed: %s', feed_key)
 
-    return updated_feeds
+    return updated_feeds, initialized_feeds
 
 
 def retry_all_failed_deliveries(ctx: click.Context) -> None:
@@ -1074,17 +1074,31 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
     retry_all_failed_deliveries(ctx)
     if no_update:
         logger.debug('No-update flag set, skipping feed updates')
-        updated_feeds = list()
+        updated_feeds: List[str] = list()
+        initialized_feeds: List[str] = list()
     else:
-        updated_feeds = update_all_feeds(ctx, status_callback=status_callback)
+        updated_feeds, initialized_feeds = update_all_feeds(ctx, status_callback=status_callback)
+
+    # Build reverse index once: feed_key -> delivery names
+    feed_to_deliveries: Dict[str, List[str]] = dict()
+    for dname, (feed, _, _, _) in ctx.obj['deliveries'].items():
+        feed_to_deliveries.setdefault(feed.feed_key, []).append(dname)
+
+    # Initialise delivery state for newly cloned feeds so the next update
+    # delivers new commits without wasting an extra pull cycle.
+    if not no_update:
+        for feed_key in initialized_feeds:
+            feed = ctx.obj['feeds'][feed_key]
+            for dname in feed_to_deliveries.get(feed_key, []):
+                try:
+                    feed.load_delivery_info(dname)
+                except StateError:
+                    logger.info('Initializing delivery state: %s', dname)
+                    feed.save_delivery_info(dname)
+
     run_deliveries: List[str] = list()
     if not force:
         logger.debug('Updated feeds: %s', ', '.join(updated_feeds))
-        # Build reverse index: feed_key -> delivery names (O(m) once, instead of O(n*m) nested loop)
-        feed_to_deliveries: Dict[str, List[str]] = dict()
-        for dname, (feed, _, _, _) in ctx.obj['deliveries'].items():
-            feed_to_deliveries.setdefault(feed.feed_key, []).append(dname)
-        # O(1) lookup per updated feed
         for feed_key in updated_feeds:
             run_deliveries.extend(feed_to_deliveries.get(feed_key, []))
     else:
