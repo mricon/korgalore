@@ -309,7 +309,8 @@ class PIFeed:
         try:
             dinfo = self.load_delivery_info(delivery_name)
         except StateError:
-            # XXX: currently, assuming a brand new delivery and not some other kind of error
+            # Fallback for edge cases, e.g. a new delivery added to config between runs.
+            # Normal first-clone initialisation is handled by perform_pull() after update_all_feeds().
             logger.info('Initializing new delivery: %s', delivery_name)
             self.save_delivery_info(delivery_name)
             return list()
