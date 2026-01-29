@@ -602,7 +602,12 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
 
 
 def normalize_feed_key(feed_url: str) -> str:
-    """Normalize a feed URL into a consistent key for internal tracking."""
+    """Normalize a feed URL into a consistent key for internal tracking.
+
+    The returned key must be safe to use as a directory name. For lore URLs
+    the list name is extracted directly; for other URLs the scheme is
+    stripped and special characters are replaced with hyphens.
+    """
     if feed_url.startswith('https://lore.kernel.org/'):
         # Extract list name from URL
         return feed_url.replace('https://lore.kernel.org/', '').strip('/')
@@ -610,8 +615,14 @@ def normalize_feed_key(feed_url: str) -> str:
         # Keep full lei path as key
         return feed_url
     else:
-        # For unknown types, use URL as-is
-        return feed_url
+        # Sanitize URL for use as a directory name
+        url_without_scheme = feed_url.replace('https://', '').replace('http://', '')
+        sanitized = re.sub(r'[^a-zA-Z0-9_.-]', '-', url_without_scheme)
+        sanitized = sanitized.strip('-./')
+        if len(sanitized) > 200:
+            url_hash = hashlib.sha256(feed_url.encode()).hexdigest()[:16]
+            sanitized = f'feed-{url_hash}'
+        return sanitized
 
 
 def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) -> Union[LeiFeed, LoreFeed]:
