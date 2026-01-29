@@ -43,6 +43,14 @@ Bug Fixes
 
   - Result is cached per epoch and cleared on ``feed_unlock()``
 
+* Initialise delivery state after first feed clone
+
+  - When a new feed was cloned on the first ``kgl pull``, delivery state
+    was not set up until the next run, wasting one full pull cycle
+  - ``update_all_feeds()`` now returns both updated and initialized feed
+    lists, and ``perform_pull()`` immediately creates delivery state for
+    newly cloned feeds
+
 * GUI: automatically detect and reload configuration files changed on disk
 
   - Before each sync cycle, the GUI now checks mtimes of the main config
