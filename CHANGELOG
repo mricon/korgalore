@@ -25,6 +25,15 @@ New Features
 Bug Fixes
 ~~~~~~~~~
 
+* Fix non-lore feed URLs creating invalid directory paths
+
+  - ``normalize_feed_key()`` returned raw URLs (e.g.,
+    ``https://someothersite.com/foo``) as-is, resulting in a ``https:``
+    directory under the data path
+  - URLs are now sanitised by stripping the scheme, replacing special
+    characters with hyphens, and falling back to a hash-based name for
+    very long URLs
+
 * Fix ``track-subsystem`` crash when a lei query matches no messages
 
   - ``get_first_commit()`` now detects empty repositories and returns an
