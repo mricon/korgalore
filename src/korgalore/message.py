@@ -176,14 +176,14 @@ class RawMessage:
             f"v{__version__}; {date_str}"
         )
         trace_header = self._wrap_header('X-Korgalore-Trace', trace_value) + '\n'
-        trace_header = trace_header.encode('utf-8')
+        trace_bytes = trace_header.encode('utf-8')
 
         # Find the header/body boundary (empty line)
         # Headers end with \n\n (after LF normalization)
         boundary = message.find(b'\n\n')
         if boundary == -1:
             # No body, append header at the end
-            return message + trace_header
+            return message + trace_bytes
         else:
             # Insert header before the blank line
-            return message[:boundary + 1] + trace_header + message[boundary + 1:]
+            return message[:boundary + 1] + trace_bytes + message[boundary + 1:]

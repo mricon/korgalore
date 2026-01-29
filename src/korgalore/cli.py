@@ -1713,6 +1713,7 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
     """
     # Handle --forget mode
     if forget:
+        assert subsystem_name is not None
         config_dir = get_xdg_config_dir()
         data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
 
@@ -1762,6 +1763,8 @@ def track_subsystem(ctx: click.Context, subsystem_name: str,
 
         logger.info('Removed tracking for subsystem: %s', subsystem_name)
         return
+
+    assert subsystem_name is not None
 
     # Find MAINTAINERS file: explicit path, ./MAINTAINERS, or fetch from kernel.org
     if maintainers:
