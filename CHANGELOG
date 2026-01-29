@@ -1,6 +1,33 @@
 Korgalore Changelog
 ===================
 
+v0.5.2 (unreleased)
+--------------------
+
+Bug Fixes
+~~~~~~~~~
+
+* Fix non-lore feed URLs creating invalid directory paths
+
+  - ``normalize_feed_key()`` returned raw URLs (e.g.,
+    ``https://someothersite.com/foo``) as-is, resulting in a ``https:``
+    directory under the data path
+  - URLs are now sanitised by stripping the scheme, replacing special
+    characters with hyphens, and falling back to a hash-based name for
+    very long URLs
+
+* Cache ``is_empty_repo()`` check to avoid redundant git subprocesses
+
+  - Result is cached per epoch and cleared on ``feed_unlock()``
+
+* Initialise delivery state after first feed clone
+
+  - When a new feed was cloned on the first ``kgl pull``, delivery state
+    was not set up until the next run, wasting one full pull cycle
+  - ``update_all_feeds()`` now returns both updated and initialized feed
+    lists, and ``perform_pull()`` immediately creates delivery state for
+    newly cloned feeds
+
 v0.5.1 (2026-01-28)
 --------------------
 
