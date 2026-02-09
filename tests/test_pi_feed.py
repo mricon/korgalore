@@ -365,6 +365,29 @@ class TestLegacyMigration:
         # This should not raise an error - it should just return early
         feed._perform_legacy_migration()  # Should not crash
 
+    def test_migration_skips_when_git_dir_has_no_epochs(self, tmp_path: Path) -> None:
+        """Legacy migration does not crash when git/ exists but has no epoch repos."""
+        from korgalore.pi_feed import PIFeed
+
+        class TestPIFeed(PIFeed):
+            def __init__(self, feed_dir: Path) -> None:
+                super().__init__(feed_key="partial-feed", feed_dir=feed_dir)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+        # Create feed directory with empty git/ subdirectory (e.g. from a
+        # failed or interrupted clone that left the parent dir behind)
+        feed_dir = tmp_path / "partial-feed"
+        feed_dir.mkdir()
+        (feed_dir / "git").mkdir()
+
+        feed = TestPIFeed(feed_dir)
+
+        # This should not raise PublicInboxError - it should return early
+        feed._perform_legacy_migration()
+
 
 class TestGetFirstCommit:
     """Tests for get_first_commit with empty and non-empty repositories."""

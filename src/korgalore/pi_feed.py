@@ -144,7 +144,10 @@ class PIFeed:
             return  # New feed, nothing to migrate
 
         # Check if there is a legacy korgalore.info file
-        highest_epoch = self.get_highest_epoch()
+        try:
+            highest_epoch = self.get_highest_epoch()
+        except PublicInboxError:
+            return  # git dir exists but no epoch repos yet, nothing to migrate
         legacy_info_path = self.feed_dir / 'git' / f'{highest_epoch}.git' / 'korgalore.info'
         if not legacy_info_path.exists():
             return  # No legacy file, nothing to do
