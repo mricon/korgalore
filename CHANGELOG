@@ -43,6 +43,14 @@ Bug Fixes
 
   - Result is cached per epoch and cleared on ``feed_unlock()``
 
+* Fix crash in legacy migration when git directory has no epoch repos
+
+  - If a previous clone was interrupted, the ``git/`` directory could exist
+    without any epoch subdirectories, causing ``_perform_legacy_migration()``
+    to raise an unhandled ``PublicInboxError``
+  - The migration now returns early when no epochs are found, allowing the
+    normal feed initialisation path to proceed
+
 * Initialise delivery state after first feed clone
 
   - When a new feed was cloned on the first ``kgl pull``, delivery state
