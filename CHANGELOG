@@ -22,6 +22,21 @@ New Features
     SECURITY MODULE'``)
   - Used by ``--list`` for display and by ``--forget`` for log messages
 
+* ``kgl subscribe`` command group for managing mailing list subscriptions
+
+  - ``subscribe add URL`` validates and subscribes to a public-inbox feed
+    (lore.kernel.org or any public-inbox server) or a local lei search
+  - ``subscribe list`` shows all active and paused subscriptions
+  - ``subscribe pause/resume`` toggles delivery without losing feed data
+  - ``subscribe resume --skip`` discards messages received while paused
+  - ``subscribe stop`` removes the subscription; ``--delete`` also removes
+    feed data
+  - The ``add`` subcommand is the default, so ``kgl subscribe URL`` works
+    as a shorthand for ``kgl subscribe add URL``
+  - Subscriptions are stored as individual ``conf.d/sub-{feed_key}.toml``
+    files, keeping them separate from the main configuration
+  - Duplicate detection checks both conf.d files and the main configuration
+
 Bug Fixes
 ~~~~~~~~~
 

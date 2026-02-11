@@ -31,6 +31,36 @@ class LeiFeed(PIFeed):
         self.feed_type = 'lei'
         self.feed_url = lei_url
 
+    @staticmethod
+    def validate_lei_path(path: str) -> str:
+        """Validate that a path corresponds to a known lei v2 search.
+
+        Args:
+            path: The filesystem path to validate.
+
+        Returns:
+            The path, confirmed as a known v2 lei search.
+
+        Raises:
+            PublicInboxError: If lei ls-search fails or the path is not found.
+        """
+        args = ['ls-search', '-l', '-f', 'json']
+        retcode, output = run_lei_command(args)
+        if retcode != 0:
+            raise PublicInboxError(f"LEI list searches failed: {output.decode()}")
+
+        ls_data = json.loads(output.decode())
+        resolved_path = str(Path(path).resolve())
+        for entry in ls_data:
+            entry_output = entry.get('output', '')
+            if entry_output.startswith('v2:'):
+                entry_path = entry_output[3:]
+                if str(Path(entry_path).resolve()) == resolved_path:
+                    logger.debug('Validated lei path: %s', path)
+                    return path
+
+        raise PublicInboxError(f"Path not found as a v2 lei search: {path}")
+
     def get_latest_epoch_info(self) -> List[Tuple[int, str]]:
         """Get current ref information for all epochs.
 

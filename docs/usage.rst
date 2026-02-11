@@ -267,6 +267,135 @@ For tracked threads (see ``track`` command):
 2. Deliver any new messages to their configured targets
 3. Update tracking activity timestamps
 
+subscribe
+---------
+
+Manage mailing list subscriptions from the command line.
+
+Instead of hand-editing ``korgalore.toml``, you can use ``subscribe`` to add
+and manage feed subscriptions. Each subscription is stored as a separate
+``conf.d/sub-{feed_key}.toml`` file, keeping it isolated from your main
+configuration.
+
+The ``add`` subcommand is the default, so you can omit it::
+
+   # These two are equivalent:
+   kgl subscribe add https://lore.kernel.org/lkml/
+   kgl subscribe https://lore.kernel.org/lkml/
+
+Subcommands
+~~~~~~~~~~~
+
+**subscribe add** - Subscribe to a mailing list:
+
+.. code-block:: bash
+
+   kgl subscribe add [OPTIONS] URL
+
+Arguments:
+
+* ``URL``: A public-inbox URL (e.g., ``https://lore.kernel.org/lkml/``) or a
+  local lei search path
+
+Options:
+
+* ``-t, --target TEXT``: Target for deliveries (required if multiple targets configured)
+* ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated)
+
+**subscribe list** - List current subscriptions:
+
+.. code-block:: bash
+
+   kgl subscribe list [OPTIONS]
+
+Options:
+
+* ``-p, --paused``: Show only paused subscriptions
+
+**subscribe stop** - Remove a subscription:
+
+.. code-block:: bash
+
+   kgl subscribe stop [OPTIONS] FEED_KEY
+
+Options:
+
+* ``--delete``: Also delete feed data from the data directory
+
+**subscribe pause** - Temporarily pause a subscription:
+
+.. code-block:: bash
+
+   kgl subscribe pause FEED_KEY
+
+**subscribe resume** - Resume a paused subscription:
+
+.. code-block:: bash
+
+   kgl subscribe resume [OPTIONS] FEED_KEY
+
+Options:
+
+* ``--skip``: Skip messages received while paused. Delivery state is deleted
+  so the next ``pull`` starts from the current feed tip.
+
+Examples
+~~~~~~~~
+
+.. code-block:: bash
+
+   # Subscribe to a lore.kernel.org list
+   kgl subscribe https://lore.kernel.org/lkml/
+
+   # Subscribe to a non-lore public-inbox server
+   kgl subscribe https://inbox.example.org/mylist/ -t fastmail
+
+   # Subscribe with custom labels
+   kgl subscribe add https://lore.kernel.org/netdev/ -l networking,patches
+
+   # Subscribe to a local lei search
+   kgl subscribe /home/user/lei/my-search -t maildir
+
+   # List all subscriptions
+   kgl subscribe list
+
+   # List only paused subscriptions
+   kgl subscribe list --paused
+
+   # Pause a subscription
+   kgl subscribe pause lkml
+
+   # Resume, skipping messages that arrived while paused
+   kgl subscribe resume --skip lkml
+
+   # Remove a subscription (keeps feed data)
+   kgl subscribe stop lkml
+
+   # Remove a subscription and delete all feed data
+   kgl subscribe stop --delete lkml
+
+How Subscriptions Work
+~~~~~~~~~~~~~~~~~~~~~~
+
+1. When you run ``subscribe add``, korgalore:
+
+   * Validates the URL by fetching the public-inbox manifest (or checking
+     ``lei ls-search`` for local paths)
+   * Checks for duplicate feeds and deliveries in the existing configuration
+   * Generates a ``conf.d/sub-{feed_key}.toml`` file with ``[feeds]`` and
+     ``[deliveries]`` sections
+
+2. During ``pull``, subscribed feeds are processed like any other feed —
+   the configuration is loaded from conf.d and merged with the main config.
+
+3. Pausing renames the file to ``.toml.paused``, which is not loaded by
+   ``conf.d/*.toml`` globbing. Resuming renames it back.
+
+4. The ``--skip`` flag on ``resume`` deletes delivery state files
+   (``korgalore.*.info``) so the next ``pull`` creates fresh state from
+   the current feed tip, effectively skipping any messages that arrived
+   while paused.
+
 yank
 ----
 

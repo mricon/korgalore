@@ -103,6 +103,37 @@ Run deliveries even if no apparent updates.
 .PP
 If \fIDELIVERY_NAME\fR is specified, only process that delivery.
 Otherwise, process all configured deliveries including tracked threads.
+.SS subscribe
+Manage mailing list subscriptions.
+.PP
+.B kgl subscribe
+\fISUBCOMMAND\fR [\fIOPTIONS\fR] [\fIARGS\fR]
+.PP
+The \fBadd\fR subcommand is the default and can be omitted:
+\fBkgl subscribe URL\fR is equivalent to \fBkgl subscribe add URL\fR.
+.PP
+Subcommands:
+.TP
+.B add \fIURL\fR
+Subscribe to a public-inbox feed or local lei search. Options:
+\fB\-t\fR/\fB\-\-target\fR, \fB\-l\fR/\fB\-\-labels\fR.
+.TP
+.B list
+List subscriptions. Use \fB\-p\fR/\fB\-\-paused\fR to show only paused subscriptions.
+.TP
+.B stop \fIFEED_KEY\fR
+Remove a subscription. Use \fB\-\-delete\fR to also remove feed data.
+.TP
+.B pause \fIFEED_KEY\fR
+Temporarily pause a subscription.
+.TP
+.B resume \fIFEED_KEY\fR
+Resume a paused subscription. Use \fB\-\-skip\fR to discard messages
+received while paused.
+.PP
+Subscriptions are stored as \fIconf.d/sub\-{feed_key}.toml\fR files.
+Paused subscriptions are renamed to \fI.toml.paused\fR and excluded
+from configuration loading.
 .SS track
 Track email threads for updates via lei queries.
 .PP

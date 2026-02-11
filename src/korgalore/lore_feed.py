@@ -40,6 +40,63 @@ class LoreFeed(PIFeed):
         else:
             self.session = get_requests_session()
 
+    @staticmethod
+    def validate_public_inbox_url(url: str) -> str:
+        """Validate a public-inbox URL by fetching its manifest.
+
+        Fetches {url}/manifest.js.gz, parses the JSON, and verifies that
+        all epoch keys share the same list name prefix.
+
+        Works with any public-inbox server, not just lore.kernel.org.
+
+        Args:
+            url: The public-inbox base URL to validate.
+
+        Returns:
+            The list name extracted from the manifest keys.
+
+        Raises:
+            RemoteError: If the manifest cannot be fetched, parsed, or
+                contains inconsistent list prefixes.
+        """
+        manifest_url = f"{url.rstrip('/')}/manifest.js.gz"
+        logger.debug('Fetching manifest from %s', manifest_url)
+
+        try:
+            session = get_requests_session()
+            response = session.get(manifest_url)
+            response.raise_for_status()
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to fetch manifest from {manifest_url}: {e}"
+            ) from e
+
+        try:
+            raw = GzipFile(fileobj=io.BytesIO(response.content)).read()
+            manifest = json.loads(raw)
+        except Exception as e:
+            raise RemoteError(
+                f"Failed to parse manifest from {manifest_url}: {e}"
+            ) from e
+
+        if not manifest:
+            raise RemoteError(f"Empty manifest from {manifest_url}")
+
+        # Extract list name prefixes (e.g. /lkml/git/0.git -> lkml)
+        prefixes: set[str] = set()
+        for key in manifest.keys():
+            parts = key.strip('/').split('/')
+            if parts:
+                prefixes.add(parts[0])
+
+        if len(prefixes) != 1:
+            raise RemoteError(
+                f"Manifest entries have inconsistent list prefixes: "
+                f"{', '.join(sorted(prefixes))}"
+            )
+
+        return prefixes.pop()
+
     def get_manifest(self) -> Dict[str, Any]:
         """Fetch and parse the gzipped manifest from the Lore server."""
         try:

@@ -51,6 +51,10 @@ generated file includes a ``[subsystem]`` section with the human-readable
 subsystem name, used by ``track-subsystem --list`` for display and by
 ``--forget`` for identification.
 
+The ``subscribe`` command also uses conf.d, storing each subscription as
+``sub-{feed_key}.toml``. Paused subscriptions are renamed to
+``sub-{feed_key}.toml.paused`` so they are excluded from the ``*.toml`` glob.
+
 Gmail Setup
 ===========
 
