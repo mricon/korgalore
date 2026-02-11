@@ -44,6 +44,14 @@ Bug Fixes
   - Tracked thread deliveries now include ``subfolder=None`` to match the
     format used by regular deliveries
 
+* Fix shallow clone failure for dormant lists
+
+  - Cloning with ``--shallow-since=1.week.ago`` fails for lists with no
+    recent messages, because git cannot establish a shallow boundary when
+    no commits fall in the time window
+  - The clone now falls back to ``--depth=1`` when the time-based shallow
+    clone fails
+
 v0.5.1 (2026-01-28)
 --------------------
 
