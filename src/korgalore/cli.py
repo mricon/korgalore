@@ -1699,14 +1699,15 @@ def gui(ctx: click.Context) -> None:
         from korgalore.gui import start_gui
     except ImportError as e:
         logger.critical('GUI dependencies not found: %s', str(e))
-        logger.critical('Please install the "gui" extra: pip install ".[gui]"')
-        logger.critical('You may also need system packages: '
-                        'libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1')
         raise click.Abort()
 
     # Set GUI mode to disable interactive OAuth flows
     ctx.obj['gui_mode'] = True
-    start_gui(ctx)
+    try:
+        start_gui(ctx)
+    except RuntimeError as e:
+        logger.critical('%s', str(e))
+        raise click.Abort()
 
 
 @main.command('track-subsystem')

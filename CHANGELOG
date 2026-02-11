@@ -82,6 +82,15 @@ Bug Fixes
   - The clone now falls back to ``--depth=1`` when the time-based shallow
     clone fails
 
+* Improve GUI startup error reporting and debug logging
+
+  - Missing GTK dependency error is now shown before stdout/stderr are
+    redirected to ``/dev/null``, so users see it without ``-v DEBUG``
+  - Detect pipx environments and show ``pipx install "korgalore[gui]"``
+    instead of the pip command
+  - Running with ``-v DEBUG`` keeps stdout/stderr connected and preserves
+    the log level for easier troubleshooting
+
 * GUI: automatically detect and reload configuration files changed on disk
 
   - Before each sync cycle, the GUI now checks mtimes of the main config

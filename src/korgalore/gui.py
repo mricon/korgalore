@@ -49,12 +49,6 @@ class KorgaloreApp:
     """Korgalore Taskbar Application."""
 
     def __init__(self, ctx: click.Context):
-        if not HAS_GTK:
-            raise RuntimeError(
-                "GUI dependencies not available. Install python3-gi and "
-                "gir1.2-appindicator3-0.1 (or gir1.2-ayatanaappindicator3-0.1) "
-                "via system packages."
-            )
         self.ctx = ctx
         self.ind = AppIndicator3.Indicator.new(
             "korgalore-indicator",
@@ -590,26 +584,49 @@ class KorgaloreApp:
 
 def start_gui(ctx: click.Context) -> None:
     """Entry point for the GUI."""
-    # Redirect stdout/stderr to /dev/null to prevent EIO errors when the
-    # terminal is closed, since the GUI is designed to run detached.
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, sys.stdout.fileno())
-    os.dup2(devnull, sys.stderr.fileno())
-    os.close(devnull)
+    if not HAS_GTK:
+        if 'pipx/venvs' in sys.prefix:
+            raise RuntimeError(
+                'GUI dependencies not available.\n'
+                'Install the "gui" extra: pipx install "korgalore[gui]"\n'
+                'You may also need system packages: '
+                'libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1'
+            )
+        raise RuntimeError(
+            'GUI dependencies not available.\n'
+            'Install the "gui" extra: pip install "korgalore[gui]"\n'
+            'You may also need system packages: '
+            'libgirepository1.0-dev, libcairo2-dev, gir1.2-appindicator3-0.1'
+        )
 
-    # Configure logging to systemd journal with CRITICAL level only.
     root_logger = logging.getLogger('korgalore')
+    debug_mode = root_logger.isEnabledFor(logging.DEBUG)
+
+    if not debug_mode:
+        # Redirect stdout/stderr to /dev/null to prevent EIO errors when the
+        # terminal is closed, since the GUI is designed to run detached.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.dup2(devnull, sys.stderr.fileno())
+        os.close(devnull)
+
+    # Configure logging to systemd journal.
     root_logger.handlers.clear()
-    root_logger.setLevel(logging.CRITICAL)
+    if not debug_mode:
+        root_logger.setLevel(logging.CRITICAL)
 
     try:
         from systemd.journal import JournalHandler  # type: ignore
         handler = JournalHandler(SYSLOG_IDENTIFIER='korgalore')
-        handler.setLevel(logging.CRITICAL)
+        handler.setLevel(logging.DEBUG if debug_mode else logging.CRITICAL)
         root_logger.addHandler(handler)
     except ImportError:
-        # systemd-python not available, use NullHandler
-        handler = logging.NullHandler()
+        if debug_mode:
+            # Keep stderr logging when running with -v DEBUG
+            handler = logging.StreamHandler()
+            handler.setLevel(logging.DEBUG)
+        else:
+            handler = logging.NullHandler()
         root_logger.addHandler(handler)
 
     app = KorgaloreApp(ctx)
