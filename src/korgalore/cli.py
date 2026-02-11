@@ -866,7 +866,7 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
     ctx.obj['targets'] = dict()
     # 'feeds' is a mapping: feed_key -> feed instance
     ctx.obj['feeds'] = dict()
-    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels]
+    # 'deliveries' is a mapping: delivery_name -> Tuple[feed_instance, target_instance, labels, subfolder]
     ctx.obj['deliveries'] = dict()
 
     # Hide progress bar at the DEBUG level
@@ -1427,7 +1427,7 @@ def map_tracked_threads(ctx: click.Context) -> List[str]:
 
         # Add to feeds and deliveries
         feeds[tracked.track_id] = lei_feed
-        deliveries[tracked.track_id] = (lei_feed, target, tracked.labels)
+        deliveries[tracked.track_id] = (lei_feed, target, tracked.labels, None)
         mapped.append(tracked.track_id)
 
     return mapped
