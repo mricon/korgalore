@@ -133,6 +133,29 @@ To configure a maildir target, simply specify the path where you want messages s
 The maildir will be created automatically if it doesn't exist. The standard maildir
 structure (cur/, new/, tmp/ subdirectories) is handled automatically.
 
+You can use the ``subfolder`` parameter in deliveries to route messages into
+subdirectories under the target's base path. Maildir subfolders additionally
+support strftime format codes (e.g., ``%Y/%m``) for date-based directory
+organisation. This is particularly useful for high-traffic lists like
+linux-kernel, where a single maildir can accumulate tens of thousands of
+files and cause filesystem performance penalties:
+
+.. code-block:: toml
+
+   [targets.archive]
+   type = 'maildir'
+   path = '~/Mail'
+
+   [deliveries.lkml]
+   feed = 'lkml'
+   target = 'archive'
+   subfolder = 'Lists/LKML'  # Results in ~/Mail/Lists/LKML
+
+   [deliveries.lkml-archive]
+   feed = 'lkml'
+   target = 'archive'
+   subfolder = '%Y/%m'  # Results in ~/Mail/2026/01
+
 .. note::
    Labels are ignored for maildir targets. Maildir doesn't support Gmail-style
    labels, so any labels specified in deliveries using maildir targets will be
@@ -376,6 +399,11 @@ Maildir Target Parameters
 
 * ``type``: Must be ``'maildir'``
 * ``path``: Path to the maildir directory (will be created if it doesn't exist)
+
+Maildir deliveries also support the ``subfolder`` delivery parameter, which
+creates subdirectories under the base path. Subfolders can use strftime format
+codes for date-based directories (e.g., ``%Y/%m`` becomes ``2026/01``). See
+`Delivery Parameters`_ for details.
 
 JMAP Targets
 ~~~~~~~~~~~~
