@@ -67,6 +67,21 @@ Bug Fixes
   - Tracked thread deliveries now include ``subfolder=None`` to match the
     format used by regular deliveries
 
+* Include stderr and exit code in git error messages
+
+  - ``run_git_command()`` only returned stdout, but git writes errors to
+    stderr, resulting in empty error messages (e.g., "Git clone failed:")
+  - The function now returns stderr alongside stdout, and all error
+    messages include the exit code
+
+* Fix shallow clone failure for dormant lists
+
+  - Cloning with ``--shallow-since=1.week.ago`` fails for lists with no
+    recent messages, because git cannot establish a shallow boundary when
+    no commits fall in the time window
+  - The clone now falls back to ``--depth=1`` when the time-based shallow
+    clone fails
+
 * GUI: automatically detect and reload configuration files changed on disk
 
   - Before each sync cycle, the GUI now checks mtimes of the main config
