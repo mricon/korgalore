@@ -59,6 +59,14 @@ Bug Fixes
     lists, and ``perform_pull()`` immediately creates delivery state for
     newly cloned feeds
 
+* Fix crash in ``kgl pull`` after ``kgl track add``
+
+  - ``map_tracked_threads()`` stored a 3-tuple ``(feed, target, labels)``
+    but ``retry_all_failed_deliveries()`` and ``perform_pull()`` expected a
+    4-tuple ``(feed, target, labels, subfolder)``
+  - Tracked thread deliveries now include ``subfolder=None`` to match the
+    format used by regular deliveries
+
 * GUI: automatically detect and reload configuration files changed on disk
 
   - Before each sync cycle, the GUI now checks mtimes of the main config
