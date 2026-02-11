@@ -459,11 +459,12 @@ JMAP Target Parameters
 * ``type``: Must be ``'jmap'``
 * ``server``: JMAP server URL (e.g., ``'https://api.fastmail.com'``)
 * ``username``: Your account email address
-* ``token``: (Optional*) Bearer token provided inline (less secure)
-* ``token_file``: (Optional*) Path to file containing bearer token
+* ``token``: Bearer token provided inline (less secure)
+* ``token_file``: Path to file containing bearer token
 * ``timeout``: (Optional) Request timeout in seconds (default: ``60``)
 
-*Either ``token`` or ``token_file`` must be provided.
+.. important::
+   Either ``token`` or ``token_file`` must be provided.
 
 IMAP Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -477,10 +478,11 @@ IMAP Target Parameters
 
 **For password authentication** (``auth_type = 'password'`` or omitted):
 
-* ``password``: (Optional*) Password provided inline (less secure)
-* ``password_file``: (Optional*) Path to file containing password (recommended)
+* ``password``: Password provided inline (less secure)
+* ``password_file``: Path to file containing password (recommended)
 
-*Either ``password`` or ``password_file`` must be provided for password auth.
+.. important::
+   Either ``password`` or ``password_file`` must be provided for password auth.
 
 **For OAuth2 authentication** (``auth_type = 'oauth2'``):
 
