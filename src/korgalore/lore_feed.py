@@ -66,13 +66,20 @@ class LoreFeed(PIFeed):
             logger.debug(f"Target directory {gitdir} already exists, skipping clone.")
             return
 
+        repo_url = f"{self.feed_url.rstrip('/')}/git/{epoch}.git"
         gitargs = ['clone', '--mirror']
         if shallow:
             gitargs += ['--shallow-since=1.week.ago']
-        repo_url = f"{self.feed_url.rstrip('/')}/git/{epoch}.git"
         gitargs += [repo_url, str(gitdir)]
 
         retcode, output, error = run_git_command(None, gitargs)
+        if retcode != 0 and shallow:
+            # Shallow clone with --shallow-since can fail for dormant lists
+            # that have no commits in the time window. Fall back to --depth=1
+            # which always succeeds regardless of commit dates.
+            logger.debug('Shallow clone failed, retrying with --depth=1: %s', error.decode())
+            gitargs = ['clone', '--mirror', '--depth=1', repo_url, str(gitdir)]
+            retcode, output, error = run_git_command(None, gitargs)
         if retcode != 0:
             raise RemoteError(f"Git clone failed (exit {retcode}): {error.decode()}")
 
