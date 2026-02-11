@@ -72,9 +72,9 @@ class LoreFeed(PIFeed):
         repo_url = f"{self.feed_url.rstrip('/')}/git/{epoch}.git"
         gitargs += [repo_url, str(gitdir)]
 
-        retcode, output = run_git_command(None, gitargs)
+        retcode, output, error = run_git_command(None, gitargs)
         if retcode != 0:
-            raise RemoteError(f"Git clone failed: {output.decode()}")
+            raise RemoteError(f"Git clone failed (exit {retcode}): {error.decode()}")
 
     def get_manifest_epochs(self) -> List[Tuple[int, str, str]]:
         """Parse manifest to extract sorted list of (epoch, path, fingerprint) tuples."""
@@ -152,9 +152,9 @@ class LoreFeed(PIFeed):
         gitdir = self.get_gitdir(highest_local_epoch)
         # Pull the latest changes
         gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise RemoteError(f"Git remote update failed: {output.decode()}")
+            raise RemoteError(f"Git fetch failed (exit {retcode}): {error.decode()}")
 
         updated = self.feed_updated(highest_local_epoch)
 

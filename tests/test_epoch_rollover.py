@@ -139,7 +139,7 @@ class TestGetAllCommitsInEpoch:
     ) -> None:
         """Commits are returned in chronological order."""
         feed = create_feed_with_epochs(tmp_path, [0])
-        mock_git.return_value = (0, b"aaa111\nbbb222\nccc333")
+        mock_git.return_value = (0, b"aaa111\nbbb222\nccc333", b"")
 
         commits = feed.get_all_commits_in_epoch(0)
 
@@ -152,7 +152,7 @@ class TestGetAllCommitsInEpoch:
     def test_empty_epoch(self, mock_git: MagicMock, tmp_path: Path) -> None:
         """Empty epoch returns empty list."""
         feed = create_feed_with_epochs(tmp_path, [0])
-        mock_git.return_value = (0, b"")
+        mock_git.return_value = (0, b"", b"")
 
         commits = feed.get_all_commits_in_epoch(0)
 
@@ -162,7 +162,7 @@ class TestGetAllCommitsInEpoch:
     def test_git_error_raises(self, mock_git: MagicMock, tmp_path: Path) -> None:
         """Git error raises GitError."""
         feed = create_feed_with_epochs(tmp_path, [0])
-        mock_git.return_value = (1, b"fatal: bad revision")
+        mock_git.return_value = (1, b"", b"fatal: bad revision")
 
         with pytest.raises(GitError):
             feed.get_all_commits_in_epoch(0)
@@ -180,8 +180,8 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e (commit exists)
-            (0, b"bbb222\nccc333\nddd444"),  # rev-list (new commits)
+            (0, b"", b""),  # cat-file -e (commit exists)
+            (0, b"bbb222\nccc333\nddd444", b""),  # rev-list (new commits)
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -197,8 +197,8 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b""),  # rev-list (no new commits)
+            (0, b"", b""),  # cat-file -e
+            (0, b"", b""),  # rev-list (no new commits)
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -214,9 +214,9 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b"bbb222"),  # rev-list in epoch 0 (one new commit)
-            (0, b"xxx111\nyyy222\nzzz333"),  # rev-list in epoch 1 (all commits)
+            (0, b"", b""),  # cat-file -e
+            (0, b"bbb222", b""),  # rev-list in epoch 0 (one new commit)
+            (0, b"xxx111\nyyy222\nzzz333", b""),  # rev-list in epoch 1 (all commits)
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -238,9 +238,9 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b""),  # rev-list epoch 0 (no new commits)
-            (0, b"xxx111\nyyy222"),  # rev-list epoch 1
+            (0, b"", b""),  # cat-file -e
+            (0, b"", b""),  # rev-list epoch 0 (no new commits)
+            (0, b"xxx111\nyyy222", b""),  # rev-list epoch 1
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -257,9 +257,9 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b"bbb222"),  # rev-list epoch 0
-            (0, b""),  # rev-list epoch 1 (empty)
+            (0, b"", b""),  # cat-file -e
+            (0, b"bbb222", b""),  # rev-list epoch 0
+            (0, b"", b""),  # rev-list epoch 1 (empty)
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -276,9 +276,9 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b"bbb222"),  # rev-list epoch 0
-            (0, b"new_commit"),  # rev-list epoch 3 (highest)
+            (0, b"", b""),  # cat-file -e
+            (0, b"bbb222", b""),  # rev-list epoch 0
+            (0, b"new_commit", b""),  # rev-list epoch 3 (highest)
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -299,8 +299,8 @@ class TestEpochRolloverDetection:
         })
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b"bbb222\nccc333"),  # rev-list epoch 1
+            (0, b"", b""),  # cat-file -e
+            (0, b"bbb222\nccc333", b""),  # rev-list epoch 1
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -317,9 +317,9 @@ class TestEpochRolloverDetection:
         write_delivery_info(feed, "delivery1", {0: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b"bbb222"),  # rev-list epoch 0
-            (0, b"xxx111"),  # rev-list epoch 2
+            (0, b"", b""),  # cat-file -e
+            (0, b"bbb222", b""),  # rev-list epoch 0
+            (0, b"xxx111", b""),  # rev-list epoch 2
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -343,8 +343,8 @@ class TestEpochRolloverStateManagement:
         })
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e (for epoch 2)
-            (0, b"new_commit"),  # rev-list epoch 2
+            (0, b"", b""),  # cat-file -e (for epoch 2)
+            (0, b"new_commit", b""),  # rev-list epoch 2
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -368,9 +368,9 @@ class TestEpochRolloverEdgeCases:
         new_epoch_commits = "\n".join([f"commit_{i:04d}" for i in range(1000)])
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b""),  # rev-list epoch 0 (no new)
-            (0, new_epoch_commits.encode()),  # rev-list epoch 1
+            (0, b"", b""),  # cat-file -e
+            (0, b"", b""),  # rev-list epoch 0 (no new)
+            (0, new_epoch_commits.encode(), b""),  # rev-list epoch 1
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -388,9 +388,9 @@ class TestEpochRolloverEdgeCases:
         write_delivery_info(feed, "delivery1", {99: {"last": "aaa111"}})
 
         mock_git.side_effect = [
-            (0, b""),  # cat-file -e
-            (0, b"bbb222"),  # rev-list epoch 99
-            (0, b"xxx111"),  # rev-list epoch 100
+            (0, b"", b""),  # cat-file -e
+            (0, b"bbb222", b""),  # rev-list epoch 99
+            (0, b"xxx111", b""),  # rev-list epoch 100
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")
@@ -420,13 +420,13 @@ class TestEpochRolloverEdgeCases:
 
         # Simulate commit not found, then recovery process
         mock_git.side_effect = [
-            (1, b""),  # cat-file -e fails (commit not found)
-            (0, b"recovered_commit"),  # rev-list --since-as-filter finds commits
+            (1, b"", b""),  # cat-file -e fails (commit not found)
+            (0, b"recovered_commit", b""),  # rev-list --since-as-filter finds commits
             # get_message_at_commit for matching
-            (0, b"From: test@example.com\nSubject: Test subject\nMessage-ID: <test@example.com>\n\nBody"),
+            (0, b"From: test@example.com\nSubject: Test subject\nMessage-ID: <test@example.com>\n\nBody", b""),
             # save_delivery_info calls
-            (0, b"2024-01-01 00:00:00 +0000"),  # git show commit date
-            (0, b"new_commit1\nnew_commit2"),  # rev-list from recovered commit
+            (0, b"2024-01-01 00:00:00 +0000", b""),  # git show commit date
+            (0, b"new_commit1\nnew_commit2", b""),  # rev-list from recovered commit
         ]
 
         result = feed.get_latest_commits_for_delivery("delivery1")

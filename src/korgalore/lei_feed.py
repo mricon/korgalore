@@ -45,9 +45,9 @@ class LeiFeed(PIFeed):
         for epoch in epochs:
             epoch_dir = self.get_gitdir(epoch)
             gitargs = ['show-ref']
-            retcode, output = run_git_command(str(epoch_dir), gitargs)
+            retcode, output, error = run_git_command(str(epoch_dir), gitargs)
             if retcode != 0:
-                raise GitError(f"Git show-ref failed: {output.decode()}")
+                raise GitError(f"Git show-ref failed (exit {retcode}): {error.decode()}")
             # It's just one ref in lei repos
             refdata = output.decode()
             logger.debug('Epoch %d refdata: %s', epoch, refdata)

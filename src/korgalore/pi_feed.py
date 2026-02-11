@@ -190,7 +190,7 @@ class PIFeed:
 
         # Try to get the symbolic ref for HEAD
         gitargs = ['symbolic-ref', '-q', 'HEAD']
-        retcode, output = run_git_command(gitdir_str, gitargs)
+        retcode, output, _err = run_git_command(gitdir_str, gitargs)
         if retcode == 0:
             # Output is like 'refs/remotes/origin/main' - extract the branch name
             branch_name = output.decode().strip().split('/')[-1]
@@ -199,7 +199,7 @@ class PIFeed:
 
         # Fallback: try to find the first branch
         gitargs = ['branch', '--format=%(refname:short)']
-        retcode, output = run_git_command(gitdir_str, gitargs)
+        retcode, output, _err = run_git_command(gitdir_str, gitargs)
         if retcode == 0 and output:
             # Return the first branch listed
             branch_name = output.decode().strip().split('\n')[0]
@@ -241,9 +241,9 @@ class PIFeed:
         gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '--reverse', branch]
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise GitError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed (exit {retcode}): {error.decode()}")
         if len(output):
             commits = output.decode().splitlines()
         else:
@@ -270,7 +270,7 @@ class PIFeed:
         # message-id.
         gitdir = self.get_gitdir(epoch)
         gitargs = ['rev-list', '--reverse', '--since-as-filter', commit_date_str, 'HEAD']
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, _err = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             # Not sure what happened here, just give up and return the latest commit
             logger.warning("Could not run rev-list to recover after rebase, returning latest commit.")
@@ -327,16 +327,16 @@ class PIFeed:
         # is this still a valid commit?
         gitdir = self.get_gitdir(highest_known_epoch)
         gitargs = ['cat-file', '-e', f'{since_commit}^']
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, _err = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             # The commit is not valid anymore, so try to find the latest commit by other
             # means.
             logger.debug(f"Since commit {since_commit} not found, trying to recover after rebase.")
             since_commit = self.recover_after_rebase(delivery_name, highest_known_epoch)
         gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..HEAD']
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise GitError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed (exit {retcode}): {error.decode()}")
         if len(output):
             new_commits = [(highest_known_epoch, x) for x in output.decode().splitlines()]
         else:
@@ -357,11 +357,11 @@ class PIFeed:
         """Retrieve raw email message bytes from a specific git commit."""
         gitdir = self.get_gitdir(epoch)
         gitargs = ['show', f'{commitish}:m']
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode == 128:
             raise StateError(f"Commit {commitish} does not have a message file.")
         if retcode != 0:
-            raise GitError(f"Git show failed: {output.decode()}")
+            raise GitError(f"Git show failed (exit {retcode}): {error.decode()}")
         return output
 
     @classmethod
@@ -391,9 +391,9 @@ class PIFeed:
         if epoch in self._empty_repo_cache:
             return self._empty_repo_cache[epoch]
         gitdir = self.get_gitdir(epoch)
-        retcode, output = run_git_command(str(gitdir), ['branch', '--list'])
+        retcode, output, error = run_git_command(str(gitdir), ['branch', '--list'])
         if retcode != 0:
-            raise GitError(f"Git branch --list failed: {output.decode()}")
+            raise GitError(f"Git branch --list failed (exit {retcode}): {error.decode()}")
         empty = not output.strip()
         self._empty_repo_cache[epoch] = empty
         return empty
@@ -408,9 +408,9 @@ class PIFeed:
         gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '-n', '1', branch]
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise GitError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed (exit {retcode}): {error.decode()}")
         top_commit = output.decode().strip()
         return top_commit
 
@@ -424,9 +424,9 @@ class PIFeed:
         gitdir = self.get_gitdir(epoch)
         branch = self._get_default_branch(gitdir)
         gitargs = ['rev-list', '--max-parents=0', branch]
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise GitError(f"Git rev-list failed: {output.decode()}")
+            raise GitError(f"Git rev-list failed (exit {retcode}): {error.decode()}")
         first_commit = output.decode().strip()
         return first_commit
 
@@ -555,9 +555,9 @@ class PIFeed:
         # Get the commit date
         gitdir = self.get_gitdir(epoch)
         gitargs = ['show', '-s', '--format=%ci', latest_commit]
-        retcode, output = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
-            raise GitError(f"Git show failed: {output.decode()}")
+            raise GitError(f"Git show failed (exit {retcode}): {error.decode()}")
         commit_date = output.decode()
         # TODO: latest_commit may not have a "m" file in it if it's a deletion
         if not message:
@@ -703,7 +703,7 @@ class PIFeed:
         with tempfile.TemporaryDirectory(suffix='-mailsplit') as tfd:
             logger.debug('Mailsplitting the mbox into %s', tfd)
             args = ['mailsplit', '--mboxrd', '-o%s' % tfd]
-            ecode, out = run_git_command(None, args, stdin=bmbox)
+            ecode, out, _err = run_git_command(None, args, stdin=bmbox)
             if ecode > 0:
                 logger.critical('Unable to parse mbox received from the server')
                 return msgs

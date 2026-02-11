@@ -111,8 +111,8 @@ def _init_git_user_agent() -> None:
     logger.debug('Set GIT_HTTP_USER_AGENT to: %s', user_agent)
 
 def run_git_command(gitdir: Optional[str], args: List[str],
-                    stdin: Optional[bytes] = None) -> Tuple[int, bytes]:
-    """Run a git command in the specified git directory and return (returncode, output).
+                    stdin: Optional[bytes] = None) -> Tuple[int, bytes, bytes]:
+    """Run a git command in the specified git directory and return (returncode, stdout, stderr).
 
     Uses --git-dir instead of -C to work with safe.bareRepository=explicit.
     """
@@ -126,7 +126,7 @@ def run_git_command(gitdir: Optional[str], args: List[str],
         result = subprocess.run(cmd, capture_output=True, input=stdin)
     except FileNotFoundError:
         raise GitError(f"Git command '{GITCMD}' not found. Is it installed?")
-    return result.returncode, result.stdout.strip()
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
 def run_lei_command(args: List[str]) -> Tuple[int, bytes]:
