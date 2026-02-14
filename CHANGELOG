@@ -58,6 +58,13 @@ Bug Fixes
 
   - Result is cached per epoch and cleared on ``feed_unlock()``
 
+* Handle remote errors gracefully during feed updates
+
+  - When a remote server returns a transient error (e.g. 503 Service
+    Unavailable), ``kgl pull`` now logs a one-line warning instead of
+    dumping a full Python traceback
+  - A failure on one feed no longer aborts updates to the remaining feeds
+
 * Fix crash in legacy migration when git directory has no epoch repos
 
   - If a previous clone was interrupted, the ``git/`` directory could exist
