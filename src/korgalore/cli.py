@@ -840,7 +840,11 @@ def update_all_feeds(ctx: click.Context,
             if status_callback:
                 status_callback(f"Querying {format_key_for_display(feed_key)}...")
             feed = feeds[feed_key]
-            status = feed.update_feed()
+            try:
+                status = feed.update_feed()
+            except (RemoteError, PublicInboxError, GitError) as e:
+                logger.warning('Failed to update %s: %s', feed_key, e)
+                continue
             if status & feed.STATUS_UPDATED:
                 updated_feeds.append(feed_key)
             if status & feed.STATUS_INITIALIZED:
