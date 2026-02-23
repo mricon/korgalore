@@ -628,3 +628,112 @@ class TestIsEmptyRepoCache:
         feed = self._make_feed(feed_dir)
         assert feed.is_empty_repo(0) is False
         assert feed._empty_repo_cache[0] is False
+
+
+class TestIsNoopCommit:
+    """Tests for is_noop_commit detection of public-inbox commits without 'm' files.
+
+    Detection is based on the absence of an 'm' object in the commit
+    tree, mirroring the real public-inbox v2 layout where normal
+    commits carry an 'm' (message) file, removal commits carry a 'd'
+    (deleted) file, and purge commits may have an empty tree.
+    """
+
+    def _make_feed(self, feed_dir: Path) -> PIFeed:
+        """Create a concrete PIFeed subclass for testing."""
+        class TestPIFeed(PIFeed):
+            def __init__(self, fd: Path) -> None:
+                super().__init__(feed_key="test-feed", feed_dir=fd)
+                self.feed_type = "test"
+
+            def get_subject_at_commit(self, epoch: int, commit_hash: str) -> str:
+                return f"Test subject for {commit_hash}"
+
+            def get_highest_epoch(self) -> int:
+                return 0
+
+        return TestPIFeed(feed_dir)
+
+    def _init_bare_repo(self, gitdir: Path) -> None:
+        import subprocess
+        subprocess.run(
+            ['git', 'init', '--bare', str(gitdir)],
+            check=True, capture_output=True,
+        )
+
+    def _add_commit_with_file(self, gitdir: Path, filename: str, subject: str) -> str:
+        """Add a commit whose tree contains a single file and return its hash.
+
+        This mirrors the public-inbox v2 tree layout where each commit
+        contains exactly one of 'm' (message) or 'd' (deleted).
+        """
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as work:
+            subprocess.run(
+                ['git', 'clone', str(gitdir), work],
+                check=True, capture_output=True,
+            )
+            # Remove any files from previous commits so the tree
+            # contains only the intended file.
+            for existing in Path(work).iterdir():
+                if existing.name != '.git':
+                    existing.unlink()
+            target = Path(work) / filename
+            target.write_text('blob content\n')
+            subprocess.run(
+                ['git', '-C', work, 'add', '-A'],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ['git', '-C', work,
+                 '-c', 'user.name=Test', '-c', 'user.email=test@test',
+                 'commit', '-m', subject, '--allow-empty'],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ['git', '-C', work, 'push'],
+                check=True, capture_output=True,
+            )
+            result = subprocess.run(
+                ['git', '-C', work, 'rev-parse', 'HEAD'],
+                check=True, capture_output=True, text=True,
+            )
+            return result.stdout.strip()
+
+    def test_commit_with_m_file_is_not_noop(self, tmp_path: Path) -> None:
+        """A commit whose tree contains 'm' is a normal message commit."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+        commit = self._add_commit_with_file(gitdir, 'm', 'Re: some thread')
+
+        feed = self._make_feed(feed_dir)
+        assert feed.is_noop_commit(0, commit) is False
+
+    def test_commit_with_d_file_is_noop(self, tmp_path: Path) -> None:
+        """A commit whose tree contains 'd' (rm commit) is a no-op."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+        commit = self._add_commit_with_file(gitdir, 'd', 'rm')
+
+        feed = self._make_feed(feed_dir)
+        assert feed.is_noop_commit(0, commit) is True
+
+    def test_invalid_commit_does_not_raise(self, tmp_path: Path) -> None:
+        """An invalid commit hash does not raise an exception."""
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+
+        feed = self._make_feed(feed_dir)
+        # Returns True (no 'm' found) which is the safe default —
+        # the commit will be skipped rather than crashing delivery.
+        assert feed.is_noop_commit(0, 'deadbeef' * 5) is True
