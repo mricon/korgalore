@@ -7,6 +7,18 @@ v0.5.3 (unreleased)
 Bug Fixes
 ~~~~~~~~~
 
+* Skip public-inbox commits that carry no message file
+
+  - Public-inbox v2 repositories can contain commits without an ``m``
+    (message) blob: ``rm`` commits record message removals (they store
+    the deleted message in a ``d`` file instead), and ``purged`` commits
+    record content scrubbing via ``replace_oids()``
+  - Previously, attempting to extract a message from these commits raised
+    ``StateError``, which was caught as a delivery failure and retried
+    indefinitely
+  - Both types are now detected by checking for the absence of the
+    ``m`` object in the commit tree and treated as successful no-ops
+
 * Handle remote errors gracefully during feed updates
 
   - When a remote server returns a transient error (e.g. 503 Service
