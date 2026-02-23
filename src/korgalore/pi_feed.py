@@ -353,6 +353,27 @@ class PIFeed:
 
         return new_commits
 
+    def is_noop_commit(self, epoch: int, commitish: str) -> bool:
+        """Check if a commit has no 'm' file and should be skipped.
+
+        Public-inbox v2 repositories can contain commits that carry no
+        message blob:
+
+        * 'rm' commits — record the removal of a message.  The tree
+          contains a 'd' file (the deleted message) but no 'm' file.
+        * 'purged …' commits — record content scrubbing via
+          replace_oids().  The tree may have no entries at all.
+
+        Both types are no-ops for delivery purposes.  We detect them
+        by checking for the absence of the 'm' object in the commit
+        tree rather than relying on the commit subject, since subjects
+        are derived from email headers and could match coincidentally.
+        """
+        gitdir = self.get_gitdir(epoch)
+        gitargs = ['cat-file', '-e', f'{commitish}:m']
+        retcode, _output, _err = run_git_command(str(gitdir), gitargs)
+        return retcode != 0
+
     def get_message_at_commit(self, epoch: int, commitish: str) -> bytes:
         """Retrieve raw email message bytes from a specific git commit."""
         gitdir = self.get_gitdir(epoch)
@@ -559,16 +580,19 @@ class PIFeed:
         if retcode != 0:
             raise GitError(f"Git show failed (exit {retcode}): {error.decode()}")
         commit_date = output.decode()
-        # TODO: latest_commit may not have a "m" file in it if it's a deletion
-        if not message:
+        if not message and self.is_noop_commit(epoch, latest_commit):
+            subject = '(noop)'
+            msgid = '(noop)'
+        elif not message:
             message = self.get_message_at_commit(epoch, latest_commit)
 
-        if isinstance(message, bytes):
-            msg = self.parse_message(message)
-        else:
-            msg = message
-        subject = msg.get('Subject', '(no subject)')
-        msgid = msg.get('Message-ID', '(no message-id)')
+        if message:
+            if isinstance(message, bytes):
+                msg = self.parse_message(message)
+            else:
+                msg = message
+            subject = msg.get('Subject', '(no subject)')
+            msgid = msg.get('Message-ID', '(no message-id)')
 
         state_file = self._get_state_file_path(delivery_name, 'info')
         if state_file.exists():

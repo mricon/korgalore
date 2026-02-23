@@ -43,6 +43,8 @@ click_log.basic_config(logger)
 
 # Sentinel value for messages skipped due to bozofilter
 SKIPPED_BOZOFILTER = '__SKIPPED_BOZOFILTER__'
+# Sentinel value for public-inbox 'rm' commits (message removals)
+SKIPPED_NOOP_COMMIT = '__SKIPPED_NOOP_COMMIT__'
 
 # URL to fetch MAINTAINERS file from kernel.org
 MAINTAINERS_URL = 'https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/MAINTAINERS'
@@ -527,6 +529,10 @@ def retry_failed_commits(feed_dir: Path, pi_feed: Union[LeiFeed, LoreFeed], targ
     logger.info('Retrying %d previously failed commits', len(failed_commits))
 
     for epoch, commit_hash in failed_commits:
+        if pi_feed.is_noop_commit(epoch, commit_hash):
+            logger.debug('Skipping no-op commit %s on retry', commit_hash)
+            pi_feed.mark_successful_delivery(delivery_name, epoch, commit_hash)
+            continue
         try:
             raw_message = pi_feed.get_message_at_commit(epoch, commit_hash)
         except (StateError, GitError) as e:
@@ -565,6 +571,12 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
     Returns:
         The Message-ID of the delivered message on success, None on failure or skip.
     """
+    # Skip public-inbox commits that carry no message (rm, purged, etc.)
+    if feed.is_noop_commit(epoch, commit):
+        logger.debug('Skipping no-op commit %s in epoch %d', commit, epoch)
+        feed.mark_successful_delivery(delivery_name, epoch, commit)
+        return SKIPPED_NOOP_COMMIT
+
     raw_message: Optional[bytes] = None
     try:
         raw_message = feed.get_message_at_commit(epoch, commit)
@@ -1229,8 +1241,8 @@ def perform_pull(ctx: click.Context, no_update: bool, force: bool,
                 if msgid is None:
                     consecutive_failures += 1
                     continue
-                if msgid == SKIPPED_BOZOFILTER:
-                    # Bozofied message - not a failure, just skip
+                if msgid in (SKIPPED_BOZOFILTER, SKIPPED_NOOP_COMMIT):
+                    # Filtered or no-op commit - not a failure, just skip
                     continue
 
                 consecutive_failures = 0
@@ -1654,7 +1666,7 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
     for commit in commits:
         result = deliver_commit(thread.track_id, target_service, lei_feed, 0, commit,
                                 labels_list, was_failing=False, bozofilter=bozo_set)
-        if result and result != SKIPPED_BOZOFILTER:
+        if result and result not in (SKIPPED_BOZOFILTER, SKIPPED_NOOP_COMMIT):
             delivered += 1
 
     # Initialize feed state so subsequent pulls don't re-initialize
