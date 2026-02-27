@@ -333,7 +333,7 @@ class PIFeed:
             # means.
             logger.debug(f"Since commit {since_commit} not found, trying to recover after rebase.")
             since_commit = self.recover_after_rebase(delivery_name, highest_known_epoch)
-        gitargs = ['rev-list', '--reverse', '--ancestry-path', f'{since_commit}..HEAD']
+        gitargs = ['rev-list', '--reverse', f'{since_commit}..HEAD']
         retcode, output, error = run_git_command(str(gitdir), gitargs)
         if retcode != 0:
             raise GitError(f"Git rev-list failed (exit {retcode}): {error.decode()}")
