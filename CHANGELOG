@@ -77,6 +77,14 @@ Bug Fixes
     dumping a full Python traceback
   - A failure on one feed no longer aborts updates to the remaining feeds
 
+* Fix new commit discovery failing on shallow clones
+
+  - The ``--ancestry-path`` flag in ``git rev-list`` requires an unbroken
+    parent chain between endpoints, which cannot be established in shallow
+    clones where parent links are severed at graft boundaries
+  - Since public-inbox v2 epoch repositories have linear history,
+    ``--ancestry-path`` provides no filtering benefit and is now removed
+
 * Fix crash in legacy migration when git directory has no epoch repos
 
   - If a previous clone was interrupted, the ``git/`` directory could exist
