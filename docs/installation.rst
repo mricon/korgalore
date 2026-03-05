@@ -44,6 +44,11 @@ should be installed via system packages:
    # Fedora
    sudo dnf install python3-gobject libappindicator-gtk3
 
+If GTK dependencies are missing, ``kgl gui`` will print an error message with
+the appropriate install command for your environment (including ``pipx inject``
+when running under pipx). Running with ``-v DEBUG`` keeps stderr connected for
+easier troubleshooting.
+
 To add Korgalore to your application menu, install the desktop file:
 
 .. code-block:: bash

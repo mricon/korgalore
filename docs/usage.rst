@@ -247,6 +247,10 @@ Examples:
 How Pull Works
 ~~~~~~~~~~~~~~
 
+When pulling multiple deliveries, a failure on one feed (e.g. a transient
+server error) does not abort updates to the remaining feeds. A one-line
+warning is logged for the failed feed, and processing continues.
+
 For lore.kernel.org deliveries:
 
 1. Check for new epochs (git repositories)
@@ -762,6 +766,13 @@ Features
 When a Gmail token expires or is revoked, the GUI detects this and shows an
 "Authenticate..." menu item. Clicking it opens a browser for OAuth re-authentication.
 After successful authentication, sync runs automatically.
+
+**Automatic Configuration Reload**
+
+Before each sync cycle, the GUI checks the modification times of the main
+configuration file and all ``conf.d/*.toml`` files. If any file has been
+modified externally (e.g. by ``kgl track-subsystem`` or manual editing), the
+configuration is validated and reloaded automatically.
 
 **Configuration Editing**
 
