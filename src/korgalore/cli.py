@@ -925,6 +925,11 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
         ctx.obj['config'] = config
         ctx.obj['cfgpath'] = cfgpath
 
+        if not config.get('targets'):
+            logger.critical('No targets defined in configuration.')
+            logger.critical('Please edit %s and define at least one target.', cfgpath)
+            raise click.Abort()
+
         # Check for user_agent_plus in config
         main_config = config.get('main', {})
         user_agent_plus = main_config.get('user_agent_plus')
@@ -976,9 +981,6 @@ def auth(ctx: click.Context, target: Optional[str]) -> None:
 
     config = ctx.obj.get('config', {})
     targets = config.get('targets', {})
-    if not targets:
-        logger.critical('No targets defined in configuration.')
-        raise click.Abort()
 
     # If specific target requested, validate it exists
     if target:
@@ -1359,7 +1361,7 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
 
 @main.command()
 @click.pass_context
-@click.option('--target', '-t', default=None, help='Target to upload the message to')
+@click.option('--target', '-t', default=None, help='Target to upload the message to (default: first configured)')
 @click.option('--labels', '-l', multiple=True,
               help='Labels to apply (repeatable or comma-separated)')
 @click.option('--thread', '-T', is_flag=True, help='Fetch and upload the entire thread')
@@ -1371,15 +1373,10 @@ def yank(ctx: click.Context, target: Optional[str],
     config = ctx.obj.get('config', {})
     targets = config.get('targets', {})
 
-    # Auto-select target if only one exists
+    # Auto-select target if not specified (use first configured target)
     if not target:
-        if len(targets) == 1:
-            target = list(targets.keys())[0]
-            logger.debug('Using only configured target: %s', target)
-        else:
-            logger.critical('Multiple targets configured. Please specify one with -t.')
-            logger.critical('Available targets: %s', ', '.join(targets.keys()))
-            raise click.Abort()
+        target = list(targets.keys())[0]
+        logger.info('Using default target: %s', target)
 
     try:
         ts = get_target(ctx, target)
@@ -1536,7 +1533,7 @@ def track(ctx: click.Context) -> None:
 
 @track.command('add')
 @click.argument('msgid_or_url', type=str)
-@click.option('--target', '-t', default=None, help='Target for deliveries')
+@click.option('--target', '-t', default=None, help='Target for deliveries (default: first configured)')
 @click.option('--labels', '-l', multiple=True,
               help='Labels to apply (repeatable or comma-separated)')
 @click.pass_context
@@ -1546,15 +1543,10 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
     config = ctx.obj.get('config', {})
     targets = config.get('targets', {})
 
-    # Auto-select target if only one exists
+    # Auto-select target if not specified (use first configured target)
     if not target:
-        if len(targets) == 1:
-            target = list(targets.keys())[0]
-            logger.debug('Using only configured target: %s', target)
-        else:
-            logger.critical('Multiple targets configured. Please specify one with -t.')
-            logger.critical('Available targets: %s', ', '.join(targets.keys()))
-            raise click.Abort()
+        target = list(targets.keys())[0]
+        logger.info('Using default target: %s', target)
     elif target not in targets:
         logger.critical('Target "%s" not found in configuration.', target)
         logger.critical('Known targets: %s', ', '.join(targets.keys()))
@@ -1794,7 +1786,7 @@ def subscribe(ctx: click.Context) -> None:
 
 @subscribe.command('add')
 @click.argument('url', type=str)
-@click.option('--target', '-t', default=None, help='Target for deliveries')
+@click.option('--target', '-t', default=None, help='Target for deliveries (default: first configured)')
 @click.option('--labels', '-l', multiple=True,
               help='Labels to apply (repeatable or comma-separated)')
 @click.pass_context
@@ -1808,15 +1800,10 @@ def subscribe_add(ctx: click.Context, url: str, target: Optional[str],
     config = ctx.obj.get('config', {})
     targets = config.get('targets', {})
 
-    # Auto-select target if only one exists
+    # Auto-select target if not specified (use first configured target)
     if not target:
-        if len(targets) == 1:
-            target = list(targets.keys())[0]
-            logger.debug('Using only configured target: %s', target)
-        else:
-            logger.critical('Multiple targets configured. Please specify one with -t.')
-            logger.critical('Available targets: %s', ', '.join(targets.keys()))
-            raise click.Abort()
+        target = list(targets.keys())[0]
+        logger.info('Using default target: %s', target)
     elif target not in targets:
         logger.critical('Target "%s" not found in configuration.', target)
         logger.critical('Known targets: %s', ', '.join(targets.keys()))
@@ -2052,7 +2039,7 @@ def gui(ctx: click.Context) -> None:
 @click.argument('subsystem_name', type=str, required=False, default=None)
 @click.option('--maintainers', '-m', default=None,
               type=click.Path(), help='Path to MAINTAINERS file (default: ./MAINTAINERS)')
-@click.option('--target', '-t', default=None, help='Target for deliveries')
+@click.option('--target', '-t', default=None, help='Target for deliveries (default: first configured)')
 @click.option('--labels', '-l', multiple=True,
               help='Labels to apply (repeatable or comma-separated; default: target DEFAULT_LABELS)')
 @click.option('--since', default='7.days.ago',
@@ -2220,15 +2207,10 @@ def track_subsystem(ctx: click.Context, subsystem_name: Optional[str],
         catchall_lists = set(DEFAULT_CATCHALL_LISTS)
     targets = config.get('targets', {})
 
-    # Auto-select target if only one exists
+    # Auto-select target if not specified (use first configured target)
     if not target:
-        if len(targets) == 1:
-            target = list(targets.keys())[0]
-            logger.debug('Using only configured target: %s', target)
-        else:
-            logger.critical('Multiple targets configured. Please specify one with -t.')
-            logger.critical('Available targets: %s', ', '.join(targets.keys()))
-            raise click.Abort()
+        target = list(targets.keys())[0]
+        logger.info('Using default target: %s', target)
     elif target not in targets:
         logger.critical('Target "%s" not found in configuration.', target)
         logger.critical('Known targets: %s', ', '.join(targets.keys()))

@@ -299,7 +299,7 @@ Arguments:
 
 Options:
 
-* ``-t, --target TEXT``: Target for deliveries (required if multiple targets configured)
+* ``-t, --target TEXT``: Target for deliveries (default: first configured target)
 * ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated)
 
 **subscribe list** - List current subscriptions:
@@ -411,14 +411,14 @@ Arguments:
 
 Options:
 
-* ``-t, --target TEXT``: Target to upload the message to (required if multiple targets configured)
+* ``-t, --target TEXT``: Target to upload the message to (default: first configured target)
 * ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated)
 * ``-T, --thread``: Fetch and upload the entire thread instead of just a single message
 
 .. note::
-   If only one target is configured, the ``-t`` option is not required and that
-   target will be used automatically. If no labels are specified, target-specific
-   defaults are used (e.g., ``INBOX, UNREAD`` for Gmail, ``INBOX`` for JMAP).
+   If ``-t`` is not specified, the first configured target is used automatically.
+   If no labels are specified, target-specific defaults are used (e.g.,
+   ``INBOX, UNREAD`` for Gmail, ``INBOX`` for JMAP).
 
 Examples:
 
@@ -463,7 +463,7 @@ Subcommands
 
 Options:
 
-* ``-t, --target TEXT``: Target for deliveries (required if multiple targets configured)
+* ``-t, --target TEXT``: Target for deliveries (default: first configured target)
 * ``-l, --labels TEXT``: Labels to apply (repeatable or comma-separated)
 
 **track list** - List tracked threads:

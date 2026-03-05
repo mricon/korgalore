@@ -37,6 +37,18 @@ New Features
     files, keeping them separate from the main configuration
   - Duplicate detection checks both conf.d files and the main configuration
 
+Enhancements
+~~~~~~~~~~~~
+
+* ``--target`` / ``-t`` now defaults to the first configured target
+
+  - Applies to ``yank``, ``track add``, ``subscribe add``, and
+    ``track-subsystem``
+  - Previously, commands with multiple configured targets required an
+    explicit ``-t`` flag or they would abort
+  - Matches the existing GNOME applet behaviour, which already
+    pre-selects the first target
+
 Bug Fixes
 ~~~~~~~~~
 
