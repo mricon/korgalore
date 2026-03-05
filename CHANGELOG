@@ -4,6 +4,21 @@ Korgalore Changelog
 v0.7 (unreleased)
 -----------------
 
+Refactoring
+~~~~~~~~~~~
+
+* Use liblore library for shared public-inbox operations
+
+  - Message parsing, email policy, and mbox splitting now use
+    ``liblore.utils`` instead of local implementations
+  - Message-ID extraction from URLs uses ``liblore.utils.get_msgid_from_url``
+  - HTTP message and thread fetching uses ``liblore.LoreNode`` with
+    korgalore's session injected for User-Agent consistency
+  - Mbox splitting uses pure Python via liblore instead of shelling out
+    to ``git mailsplit``
+  - Exception hierarchy bridged via multiple inheritance so
+    ``liblore.RemoteError`` catches errors from both libraries
+
 v0.6.0 (2026-03-05)
 -----------------
 
