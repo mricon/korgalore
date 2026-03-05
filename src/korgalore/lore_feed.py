@@ -2,18 +2,15 @@ import requests
 from typing import List, Dict, Tuple, Any, Optional
 from gzip import GzipFile
 from pathlib import Path
-from email import charset
 import io
 import json
-import re
-import urllib.parse
 
 import logging
 
 from korgalore import get_requests_session, run_git_command, StateError, RemoteError
 from korgalore.pi_feed import PIFeed
 
-charset.add_charset('utf-8', None)
+from liblore.utils import get_msgid_from_url, split_mbox_as_bytes
 
 logger = logging.getLogger('korgalore')
 
@@ -249,21 +246,9 @@ class LoreFeed(PIFeed):
         return self.STATUS_UPDATED
 
     @staticmethod
-    def get_msgid_from_url(msgid_or_url: str) -> str:
-        """Extract message ID from URL or return input if already a msgid."""
-        if '://' in msgid_or_url:
-            # Get anything that looks like a msgid
-            matches = re.search(r'^https?://[^@]+/([^/]+@[^/]+)', msgid_or_url, re.IGNORECASE)
-            if matches:
-                chunks = matches.groups()
-                msgid = urllib.parse.unquote(chunks[0])
-                return msgid
-        return msgid_or_url.strip('<>')
-
-    @staticmethod
     def get_message_by_msgid(msgid_or_url: str) -> bytes:
         """Fetch a single raw email message from Lore by message ID or URL."""
-        msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
+        msgid = get_msgid_from_url(msgid_or_url)
         raw_url = f"https://lore.kernel.org/all/{msgid}/raw"
 
         logger.debug(f"Fetching message from: {raw_url}")
@@ -291,7 +276,7 @@ class LoreFeed(PIFeed):
         Raises:
             RemoteError: If fetching or decompressing the thread mbox fails.
         """
-        msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
+        msgid = get_msgid_from_url(msgid_or_url)
         mbox_url = f"https://lore.kernel.org/all/{msgid}/t.mbox.gz"
         logger.debug(f"Fetching thread from: {mbox_url}")
 
@@ -313,7 +298,7 @@ class LoreFeed(PIFeed):
                 f"Failed to decompress thread mbox: {e}"
             ) from e
 
-        messages = PIFeed.mailsplit_bytes(mbox_content)
+        messages = split_mbox_as_bytes(mbox_content)
         logger.debug(f"Parsed {len(messages)} messages from thread")
 
         return messages

@@ -24,6 +24,7 @@ from korgalore import (
     RemoteError, PublicInboxError, AuthenticationError, format_key_for_display,
     _init_git_user_agent, set_user_agent_id, get_requests_session, close_requests_session
 )
+from liblore.utils import parse_message, get_msgid_from_url
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
     create_lei_thread_search, create_lei_query_search, update_lei_search,
@@ -581,7 +582,7 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
     try:
         raw_message = feed.get_message_at_commit(epoch, commit)
         target.connect()
-        msg = feed.parse_message(raw_message)
+        msg = parse_message(raw_message)
         msgid = msg.get('Message-ID', '')
 
         # Check bozofilter before delivering
@@ -1335,7 +1336,7 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
 
             for raw_message in messages:
                 try:
-                    msg = LoreFeed.parse_message(raw_message)
+                    msg = parse_message(raw_message)
                     subject = msg.get('Subject', '(no subject)')
                     logger.debug('Uploading: %s', subject)
                     ts.import_message(raw_message, labels=labels_list)
@@ -1347,7 +1348,7 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
             return uploaded, failed
         else:
             raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
-            msg = LoreFeed.parse_message(raw_message)
+            msg = parse_message(raw_message)
             subject = msg.get('Subject', '(no subject)')
             logger.debug('Uploading: %s', subject)
             ts.import_message(raw_message, labels=labels_list)
@@ -1412,7 +1413,7 @@ def yank(ctx: click.Context, target: Optional[str],
                               hidden=ctx.obj['hide_bar']) as bar:
             for raw_message in bar:
                 try:
-                    msg = LoreFeed.parse_message(raw_message)
+                    msg = parse_message(raw_message)
                     subject = msg.get('Subject', '(no subject)')
                     logger.debug('Uploading: %s', subject)
                     ts.import_message(raw_message, labels=labels_list)
@@ -1436,7 +1437,7 @@ def yank(ctx: click.Context, target: Optional[str],
             raise click.Abort()
 
         # Parse to get the subject for logging
-        msg = LoreFeed.parse_message(raw_message)
+        msg = parse_message(raw_message)
         subject = msg.get('Subject', '(no subject)')
         logger.debug('Message subject: %s', subject)
 
@@ -1553,7 +1554,7 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
         raise click.Abort()
 
     # Extract message ID from URL if needed
-    msgid = LoreFeed.get_msgid_from_url(msgid_or_url)
+    msgid = get_msgid_from_url(msgid_or_url)
     logger.debug('Extracted message ID: %s', msgid)
 
     # Check if already tracking this message
@@ -1610,7 +1611,7 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
     subject = '(unknown subject)'
     try:
         raw_message = LoreFeed.get_message_by_msgid(msgid)
-        msg = LoreFeed.parse_message(raw_message)
+        msg = parse_message(raw_message)
         subject = msg.get('Subject', '(no subject)')
     except RemoteError:
         logger.warning('Could not fetch message to get subject')

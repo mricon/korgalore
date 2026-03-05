@@ -4,9 +4,6 @@ import os
 import tempfile
 
 from email.message import EmailMessage
-from email.parser import BytesParser
-from email.policy import EmailPolicy
-from email import charset
 from pathlib import Path
 from korgalore import run_git_command, PublicInboxError, GitError, StateError
 from fcntl import lockf, LOCK_EX, LOCK_UN, LOCK_NB
@@ -15,7 +12,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from datetime import datetime, timezone
 
-charset.add_charset('utf-8', None)
+from liblore.utils import parse_message
+
 logger = logging.getLogger('korgalore')
 
 # We use this to cache commit messages to avoid reparsing them multiple times
@@ -32,9 +30,6 @@ class PIFeed:
     repositories, including commit traversal, message extraction, state
     management, and delivery tracking. Subclassed by LoreFeed and LeiFeed.
     """
-
-    emlpolicy: EmailPolicy = EmailPolicy(utf8=True, cte_type='8bit', max_line_length=None,
-                                         message_factory=EmailMessage)
 
     # Status constants for update_feed() return value
     STATUS_NOCHANGE: int = 0
@@ -288,7 +283,7 @@ class PIFeed:
         first_commit = possible_commits[0]
         for commit in possible_commits:
             raw_message = self.get_message_at_commit(epoch, commit)
-            msg = self.parse_message(raw_message)
+            msg = parse_message(raw_message)
             subject = msg.get('Subject', '(no subject)')
             msgid = msg.get('Message-ID', '(no message-id)')
             if subject == info.get('subject') and msgid == info.get('msgid'):
@@ -300,7 +295,7 @@ class PIFeed:
             logger.error("Returning first possible commit after date: %s", first_commit)
             last_commit = first_commit
             raw_message = self.get_message_at_commit(epoch, last_commit)
-            msg = self.parse_message(raw_message)
+            msg = parse_message(raw_message)
         else:
             logger.debug("Recovered exact matching commit after rebase: %s", last_commit)
 
@@ -385,13 +380,6 @@ class PIFeed:
             raise GitError(f"Git show failed (exit {retcode}): {error.decode()}")
         return output
 
-    @classmethod
-    def parse_message(cls, raw_message: bytes) -> EmailMessage:
-        """Parse raw email bytes into an EmailMessage object."""
-        msg: EmailMessage = BytesParser(_class=EmailMessage,
-                                        policy=cls.emlpolicy).parsebytes(raw_message)  # type: ignore
-        return msg
-
     def get_subject_at_commit(self, epoch: int, commitish: str) -> str:
         """Get email subject line from a commit, with caching."""
         global COMMIT_SUBJECT_CACHE
@@ -399,7 +387,7 @@ class PIFeed:
             return COMMIT_SUBJECT_CACHE[commitish]
         except KeyError:
             raw_msg = self.get_message_at_commit(epoch, commitish)
-            msg = self.parse_message(raw_msg)
+            msg = parse_message(raw_msg)
             subject = msg.get('Subject', '(no subject)')
             COMMIT_SUBJECT_CACHE[commitish] = subject
             return subject
@@ -588,7 +576,7 @@ class PIFeed:
 
         if message:
             if isinstance(message, bytes):
-                msg = self.parse_message(message)
+                msg = parse_message(message)
             else:
                 msg = message
             subject = msg.get('Subject', '(no subject)')
@@ -717,22 +705,3 @@ class PIFeed:
 
         self._atomic_write(state_file, json.dumps(state, indent=2))
 
-    @staticmethod
-    def mailsplit_bytes(bmbox: bytes) -> List[bytes]:
-        """Split mbox-format bytes into individual email message bytes."""
-        import os
-        import tempfile
-        msgs: List[bytes] = list()
-        # Use a safe temporary directory for mailsplit output
-        with tempfile.TemporaryDirectory(suffix='-mailsplit') as tfd:
-            logger.debug('Mailsplitting the mbox into %s', tfd)
-            args = ['mailsplit', '--mboxrd', '-o%s' % tfd]
-            ecode, out, _err = run_git_command(None, args, stdin=bmbox)
-            if ecode > 0:
-                logger.critical('Unable to parse mbox received from the server')
-                return msgs
-            # Read in the files
-            for msg in os.listdir(tfd):
-                with open(os.path.join(tfd, msg), 'rb') as fh:
-                    msgs.append(fh.read())
-            return msgs

@@ -1,12 +1,12 @@
 """Raw email message wrapper with lazy parsing and common operations."""
 
 from email.message import EmailMessage
-from email.parser import BytesParser
-from email.policy import EmailPolicy
 from email.utils import formatdate
 from typing import Optional
 
 from korgalore import __version__
+from liblore import emlpolicy
+from liblore.utils import parse_message
 
 
 class RawMessage:
@@ -22,13 +22,7 @@ class RawMessage:
             print(f"Message-ID: {msg.message_id}")
     """
 
-    # Email parsing policy matching PIFeed.emlpolicy
-    _policy: EmailPolicy = EmailPolicy(
-        utf8=True,
-        cte_type='8bit',
-        max_line_length=0,  # No line length limit
-        message_factory=EmailMessage
-    )
+    _policy = emlpolicy
 
     def __init__(self, raw_message: bytes) -> None:
         """Initialize with raw email bytes.
@@ -53,10 +47,7 @@ class RawMessage:
         The parsed message is cached after first access.
         """
         if self._parsed is None:
-            self._parsed = BytesParser(
-                _class=EmailMessage,
-                policy=self._policy
-            ).parsebytes(self._raw)  # type: ignore[assignment]
+            self._parsed = parse_message(self._raw)
         assert self._parsed is not None
         return self._parsed
 
