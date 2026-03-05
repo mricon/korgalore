@@ -4,6 +4,11 @@ Korgalore Changelog
 v0.7 (unreleased)
 -----------------
 
+Enhancements
+~~~~~~~~~~~~
+
+* GUI: Add "About" dialog showing version, description, website, and license
+
 Refactoring
 ~~~~~~~~~~~
 

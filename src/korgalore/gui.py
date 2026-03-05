@@ -12,7 +12,7 @@ from typing import Optional, Any
 
 import click
 
-from korgalore import AuthenticationError
+from korgalore import AuthenticationError, __version__
 from korgalore.cli import (
     perform_pull, perform_yank, get_xdg_config_dir, validate_config_file,
     load_config, refresh_subfolder_templates
@@ -175,6 +175,14 @@ class KorgaloreApp:
         item_edit_bozofilter = Gtk.MenuItem(label="Edit Bozofilter...")
         item_edit_bozofilter.connect("activate", self.on_edit_bozofilter)
         menu.append(item_edit_bozofilter)
+
+        # Separator
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # About
+        item_about = Gtk.MenuItem(label="About")
+        item_about.connect("activate", self.on_about)
+        menu.append(item_about)
 
         # Quit
         item_quit = Gtk.MenuItem(label="Quit")
@@ -431,6 +439,24 @@ class KorgaloreApp:
             logger.info("Bozofilter reloaded successfully.")
         except Exception as e:
             logger.error("Failed to edit bozofilter: %s", str(e))
+
+    def on_about(self, source: Any) -> None:
+        """Show the About dialog."""
+        GLib.idle_add(self._show_about_dialog)
+
+    def _show_about_dialog(self) -> bool:
+        """Display the About dialog (called from GLib.idle_add)."""
+        dialog = Gtk.AboutDialog()
+        dialog.set_program_name("Korgalore")
+        dialog.set_version(__version__)
+        dialog.set_logo_icon_name("mail-read")
+        dialog.set_comments("Deliver public-inbox mail to your preferred email client")
+        dialog.set_website("https://korgalore.docs.kernel.org")
+        dialog.set_website_label("korgalore.docs.kernel.org")
+        dialog.set_license_type(Gtk.License.GPL_2_0)
+        dialog.run()
+        dialog.destroy()
+        return False
 
     def background_worker(self) -> None:
         """Periodically run sync."""
