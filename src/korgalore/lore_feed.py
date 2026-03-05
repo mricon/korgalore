@@ -10,7 +10,6 @@ import logging
 from korgalore import get_requests_session, run_git_command, StateError, RemoteError
 from korgalore.pi_feed import PIFeed
 
-from liblore.utils import get_msgid_from_url, split_mbox_as_bytes
 
 logger = logging.getLogger('korgalore')
 
@@ -245,60 +244,3 @@ class LoreFeed(PIFeed):
         )
         return self.STATUS_UPDATED
 
-    @staticmethod
-    def get_message_by_msgid(msgid_or_url: str) -> bytes:
-        """Fetch a single raw email message from Lore by message ID or URL."""
-        msgid = get_msgid_from_url(msgid_or_url)
-        raw_url = f"https://lore.kernel.org/all/{msgid}/raw"
-
-        logger.debug(f"Fetching message from: {raw_url}")
-
-        try:
-            reqsession = get_requests_session()
-            response = reqsession.get(raw_url)
-            response.raise_for_status()
-            return response.content
-        except Exception as e:
-            raise RemoteError(
-                f"Failed to fetch message from {raw_url}: {e}"
-            ) from e
-
-    @staticmethod
-    def get_thread_by_msgid(msgid_or_url: str) -> List[bytes]:
-        """Fetch all messages in a thread from Lore by message ID or URL.
-
-        Args:
-            msgid_or_url: Either a message ID or a lore.kernel.org URL.
-
-        Returns:
-            List of raw email messages as bytes, one per message in the thread.
-
-        Raises:
-            RemoteError: If fetching or decompressing the thread mbox fails.
-        """
-        msgid = get_msgid_from_url(msgid_or_url)
-        mbox_url = f"https://lore.kernel.org/all/{msgid}/t.mbox.gz"
-        logger.debug(f"Fetching thread from: {mbox_url}")
-
-        try:
-            reqsession = get_requests_session()
-            response = reqsession.get(mbox_url)
-            response.raise_for_status()
-        except Exception as e:
-            raise RemoteError(
-                f"Failed to fetch thread from {mbox_url}: {e}"
-            ) from e
-
-        # Decompress the gzipped mbox
-        try:
-            with GzipFile(fileobj=io.BytesIO(response.content)) as f:
-                mbox_content = f.read()
-        except Exception as e:
-            raise RemoteError(
-                f"Failed to decompress thread mbox: {e}"
-            ) from e
-
-        messages = split_mbox_as_bytes(mbox_content)
-        logger.debug(f"Parsed {len(messages)} messages from thread")
-
-        return messages

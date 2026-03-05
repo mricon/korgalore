@@ -17,7 +17,7 @@ from korgalore.cli import (
     perform_pull, perform_yank, get_xdg_config_dir, validate_config_file,
     load_config, refresh_subfolder_templates
 )
-from korgalore import RemoteError
+import liblore
 from korgalore.bozofilter import ensure_bozofilter_exists, load_bozofilter
 from korgalore.gmail_target import GmailTarget
 from korgalore.imap_target import ImapTarget
@@ -372,7 +372,7 @@ class KorgaloreApp:
                 self.update_status(f"Yanked {uploaded} message(s)", "mail-unread-symbolic")
                 logger.info("Yank completed: %d message(s) uploaded", uploaded)
 
-        except RemoteError as e:
+        except liblore.RemoteError as e:
             logger.error("Yank failed: %s", str(e))
             self.update_status(f"Yank failed: {e}", "dialog-error-symbolic")
         except Exception as e:

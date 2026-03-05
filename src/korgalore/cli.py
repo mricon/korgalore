@@ -24,7 +24,9 @@ from korgalore import (
     RemoteError, PublicInboxError, AuthenticationError, format_key_for_display,
     _init_git_user_agent, set_user_agent_id, get_requests_session, close_requests_session
 )
-from liblore.utils import parse_message, get_msgid_from_url
+import liblore
+from liblore import LoreNode
+from liblore.utils import parse_message, get_msgid_from_url, split_mbox_as_bytes
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
     create_lei_thread_search, create_lei_query_search, update_lei_search,
@@ -1326,9 +1328,14 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
 
     ts.connect()
 
+    node = LoreNode()
+    node.set_requests_session(get_requests_session())
+
     try:
         if thread:
-            messages = LoreFeed.get_thread_by_msgid(msgid_or_url)
+            msgid = get_msgid_from_url(msgid_or_url)
+            mbox = node.get_mbox_by_msgid(msgid)
+            messages = split_mbox_as_bytes(mbox)
             logger.info('Found %d messages in thread', len(messages))
 
             uploaded = 0
@@ -1341,13 +1348,14 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
                     logger.debug('Uploading: %s', subject)
                     ts.import_message(raw_message, labels=labels_list)
                     uploaded += 1
-                except RemoteError as e:
+                except liblore.RemoteError as e:
                     logger.error('Failed to upload message: %s', str(e))
                     failed += 1
 
             return uploaded, failed
         else:
-            raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
+            msgid = get_msgid_from_url(msgid_or_url)
+            raw_message = node.get_message_by_msgid(msgid)
             msg = parse_message(raw_message)
             subject = msg.get('Subject', '(no subject)')
             logger.debug('Uploading: %s', subject)
@@ -1391,12 +1399,17 @@ def yank(ctx: click.Context, target: Optional[str],
     else:
         labels_list = ts.DEFAULT_LABELS
 
+    node = LoreNode()
+    node.set_requests_session(get_requests_session())
+    msgid = get_msgid_from_url(msgid_or_url)
+
     if thread:
         # Fetch the entire thread
-        logger.debug('Fetching thread: %s', msgid_or_url)
+        logger.debug('Fetching thread: %s', msgid)
         try:
-            messages = LoreFeed.get_thread_by_msgid(msgid_or_url)
-        except RemoteError as e:
+            mbox = node.get_mbox_by_msgid(msgid)
+            messages = split_mbox_as_bytes(mbox)
+        except liblore.RemoteError as e:
             logger.critical('Failed to fetch thread: %s', str(e))
             raise click.Abort()
 
@@ -1418,7 +1431,7 @@ def yank(ctx: click.Context, target: Optional[str],
                     logger.debug('Uploading: %s', subject)
                     ts.import_message(raw_message, labels=labels_list)
                     uploaded += 1
-                except RemoteError as e:
+                except liblore.RemoteError as e:
                     logger.error('Failed to upload message: %s', str(e))
                     failed += 1
                     continue
@@ -1429,10 +1442,10 @@ def yank(ctx: click.Context, target: Optional[str],
             logger.info('Successfully uploaded %d messages from thread', uploaded)
     else:
         # Fetch a single message
-        logger.debug('Fetching message: %s', msgid_or_url)
+        logger.debug('Fetching message: %s', msgid)
         try:
-            raw_message = LoreFeed.get_message_by_msgid(msgid_or_url)
-        except RemoteError as e:
+            raw_message = node.get_message_by_msgid(msgid)
+        except liblore.RemoteError as e:
             logger.critical('Failed to fetch message: %s', str(e))
             raise click.Abort()
 
@@ -1448,7 +1461,7 @@ def yank(ctx: click.Context, target: Optional[str],
             ts.connect()
             ts.import_message(raw_message, labels=labels_list)
             logger.info('Successfully uploaded message.')
-        except RemoteError as e:
+        except liblore.RemoteError as e:
             logger.critical('Failed to upload message: %s', str(e))
             raise click.Abort()
 
@@ -1610,10 +1623,12 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
     # Get the subject from the first message
     subject = '(unknown subject)'
     try:
-        raw_message = LoreFeed.get_message_by_msgid(msgid)
+        node = LoreNode()
+        node.set_requests_session(get_requests_session())
+        raw_message = node.get_message_by_msgid(msgid)
         msg = parse_message(raw_message)
         subject = msg.get('Subject', '(no subject)')
-    except RemoteError:
+    except liblore.RemoteError:
         logger.warning('Could not fetch message to get subject')
 
     # Get target instance for delivery and default labels

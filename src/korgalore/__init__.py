@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import liblore
 import requests
 from typing import List, Optional, Tuple
 
@@ -65,11 +66,11 @@ class GitError(KorgaloreError):
     """Raised when there is an error with Git operations."""
     pass
 
-class RemoteError(KorgaloreError):
+class RemoteError(KorgaloreError, liblore.RemoteError):
     """Raised when there is an error communicating with remote services."""
     pass
 
-class PublicInboxError(KorgaloreError):
+class PublicInboxError(KorgaloreError, liblore.PublicInboxError):
     """Raised when something is wrong with Public-Inbox."""
     pass
 
