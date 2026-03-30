@@ -575,13 +575,15 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
         The Message-ID of the delivered message on success, None on failure or skip.
     """
     # Skip public-inbox commits that carry no message (rm, purged, etc.)
-    if feed.is_noop_commit(epoch, commit):
-        logger.debug('Skipping no-op commit %s in epoch %d', commit, epoch)
-        feed.mark_successful_delivery(delivery_name, epoch, commit)
-        return SKIPPED_NOOP_COMMIT
-
+    # is_noop_commit raises GitError when the commit object is missing
+    # locally (bad object), so the check must be inside the try/except
+    # to avoid crashing the retry loop.
     raw_message: Optional[bytes] = None
     try:
+        if feed.is_noop_commit(epoch, commit):
+            logger.debug('Skipping no-op commit %s in epoch %d', commit, epoch)
+            feed.mark_successful_delivery(delivery_name, epoch, commit)
+            return SKIPPED_NOOP_COMMIT
         raw_message = feed.get_message_at_commit(epoch, commit)
         target.connect()
         msg = parse_message(raw_message)

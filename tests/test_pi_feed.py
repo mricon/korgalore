@@ -725,8 +725,10 @@ class TestIsNoopCommit:
         feed = self._make_feed(feed_dir)
         assert feed.is_noop_commit(0, commit) is True
 
-    def test_invalid_commit_does_not_raise(self, tmp_path: Path) -> None:
-        """An invalid commit hash does not raise an exception."""
+    def test_invalid_commit_raises_git_error(self, tmp_path: Path) -> None:
+        """An invalid commit hash raises GitError (bad object)."""
+        from korgalore import GitError
+
         feed_dir = tmp_path / "test-feed"
         feed_dir.mkdir()
         gitdir = feed_dir / "git" / "0.git"
@@ -734,6 +736,61 @@ class TestIsNoopCommit:
         self._init_bare_repo(gitdir)
 
         feed = self._make_feed(feed_dir)
-        # Returns True (no 'm' found) which is the safe default —
-        # the commit will be skipped rather than crashing delivery.
-        assert feed.is_noop_commit(0, 'deadbeef' * 5) is True
+        with pytest.raises(GitError):
+            feed.is_noop_commit(0, 'deadbeef' * 5)
+
+    def test_bad_object_commit_raises_git_error(self, tmp_path: Path) -> None:
+        """A non-existent commit (bad object) must raise GitError.
+
+        Regression: is_noop_commit returned True for bad-object commits,
+        causing save_delivery_info to crash during failed delivery retry
+        when it tried to ``git show`` the missing commit.
+
+        See: c4de9f25-0c60-49e4-925f-7749eba57264@app.fastmail.com
+        """
+        from korgalore import GitError
+
+        feed_dir = tmp_path / "test-feed"
+        feed_dir.mkdir()
+        gitdir = feed_dir / "git" / "0.git"
+        gitdir.mkdir(parents=True)
+        self._init_bare_repo(gitdir)
+        # Add a real commit so the repo is not empty, then use a hash
+        # that definitely does not exist.
+        self._add_commit_with_file(gitdir, 'm', 'real commit')
+
+        feed = self._make_feed(feed_dir)
+        with pytest.raises(GitError):
+            feed.is_noop_commit(0, 'deadbeef' * 5)
+
+
+class TestDeliverBadObjectCommit:
+    """Regression: deliver_commit must handle bad-object commits gracefully.
+
+    When a commit in the failed delivery list is no longer available
+    locally (bad object / missing packfile), deliver_commit must not
+    crash the entire retry loop.  It should record the failure and
+    move on.
+
+    See: c4de9f25-0c60-49e4-925f-7749eba57264@app.fastmail.com
+    """
+
+    def test_bad_object_during_retry_records_failure(self) -> None:
+        """deliver_commit marks a bad-object commit as failed, not crashed."""
+        from unittest.mock import MagicMock
+        from korgalore import GitError
+        from korgalore.cli import deliver_commit
+
+        feed = MagicMock()
+        feed.is_noop_commit.side_effect = GitError("Bad object: deadbeef")
+        target = MagicMock()
+
+        result = deliver_commit(
+            "test-delivery", target, feed, 0, "deadbeef" * 5,
+            ["label"], was_failing=True,
+        )
+
+        assert result is None
+        feed.mark_failed_delivery.assert_called_once_with(
+            "test-delivery", 0, "deadbeef" * 5,
+        )
