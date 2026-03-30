@@ -368,8 +368,17 @@ class PIFeed:
         by checking for the absence of the 'm' object in the commit
         tree rather than relying on the commit subject, since subjects
         are derived from email headers and could match coincidentally.
+
+        Raises GitError if the commit object itself is missing (bad
+        object), since treating a missing commit as a no-op would cause
+        save_delivery_info to crash downstream.
         """
         gitdir = self.get_gitdir(epoch)
+        # First verify the commit object exists locally.
+        retcode, _output, _err = run_git_command(str(gitdir), ['cat-file', '-e', commitish])
+        if retcode != 0:
+            raise GitError(f"Bad object {commitish} in epoch {epoch}")
+        # Now check whether the commit tree contains an 'm' file.
         gitargs = ['cat-file', '-e', f'{commitish}:m']
         retcode, _output, _err = run_git_command(str(gitdir), gitargs)
         return retcode != 0
