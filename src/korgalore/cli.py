@@ -579,7 +579,8 @@ def deliver_commit(delivery_name: str, target: Any, feed: Union[LeiFeed, LoreFee
     try:
         if feed.is_noop_commit(epoch, commit):
             logger.debug('Skipping no-op commit %s in epoch %d', commit, epoch)
-            feed.mark_successful_delivery(delivery_name, epoch, commit)
+            feed.mark_successful_delivery(delivery_name, epoch, commit,
+                                              was_failing=was_failing)
             return SKIPPED_NOOP_COMMIT
         raw_message = feed.get_message_at_commit(epoch, commit)
         target.connect()

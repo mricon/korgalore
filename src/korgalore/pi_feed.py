@@ -517,6 +517,11 @@ class PIFeed:
                 self._write_jsonl_file(state_file, failed)
                 logger.debug("Marked commit %s in epoch %d as successfully delivered for delivery %s.",
                             commit_hash, epoch, delivery_name)
+            # Don't update the delivery pointer for retried commits —
+            # they are older than the current pointer and overwriting
+            # it would rewind the state, causing all subsequent commits
+            # to be re-delivered on the next pull.
+            return
 
         self.save_delivery_info(delivery_name, epoch, commit_hash, message=message)
 
