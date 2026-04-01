@@ -794,3 +794,57 @@ class TestDeliverBadObjectCommit:
         feed.mark_failed_delivery.assert_called_once_with(
             "test-delivery", 0, "deadbeef" * 5,
         )
+
+
+class TestRetryNoopDoesNotRewindPointer:
+    """Regression: retrying a noop commit must not rewind the delivery pointer.
+
+    When a noop commit (rm/purge) is in the failed list and gets retried,
+    deliver_commit must (a) pass was_failing through so the entry is
+    removed from the failed list, and (b) mark_successful_delivery must
+    not call save_delivery_info for retried commits, as that would
+    overwrite the delivery pointer with an older commit hash and cause
+    all subsequent commits to be re-delivered on every pull.
+
+    See: e77298ce-1e3e-449f-9864-b4fcf77a00b4@app.fastmail.com
+    """
+
+    def test_noop_retry_passes_was_failing(self) -> None:
+        """deliver_commit passes was_failing to mark_successful_delivery for noops."""
+        from unittest.mock import MagicMock
+        from korgalore.cli import deliver_commit, SKIPPED_NOOP_COMMIT
+
+        feed = MagicMock()
+        feed.is_noop_commit.return_value = True
+        target = MagicMock()
+
+        result = deliver_commit(
+            "test-delivery", target, feed, 0, "abc123",
+            ["label"], was_failing=True,
+        )
+
+        assert result == SKIPPED_NOOP_COMMIT
+        feed.mark_successful_delivery.assert_called_once_with(
+            "test-delivery", 0, "abc123", was_failing=True,
+        )
+
+    def test_retry_success_does_not_save_delivery_info(
+        self, mock_feed: PIFeed, temp_feed_dir: Path
+    ) -> None:
+        """mark_successful_delivery with was_failing=True must not call save_delivery_info."""
+        failed_file = temp_feed_dir / "korgalore.test-delivery.failed"
+        entries = [(0, "abc123", "2024-01-01T00:00:00", 1)]
+        content = "".join(json.dumps(e) + "\n" for e in entries)
+        failed_file.write_text(content)
+
+        with patch.object(mock_feed, "save_delivery_info") as mock_save:
+            mock_feed.mark_successful_delivery("test-delivery", 0, "abc123", was_failing=True)
+            mock_save.assert_not_called()
+
+    def test_fresh_success_still_saves_delivery_info(
+        self, mock_feed: PIFeed, temp_feed_dir: Path
+    ) -> None:
+        """mark_successful_delivery with was_failing=False still calls save_delivery_info."""
+        with patch.object(mock_feed, "save_delivery_info") as mock_save:
+            mock_feed.mark_successful_delivery("test-delivery", 0, "abc123", was_failing=False)
+            mock_save.assert_called_once()
