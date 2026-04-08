@@ -116,6 +116,21 @@ class LoreFeed(PIFeed):
 
         return manifest
 
+    def _git_mirror_config(self) -> Dict[str, str]:
+        """Return git config dict to redirect operations to the preferred mirror.
+
+        After auto-probe, the first entry in node.origins is the
+        fastest responding mirror.  If it differs from the canonical
+        origin, return a ``url.<mirror>/.insteadOf`` config entry so
+        git transparently uses the mirror.
+        """
+        origins = self._node.origins
+        canonical = self._node.canonical_origin
+        if origins and origins[0] != canonical:
+            preferred = origins[0]
+            return {f'url.{preferred}/.insteadOf': f'{canonical}/'}
+        return {}
+
     def clone_epoch(self, epoch: int, shallow: bool = True) -> None:
         """Clone a git epoch repository from remote Lore server."""
         gitdir = self.get_gitdir(epoch)
@@ -130,14 +145,15 @@ class LoreFeed(PIFeed):
             gitargs += ['--shallow-since=1.week.ago']
         gitargs += [repo_url, str(gitdir)]
 
-        retcode, output, error = run_git_command(None, gitargs)
+        mirror_config = self._git_mirror_config()
+        retcode, output, error = run_git_command(None, gitargs, git_config=mirror_config)
         if retcode != 0 and shallow:
             # Shallow clone with --shallow-since can fail for dormant lists
             # that have no commits in the time window. Fall back to --depth=1
             # which always succeeds regardless of commit dates.
             logger.debug('Shallow clone failed, retrying with --depth=1: %s', error.decode())
             gitargs = ['clone', '--mirror', '--depth=1', repo_url, str(gitdir)]
-            retcode, output, error = run_git_command(None, gitargs)
+            retcode, output, error = run_git_command(None, gitargs, git_config=mirror_config)
         if retcode != 0:
             raise RemoteError(f"Git clone failed (exit {retcode}): {error.decode()}")
 
@@ -217,7 +233,8 @@ class LoreFeed(PIFeed):
         gitdir = self.get_gitdir(highest_local_epoch)
         # Pull the latest changes
         gitargs = ['fetch', 'origin', '--shallow-since=1.week.ago', '--update-shallow']
-        retcode, output, error = run_git_command(str(gitdir), gitargs)
+        retcode, output, error = run_git_command(str(gitdir), gitargs,
+                                                 git_config=self._git_mirror_config())
         if retcode != 0:
             raise RemoteError(f"Git fetch failed (exit {retcode}): {error.decode()}")
 

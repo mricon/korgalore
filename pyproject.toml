@@ -63,6 +63,9 @@ where = ["src"]
 [tool.pip-tools]
 generate-hashes = true
 
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+
 [tool.mypy]
 strict = true
 python_version = "3.11"

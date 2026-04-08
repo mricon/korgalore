@@ -23,6 +23,13 @@ Enhancements
     shared across feeds, yank, and track commands within a single CLI run
   - LoreFeed manifest fetches, yank message/thread fetches, and track
     subject lookups all benefit from failover
+  - Git clone and fetch operations use the probed-fastest mirror via
+    per-invocation ``url.<mirror>/.insteadOf`` git config (``-c`` flag)
+  - Known limitation: lei operations (``track`` thread searches) do not
+    yet benefit from mirror failover, as lei has its own HTTP stack with
+    no mirror configuration support. An RFC proposing ``url.insteadOf``-style
+    rewriting for lei has been sent to public-inbox:
+    https://public-inbox.org/meta/20260408-nyala-of-heavenly-imagination-eb0a1d@lemur/
 
 * ``lore.useragentplus`` git config replaces ``main.user_agent_plus``
 

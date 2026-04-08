@@ -7,7 +7,7 @@ from pathlib import Path
 import liblore
 from liblore import LoreNode
 import requests
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 __version__ = "0.7-dev"
 __author__ = "Konstantin Ryabitsev"
@@ -130,12 +130,19 @@ def _init_git_user_agent() -> None:
     logger.debug('Set GIT_HTTP_USER_AGENT to: %s', user_agent)
 
 def run_git_command(gitdir: Optional[str], args: List[str],
-                    stdin: Optional[bytes] = None) -> Tuple[int, bytes, bytes]:
+                    stdin: Optional[bytes] = None,
+                    git_config: Optional[Dict[str, str]] = None,
+                    ) -> Tuple[int, bytes, bytes]:
     """Run a git command in the specified git directory and return (returncode, stdout, stderr).
 
     Uses --git-dir instead of -C to work with safe.bareRepository=explicit.
+    Optional *git_config* dict adds ``-c key=value`` flags before the
+    subcommand (useful for per-invocation url.<base>.insteadOf).
     """
     cmd = [GITCMD]
+    if git_config:
+        for key, value in git_config.items():
+            cmd += ['-c', f'{key}={value}']
     if gitdir:
         cmd += ['--git-dir', gitdir]
     cmd += args
