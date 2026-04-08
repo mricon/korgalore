@@ -4,6 +4,7 @@ import os
 import re
 import hashlib
 import uuid
+import urllib.parse
 import click
 import tomllib
 import logging
@@ -22,10 +23,10 @@ from korgalore.pipe_target import PipeTarget
 from korgalore import (
     __version__, ConfigurationError, StateError, GitError,
     RemoteError, PublicInboxError, AuthenticationError, format_key_for_display,
-    _init_git_user_agent, set_user_agent_id, get_requests_session, close_requests_session
+    _init_git_user_agent, get_requests_session, close_requests_session,
+    make_lore_node
 )
 import liblore
-from liblore import LoreNode
 from liblore.utils import parse_message, get_msgid_from_url, split_mbox_as_bytes
 from korgalore.tracking import (
     TrackingManifest, TrackStatus,
@@ -706,6 +707,23 @@ def find_subscription_file(conf_d: Path, feed_key: str) -> Optional[Path]:
     return None
 
 
+def get_lore_node(ctx: click.Context, url: str = 'https://lore.kernel.org/all') -> 'liblore.LoreNode':
+    """Get or create a LoreNode for the given URL's origin.
+
+    Nodes are cached in ctx.obj['lore_nodes'] keyed by canonical origin
+    (scheme://host). All URLs on the same host share one node, since
+    failover origins are per-host, not per-path.
+    """
+    parsed = urllib.parse.urlparse(url)
+    origin = f'{parsed.scheme}://{parsed.netloc}'
+    nodes: Dict[str, liblore.LoreNode] = ctx.obj['lore_nodes']
+    if origin not in nodes:
+        node = make_lore_node(url=url)
+        nodes[origin] = node
+        ctx.call_on_close(node.close)
+    return nodes[origin]
+
+
 def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) -> Union[LeiFeed, LoreFeed]:
     """Get or create a feed instance for a delivery configuration."""
     config = ctx.obj.get('config', {})
@@ -722,7 +740,7 @@ def get_feed_for_delivery(delivery_details: Dict[str, Any], ctx: click.Context) 
         # Lore feed
         data_dir = ctx.obj.get('data_dir', get_xdg_data_dir())
         feed_dir = data_dir / feed_key
-        lore_feed = LoreFeed(feed_key, feed_dir, feed_url, reqsession=get_requests_session())
+        lore_feed = LoreFeed(feed_key, feed_dir, feed_url, lore_node=get_lore_node(ctx, feed_url))
         feeds[feed_key] = lore_feed
         return lore_feed
     elif feed_url.startswith('lei:'):
@@ -936,11 +954,13 @@ def main(ctx: click.Context, cfgfile: str, logfile: Optional[click.Path]) -> Non
             logger.critical('Please edit %s and define at least one target.', cfgpath)
             raise click.Abort()
 
-        # Check for user_agent_plus in config
-        main_config = config.get('main', {})
-        user_agent_plus = main_config.get('user_agent_plus')
-        if user_agent_plus:
-            set_user_agent_id(user_agent_plus)
+    # LoreNode cache keyed by canonical origin (scheme://host).
+    # Nodes are created on demand by get_lore_node() and closed on exit.
+    ctx.obj['lore_nodes'] = dict()
+
+    # Seed with default lore.kernel.org node and read lore.useragentplus.
+    import korgalore
+    korgalore._user_agent_plus = get_lore_node(ctx).user_agent_plus
 
     # Check git is available and set GIT_HTTP_USER_AGENT
     try:
@@ -1331,9 +1351,7 @@ def perform_yank(ctx: click.Context, target_name: str, msgid_or_url: str,
 
     ts.connect()
 
-    node = LoreNode()
-    node.set_requests_session(get_requests_session())
-
+    node = get_lore_node(ctx)
     try:
         if thread:
             msgid = get_msgid_from_url(msgid_or_url)
@@ -1402,8 +1420,7 @@ def yank(ctx: click.Context, target: Optional[str],
     else:
         labels_list = ts.DEFAULT_LABELS
 
-    node = LoreNode()
-    node.set_requests_session(get_requests_session())
+    node = get_lore_node(ctx)
     msgid = get_msgid_from_url(msgid_or_url)
 
     if thread:
@@ -1626,8 +1643,7 @@ def track_add(ctx: click.Context, msgid_or_url: str, target: Optional[str],
     # Get the subject from the first message
     subject = '(unknown subject)'
     try:
-        node = LoreNode()
-        node.set_requests_session(get_requests_session())
+        node = get_lore_node(ctx)
         raw_message = node.get_message_by_msgid(msgid)
         msg = parse_message(raw_message)
         subject = msg.get('Subject', '(no subject)')

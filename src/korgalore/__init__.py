@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import liblore
+from liblore import LoreNode
 import requests
 from typing import List, Optional, Tuple
 
@@ -19,15 +20,11 @@ LEICMD: str = "lei"
 logger = logging.getLogger('korgalore')
 
 
-def set_user_agent_id(user_agent_id: str) -> None:
-    """Append a user-agent-id to the user-agent string.
-
-    Args:
-        user_agent_id: Identifier to append (e.g., 'abcd1234').
-    """
-    global __user_agent__
-    __user_agent__ = f"korgalore/{__version__}+{user_agent_id}"
-    logger.debug('Set user-agent to: %s', __user_agent__)
+# User-agent-plus from lore.useragentplus git config.
+# Set at CLI startup via LoreNode.user_agent_plus; applied to git HTTP
+# and lei user-agent strings only — NOT to the shared requests session
+# (which serves JMAP, MAINTAINERS, etc.).
+_user_agent_plus: Optional[str] = None
 
 
 # Global requests session for HTTP calls
@@ -51,6 +48,26 @@ def close_requests_session() -> None:
     if _REQSESSION is not None:
         _REQSESSION.close()
         _REQSESSION = None
+
+
+def make_lore_node(url: str = 'https://lore.kernel.org/all',
+                   cache_dir: Optional[str] = None) -> LoreNode:
+    """Create a LoreNode with failover/probing from git config.
+
+    Reads the ``[lore]`` section from git config via
+    :meth:`LoreNode.from_git_config`, picking up fallback mirror URLs,
+    auto-probe settings, and ``lore.useragentplus``.
+
+    The node creates and owns its own :class:`requests.Session` with
+    the correct User-Agent.  Use as a context manager for automatic
+    cleanup::
+
+        with make_lore_node() as node:
+            msgs = node.get_thread_by_msgid(msgid)
+    """
+    node = LoreNode.from_git_config(url, cache_dir=cache_dir)
+    node.set_user_agent('korgalore', __version__)
+    return node
 
 
 # Custom exceptions
@@ -107,7 +124,8 @@ def _init_git_user_agent() -> None:
     # Parse "git version 2.52.0" -> "2.52.0"
     version_output = result.stdout.decode().strip()
     git_version = version_output.split()[-1]
-    user_agent = f"git/{git_version} ({__user_agent__})"
+    kgl_ua = f"{__user_agent__}+{_user_agent_plus}" if _user_agent_plus else __user_agent__
+    user_agent = f"git/{git_version} ({kgl_ua})"
     os.environ['GIT_HTTP_USER_AGENT'] = user_agent
     logger.debug('Set GIT_HTTP_USER_AGENT to: %s', user_agent)
 
@@ -145,7 +163,8 @@ def run_lei_command(args: List[str]) -> Tuple[int, bytes]:
     # --user-agent is only supported by 'q' and 'up' commands
     cmd = [LEICMD, args[0]]
     if args[0] in ('q', 'up'):
-        cmd += ['--user-agent', __user_agent__]
+        lei_ua = f"{__user_agent__}+{_user_agent_plus}" if _user_agent_plus else __user_agent__
+        cmd += ['--user-agent', lei_ua]
     cmd += args[1:]
     logger.debug('Running lei command: %s', ' '.join(cmd))
 

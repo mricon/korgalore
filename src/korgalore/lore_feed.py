@@ -1,4 +1,3 @@
-import requests
 from typing import List, Dict, Tuple, Any, Optional
 from gzip import GzipFile
 from pathlib import Path
@@ -7,7 +6,8 @@ import json
 
 import logging
 
-from korgalore import get_requests_session, run_git_command, StateError, RemoteError
+from liblore import LoreNode
+from korgalore import run_git_command, StateError, RemoteError
 from korgalore.pi_feed import PIFeed
 
 
@@ -18,23 +18,24 @@ class LoreFeed(PIFeed):
     """Service for interacting with lore.kernel.org public-inbox archives."""
 
     def __init__(self, feed_key: str, feed_dir: Path, feed_url: str,
-                 reqsession: Optional[requests.Session] = None) -> None:
+                 lore_node: Optional[LoreNode] = None) -> None:
         """Initialize a LoreFeed instance.
 
         Args:
             feed_key: Unique identifier for this feed.
             feed_dir: Local directory path for storing feed data.
             feed_url: Base URL of the lore.kernel.org archive.
-            reqsession: Optional requests session for HTTP calls. If not provided,
-                a new session with appropriate User-Agent header will be created.
+            lore_node: Optional LoreNode for HTTP calls with failover.
+                If not provided, one is created via make_lore_node().
         """
         super().__init__(feed_key, feed_dir)
         self.feed_type = 'lore'
         self.feed_url = feed_url
-        if reqsession:
-            self.session = reqsession
+        if lore_node is not None:
+            self._node = lore_node
         else:
-            self.session = get_requests_session()
+            from korgalore import make_lore_node
+            self._node = make_lore_node(url=feed_url)
 
     @staticmethod
     def validate_public_inbox_url(url: str) -> str:
@@ -55,17 +56,20 @@ class LoreFeed(PIFeed):
             RemoteError: If the manifest cannot be fetched, parsed, or
                 contains inconsistent list prefixes.
         """
+        from korgalore import make_lore_node
         manifest_url = f"{url.rstrip('/')}/manifest.js.gz"
         logger.debug('Fetching manifest from %s', manifest_url)
 
+        node = make_lore_node(url=url)
         try:
-            session = get_requests_session()
-            response = session.get(manifest_url)
+            response = node.request('GET', manifest_url)
             response.raise_for_status()
         except Exception as e:
             raise RemoteError(
                 f"Failed to fetch manifest from {manifest_url}: {e}"
             ) from e
+        finally:
+            node.close()
 
         try:
             raw = GzipFile(fileobj=io.BytesIO(response.content)).read()
@@ -95,8 +99,9 @@ class LoreFeed(PIFeed):
 
     def get_manifest(self) -> Dict[str, Any]:
         """Fetch and parse the gzipped manifest from the Lore server."""
+        manifest_url = f"{self.feed_url.rstrip('/')}/manifest.js.gz"
         try:
-            response = self.session.get(f"{self.feed_url.rstrip('/')}/manifest.js.gz")
+            response = self._node.request('GET', manifest_url)
             response.raise_for_status()
         except Exception as e:
             raise RemoteError(

@@ -2,54 +2,29 @@
 
 import os
 from unittest import mock
+from unittest.mock import MagicMock
 
 import pytest
 
 import korgalore
 from korgalore import (
     __version__,
-    set_user_agent_id,
     get_requests_session,
     close_requests_session,
     _init_git_user_agent,
+    make_lore_node,
     run_lei_command,
     GitError,
     PublicInboxError,
 )
 
 
-class TestSetUserAgentId:
-    """Tests for set_user_agent_id function."""
-
-    def teardown_method(self) -> None:
-        """Reset user agent after each test."""
-        korgalore.__user_agent__ = f"korgalore/{__version__}"
-
-    def test_appends_id_with_plus(self) -> None:
-        """User agent ID is appended with + separator."""
-        set_user_agent_id("test123")
-        assert korgalore.__user_agent__ == f"korgalore/{__version__}+test123"
-
-    def test_uuid_format(self) -> None:
-        """User agent ID works with UUID format."""
-        set_user_agent_id("550e8400-e29b-41d4-a716-446655440000")
-        assert "+550e8400-e29b-41d4-a716-446655440000" in korgalore.__user_agent__
-
-    def test_overwrites_previous_id(self) -> None:
-        """Setting ID twice overwrites the first."""
-        set_user_agent_id("first")
-        set_user_agent_id("second")
-        assert korgalore.__user_agent__ == f"korgalore/{__version__}+second"
-        assert "first" not in korgalore.__user_agent__
-
-
 class TestGetRequestsSession:
     """Tests for get_requests_session function."""
 
     def teardown_method(self) -> None:
-        """Clean up session and reset user agent after each test."""
+        """Clean up session after each test."""
         close_requests_session()
-        korgalore.__user_agent__ = f"korgalore/{__version__}"
 
     def test_returns_session_with_user_agent(self) -> None:
         """Session has correct User-Agent header."""
@@ -62,11 +37,15 @@ class TestGetRequestsSession:
         session2 = get_requests_session()
         assert session1 is session2
 
-    def test_reflects_user_agent_id_if_set_first(self) -> None:
-        """Session reflects user_agent_plus if set before session creation."""
-        set_user_agent_id("myid")
-        session = get_requests_session()
-        assert session.headers["User-Agent"] == f"korgalore/{__version__}+myid"
+    def test_session_excludes_user_agent_plus(self) -> None:
+        """Session User-Agent does NOT include _user_agent_plus (no leakage to JMAP etc.)."""
+        korgalore._user_agent_plus = 'should-not-appear'
+        try:
+            session = get_requests_session()
+            assert '+should-not-appear' not in session.headers["User-Agent"]
+            assert session.headers["User-Agent"] == f"korgalore/{__version__}"
+        finally:
+            korgalore._user_agent_plus = None
 
 
 class TestCloseRequestsSession:
@@ -103,7 +82,7 @@ class TestInitGitUserAgent:
         """Clean up environment after each test."""
         if "GIT_HTTP_USER_AGENT" in os.environ:
             del os.environ["GIT_HTTP_USER_AGENT"]
-        korgalore.__user_agent__ = f"korgalore/{__version__}"
+        korgalore._user_agent_plus = None
 
     def test_sets_environment_variable(self) -> None:
         """Sets GIT_HTTP_USER_AGENT environment variable."""
@@ -129,8 +108,8 @@ class TestInitGitUserAgent:
             assert os.environ["GIT_HTTP_USER_AGENT"] == expected
 
     def test_includes_user_agent_plus(self) -> None:
-        """User agent includes plus ID if set."""
-        set_user_agent_id("testid")
+        """GIT_HTTP_USER_AGENT includes plus from _user_agent_plus."""
+        korgalore._user_agent_plus = 'testid'
         with mock.patch("subprocess.run") as mock_run:
             mock_run.return_value = mock.Mock(
                 returncode=0,
@@ -139,6 +118,19 @@ class TestInitGitUserAgent:
             )
             _init_git_user_agent()
             expected = f"git/2.45.0 (korgalore/{__version__}+testid)"
+            assert os.environ["GIT_HTTP_USER_AGENT"] == expected
+
+    def test_no_plus_when_unset(self) -> None:
+        """GIT_HTTP_USER_AGENT has no plus when _user_agent_plus is None."""
+        korgalore._user_agent_plus = None
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(
+                returncode=0,
+                stdout=b"git version 2.45.0",
+                stderr=b""
+            )
+            _init_git_user_agent()
+            expected = f"git/2.45.0 (korgalore/{__version__})"
             assert os.environ["GIT_HTTP_USER_AGENT"] == expected
 
     def test_raises_git_error_if_not_found(self) -> None:
@@ -166,8 +158,8 @@ class TestRunLeiCommand:
     """Tests for run_lei_command function."""
 
     def teardown_method(self) -> None:
-        """Reset user agent after each test."""
-        korgalore.__user_agent__ = f"korgalore/{__version__}"
+        """Reset user agent plus after each test."""
+        korgalore._user_agent_plus = None
 
     def test_adds_user_agent_for_q_command(self) -> None:
         """Adds --user-agent flag for 'q' subcommand."""
@@ -220,8 +212,8 @@ class TestRunLeiCommand:
             assert called_cmd[2] == "--user-agent"
 
     def test_includes_user_agent_plus(self) -> None:
-        """User agent includes plus ID if set."""
-        set_user_agent_id("myid")
+        """Lei user-agent includes plus from _user_agent_plus."""
+        korgalore._user_agent_plus = 'myid'
         with mock.patch("subprocess.run") as mock_run:
             mock_run.return_value = mock.Mock(returncode=0, stdout=b"")
             run_lei_command(["q", "term"])
@@ -248,3 +240,30 @@ class TestRunLeiCommand:
             retcode, output = run_lei_command(["ls-search"])
             assert retcode == 0
             assert output == b"output data"
+
+
+class TestMakeLoreNode:
+    """Tests for make_lore_node factory function."""
+
+    def test_calls_from_git_config(self) -> None:
+        """Creates node via LoreNode.from_git_config with correct args."""
+        mock_node = MagicMock()
+        with mock.patch('korgalore.LoreNode.from_git_config', return_value=mock_node) as mock_fgc:
+            node = make_lore_node(url='https://example.com/list', cache_dir='/tmp/cache')
+            mock_fgc.assert_called_once_with('https://example.com/list', cache_dir='/tmp/cache')
+            mock_node.set_user_agent.assert_called_once_with('korgalore', __version__)
+            assert node is mock_node
+
+    def test_default_url(self) -> None:
+        """Default URL is lore.kernel.org/all."""
+        mock_node = MagicMock()
+        with mock.patch('korgalore.LoreNode.from_git_config', return_value=mock_node) as mock_fgc:
+            make_lore_node()
+            mock_fgc.assert_called_once_with('https://lore.kernel.org/all', cache_dir=None)
+
+    def test_default_cache_dir_is_none(self) -> None:
+        """Cache dir defaults to None (no caching)."""
+        mock_node = MagicMock()
+        with mock.patch('korgalore.LoreNode.from_git_config', return_value=mock_node) as mock_fgc:
+            make_lore_node()
+            assert mock_fgc.call_args[1]['cache_dir'] is None

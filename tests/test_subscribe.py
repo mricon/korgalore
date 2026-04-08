@@ -32,6 +32,14 @@ class TestValidatePublicInboxUrl:
         response.raise_for_status = MagicMock()
         return response
 
+    @staticmethod
+    def _make_mock_node(response: MagicMock) -> MagicMock:
+        """Create a mock LoreNode whose request() returns the given response."""
+        mock_node = MagicMock()
+        mock_node.request.return_value = response
+        mock_node.close = MagicMock()
+        return mock_node
+
     def test_success(self) -> None:
         """Valid manifest with consistent list prefix returns list name."""
         manifest = {
@@ -39,17 +47,17 @@ class TestValidatePublicInboxUrl:
             '/lkml/git/1.git': {'fingerprint': 'def456'},
         }
         response = self._make_manifest_response(manifest)
-        session = MagicMock()
-        session.get.return_value = response
+        mock_node = self._make_mock_node(response)
 
-        with patch('korgalore.lore_feed.get_requests_session', return_value=session):
+        with patch('korgalore.make_lore_node', return_value=mock_node):
             result = LoreFeed.validate_public_inbox_url(
                 'https://lore.kernel.org/lkml/')
 
         assert result == 'lkml'
-        session.get.assert_called_once_with(
-            'https://lore.kernel.org/lkml/manifest.js.gz'
+        mock_node.request.assert_called_once_with(
+            'GET', 'https://lore.kernel.org/lkml/manifest.js.gz'
         )
+        mock_node.close.assert_called_once()
 
     def test_non_lore_server(self) -> None:
         """Works with any public-inbox server, not just lore."""
@@ -57,10 +65,9 @@ class TestValidatePublicInboxUrl:
             '/mylist/git/0.git': {'fingerprint': 'abc'},
         }
         response = self._make_manifest_response(manifest)
-        session = MagicMock()
-        session.get.return_value = response
+        mock_node = self._make_mock_node(response)
 
-        with patch('korgalore.lore_feed.get_requests_session', return_value=session):
+        with patch('korgalore.make_lore_node', return_value=mock_node):
             result = LoreFeed.validate_public_inbox_url(
                 'https://inbox.example.org/mylist/')
 
@@ -73,20 +80,20 @@ class TestValidatePublicInboxUrl:
             '/other/git/0.git': {'fingerprint': 'def'},
         }
         response = self._make_manifest_response(manifest)
-        session = MagicMock()
-        session.get.return_value = response
+        mock_node = self._make_mock_node(response)
 
-        with patch('korgalore.lore_feed.get_requests_session', return_value=session):
+        with patch('korgalore.make_lore_node', return_value=mock_node):
             with pytest.raises(RemoteError, match='inconsistent list prefixes'):
                 LoreFeed.validate_public_inbox_url(
                     'https://lore.kernel.org/lkml/')
 
     def test_fetch_failure_raises_remote_error(self) -> None:
         """Failed manifest fetch raises RemoteError."""
-        session = MagicMock()
-        session.get.side_effect = Exception('Connection refused')
+        mock_node = MagicMock()
+        mock_node.request.side_effect = Exception('Connection refused')
+        mock_node.close = MagicMock()
 
-        with patch('korgalore.lore_feed.get_requests_session', return_value=session):
+        with patch('korgalore.make_lore_node', return_value=mock_node):
             with pytest.raises(RemoteError, match='Failed to fetch manifest'):
                 LoreFeed.validate_public_inbox_url(
                     'https://lore.kernel.org/lkml/')
@@ -94,10 +101,9 @@ class TestValidatePublicInboxUrl:
     def test_empty_manifest_raises_remote_error(self) -> None:
         """Empty manifest raises RemoteError."""
         response = self._make_manifest_response({})
-        session = MagicMock()
-        session.get.return_value = response
+        mock_node = self._make_mock_node(response)
 
-        with patch('korgalore.lore_feed.get_requests_session', return_value=session):
+        with patch('korgalore.make_lore_node', return_value=mock_node):
             with pytest.raises(RemoteError, match='Empty manifest'):
                 LoreFeed.validate_public_inbox_url(
                     'https://lore.kernel.org/lkml/')
