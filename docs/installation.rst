@@ -26,9 +26,28 @@ Clone the repository and install:
 
 .. code-block:: bash
 
-   git clone https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git
+   git clone --recurse-submodules https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git
    cd korgalore
    pipx install .
+
+Running from Git Checkout
+=========================
+
+You can run korgalore directly from a git checkout without installing, using
+the included ``kgl.sh`` wrapper:
+
+.. code-block:: bash
+
+   git clone --recurse-submodules https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git
+   cd korgalore
+   ./kgl.sh pull
+
+The wrapper sets up ``PYTHONPATH`` to include korgalore and its liblore
+submodule. If you already have a checkout, initialize the submodule with:
+
+.. code-block:: bash
+
+   git submodule update --init
 
 GUI Installation
 ================
@@ -66,7 +85,7 @@ For development, install with dev dependencies:
 
 .. code-block:: bash
 
-   git clone https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git
+   git clone --recurse-submodules https://git.kernel.org/pub/scm/utils/korgalore/korgalore.git
    cd korgalore
    pip install -e ".[dev]"
 
