@@ -3,9 +3,11 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
 
+import click
 import pytest
 
 from korgalore import run_git_command
+from korgalore.cli import get_lore_node
 from korgalore.lore_feed import LoreFeed
 
 
@@ -240,3 +242,74 @@ class TestUpdateFeedMirror:
             assert len(fetch_calls) == 1
             _, kwargs = fetch_calls[0]
             assert kwargs['git_config'] == expected_config
+
+
+class TestGetLoreNode:
+    """Tests for get_lore_node() origin-based caching."""
+
+    @staticmethod
+    def _make_ctx() -> click.Context:
+        """Create a Click context with an empty lore_nodes cache."""
+        ctx = click.Context(click.Command('test'))
+        ctx.ensure_object(dict)
+        ctx.obj['lore_nodes'] = dict()
+        return ctx
+
+    def test_same_origin_returns_same_node(self) -> None:
+        """Two URLs on the same host return the same cached node."""
+        ctx = self._make_ctx()
+        with patch('korgalore.cli.make_lore_node') as mock_make:
+            mock_make.return_value = MagicMock()
+            node1 = get_lore_node(ctx, 'https://lore.kernel.org/lkml')
+            node2 = get_lore_node(ctx, 'https://lore.kernel.org/netdev')
+
+        assert node1 is node2
+        # Only one node should have been created
+        mock_make.assert_called_once()
+
+    def test_different_origins_return_different_nodes(self) -> None:
+        """URLs on different hosts get separate nodes."""
+        ctx = self._make_ctx()
+        with patch('korgalore.cli.make_lore_node') as mock_make:
+            mock_make.side_effect = [MagicMock(name='lore'), MagicMock(name='subspace')]
+            node_lore = get_lore_node(ctx, 'https://lore.kernel.org/lkml')
+            node_subspace = get_lore_node(ctx, 'https://subspace.kernel.org/_lists/helpdesk')
+
+        assert node_lore is not node_subspace
+        assert mock_make.call_count == 2
+        assert len(ctx.obj['lore_nodes']) == 2
+
+    def test_default_url_is_lore(self) -> None:
+        """Default call creates a lore.kernel.org node."""
+        ctx = self._make_ctx()
+        with patch('korgalore.cli.make_lore_node') as mock_make:
+            mock_make.return_value = MagicMock()
+            get_lore_node(ctx)
+
+        mock_make.assert_called_once_with(url='https://lore.kernel.org/all')
+
+    def test_node_closed_on_context_close(self) -> None:
+        """Created nodes are closed when the context tears down."""
+        ctx = self._make_ctx()
+        mock_node = MagicMock()
+        with patch('korgalore.cli.make_lore_node', return_value=mock_node):
+            get_lore_node(ctx, 'https://lore.kernel.org/lkml')
+
+        mock_node.close.assert_not_called()
+        ctx.close()
+        mock_node.close.assert_called_once()
+
+    def test_subspace_does_not_reuse_lore_node(self) -> None:
+        """A subspace.kernel.org feed does not share the lore.kernel.org node."""
+        ctx = self._make_ctx()
+        lore_node = MagicMock(name='lore-node')
+        subspace_node = MagicMock(name='subspace-node')
+        with patch('korgalore.cli.make_lore_node', side_effect=[lore_node, subspace_node]):
+            # Seed the lore node first (like CLI startup does)
+            got_lore = get_lore_node(ctx)
+            # Then request a subspace node (like get_feed_for_delivery would)
+            got_subspace = get_lore_node(ctx, 'https://subspace.kernel.org/_lists/helpdesk')
+
+        assert got_lore is lore_node
+        assert got_subspace is subspace_node
+        assert got_lore is not got_subspace
