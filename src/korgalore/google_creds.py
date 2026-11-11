@@ -1,7 +1,9 @@
-"""Google credential providers for korgalore."""
+"""Google OAuth2 and command credential providers for korgalore."""
 
 import logging
 import os
+import shlex
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore[import-untyped]
 
-from korgalore import AuthenticationError, ConfigurationError
+from korgalore import AuthenticationError, ConfigurationError, RemoteError
 
 logger = logging.getLogger('korgalore')
 
@@ -227,3 +229,108 @@ class OAuthFileCredentials(BaseCredentials):
             ) from e
         self._save_token()
         self.needs_auth = False
+
+
+def parse_token_command(command: Any, context: str) -> list[str]:
+    """Validate and parse a ``token_command`` value into an argument vector.
+
+    Args:
+        command: Raw configuration value expected to be a non-empty command string.
+        context: Human-readable caller label for error messages.
+
+    Returns:
+        Argument vector with tilde and environment variables expanded.
+
+    Raises:
+        ConfigurationError: If ``command`` is not a string, has invalid shell
+                            quoting, or splits into an empty argument list.
+    """
+    if not isinstance(command, str):
+        raise ConfigurationError(f"{context}: 'token_command' must be a string.")
+    try:
+        raw_args = shlex.split(command)
+    except ValueError as e:
+        raise ConfigurationError(f"Invalid 'token_command' syntax for {context}: {e}") from e
+    if not raw_args:
+        raise ConfigurationError(f"{context}: 'token_command' cannot be empty.")
+    return [os.path.expanduser(os.path.expandvars(arg)) for arg in raw_args]  # noqa: PTH111
+
+
+def run_token_command(command: Sequence[str], context: str, timeout: int = 30) -> str:
+    """Execute an external token helper and return its bearer token output.
+
+    Runs ``command`` directly without a shell and verifies that standard output
+    contains a single non-empty, whitespace-free token.
+
+    Args:
+        command: Argument vector passed directly to ``subprocess.run``.
+        context: Human-readable caller label for debug logs and errors.
+        timeout: Maximum execution time in seconds before failing.
+
+    Returns:
+        Stripped bearer token read from standard output.
+
+    Raises:
+        ConfigurationError: If the executable cannot be launched.
+        RemoteError: If the command times out, exits non-zero, or returns an
+                     empty or whitespace-containing token.
+    """
+    try:
+        res = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RemoteError(f'token_command timed out after {timeout}s for {context}') from e
+    except OSError as e:
+        raise ConfigurationError(f'Failed to execute token_command for {context}: {e}') from e
+
+    err_msg = ''
+    if res.stderr:
+        logger.debug('token_command stderr for %s:\n%s', context, res.stderr)
+        lines = [line.strip() for line in res.stderr.splitlines() if line.strip()]
+        if lines:
+            err_msg = f': {lines[-1]}'
+
+    if res.returncode != 0:
+        raise RemoteError(f'token_command for {context} failed with exit code {res.returncode}{err_msg}')
+
+    token = res.stdout.strip()
+    if not token or any(c.isspace() for c in token):
+        raise RemoteError(f'token_command for {context} returned empty or invalid token{err_msg}')
+
+    return token
+
+
+class CommandCredentials(BaseCredentials):
+    """Credentials obtained by executing an external token command."""
+
+    def __init__(self, identifier: str, command: Sequence[str]) -> None:
+        """Initialize command-backed bearer credentials.
+
+        Args:
+            identifier: Unique identifier for the target.
+            command: Parsed command argument vector to run on refresh.
+        """
+        super().__init__()  # type: ignore[no-untyped-call]
+        self.identifier = identifier
+        self.command = list(command)
+
+    def refresh(self, request: Any = None) -> None:
+        """Run the configured token command and capture the bearer token.
+
+        Args:
+            request: Ignored; present to satisfy the ``google.auth`` interface.
+
+        Raises:
+            ConfigurationError: If the token command cannot be executed.
+            RemoteError: If the token command fails, times out, or emits invalid
+                         output.
+        """
+        self.token = run_token_command(self.command, f"target '{self.identifier}'")

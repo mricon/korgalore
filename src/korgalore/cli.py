@@ -1948,6 +1948,9 @@ def auth(ctx: click.Context, target: str | None) -> None:
             ts = get_target(ctx, identifier)
             ts.connect()
             logger.info('Authenticated target: %s (type: %s)', identifier, target_type)
+        except (ConfigurationError, AuthenticationError, RemoteError) as e:
+            logger.error('Failed to authenticate target %s: %s', identifier, e)
+            raise click.Abort() from e
         except click.Abort:
             logger.error('Failed to authenticate target: %s', identifier)
             raise
@@ -2483,7 +2486,12 @@ def yank(ctx: click.Context, target: str | None, labels: tuple[str, ...], thread
         uploaded = 0
         failed = 0
 
-        ts.connect()
+        try:
+            ts.connect()
+        except (ConfigurationError, AuthenticationError, liblore.RemoteError) as e:
+            logger.critical('Failed to connect to target "%s": %s', target, e)
+            raise click.Abort() from e
+
         with click.progressbar(
             messages, label='Uploading thread', show_pos=True, file=progress_file(ctx.obj['hide_bar'])
         ) as bar:
@@ -2524,7 +2532,7 @@ def yank(ctx: click.Context, target: str | None, labels: tuple[str, ...], thread
             ts.connect()
             ts.import_message(raw_message, labels=labels_list)
             logger.info('Successfully uploaded message.')
-        except liblore.RemoteError as e:
+        except (ConfigurationError, AuthenticationError, liblore.RemoteError) as e:
             logger.critical('Failed to upload message: %s', str(e))
             raise click.Abort() from e
 

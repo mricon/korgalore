@@ -10,7 +10,7 @@ from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
 
 from korgalore import AuthenticationError, ConfigurationError, RemoteError
 from korgalore.gmail_target import SCOPES, GmailTarget, make_gmail_credentials
-from korgalore.google_creds import OAuthFileCredentials
+from korgalore.google_creds import CommandCredentials, OAuthFileCredentials
 
 
 def make_target() -> tuple[GmailTarget, MagicMock]:
@@ -300,18 +300,43 @@ class TestGmailTargetImportMessage:
 class TestMakeGmailCredentials:
     """Tests for make_gmail_credentials configuration factory."""
 
-    def test_no_credentials_raises(self) -> None:
-        """Omitting credentials raises ConfigurationError."""
-        with pytest.raises(ConfigurationError, match='No credentials file specified'):
+    def test_no_credentials_or_token_command_raises(self) -> None:
+        """Must specify either credentials or token_command."""
+        with pytest.raises(ConfigurationError, match='must specify either'):
             make_gmail_credentials('test', {})
+
+    @pytest.mark.parametrize(
+        'details',
+        [
+            {'credentials': '/tmp/creds.json', 'token_command': 'echo token'},
+            {'token': '/tmp/token.json', 'token_command': 'echo token'},
+        ],
+        ids=['credentials-and-command', 'token-and-command'],
+    )
+    def test_mutually_exclusive_token_command_options_raise(self, details: dict[str, object]) -> None:
+        """Specifying token_command alongside credentials or token raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match='cannot specify both'):
+            make_gmail_credentials('test', details)
+
+    def test_token_command_invalid_syntax_raises(self) -> None:
+        """Unclosed quotes in token_command raise ConfigurationError."""
+        with pytest.raises(ConfigurationError, match='syntax'):
+            make_gmail_credentials('test', {'token_command': 'unclosed "quote'})
+
+    def test_token_command_returns_command_credentials(self) -> None:
+        """Valid token_command builds CommandCredentials without running interactive OAuth."""
+        creds = make_gmail_credentials('test', {'token_command': 'get-token --profile work'})
+        assert isinstance(creds, CommandCredentials)
+        assert creds.command == ['get-token', '--profile', 'work']
 
     @pytest.mark.parametrize(
         ('details', 'expected_match'),
         [
             ({'credentials': 123}, "'credentials' must be a string"),
             ({'credentials': '/tmp/creds.json', 'token': 456}, "'token' must be a string"),
+            ({'token_command': 789}, "'token_command' must be a string"),
         ],
-        ids=['non-str-credentials', 'non-str-token'],
+        ids=['non-str-credentials', 'non-str-token', 'non-str-token-command'],
     )
     def test_invalid_option_types_raise(self, details: dict[str, object], expected_match: str) -> None:
         """Non-string configuration values raise ConfigurationError."""

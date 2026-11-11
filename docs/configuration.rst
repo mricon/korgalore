@@ -410,9 +410,17 @@ Gmail Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 * ``type``: Must be ``'gmail'``
-* ``credentials``: Path to the OAuth credentials JSON file
+* ``credentials``: Path to the OAuth credentials JSON file (required unless
+  ``token_command`` is specified)
 * ``token``: (Optional) Path to store the OAuth token. Defaults to
   ``~/.config/korgalore/gmail-{identifier}-token.json``
+* ``token_command``: (Optional) External command that prints a valid OAuth2
+  bearer token to stdout. Mutually exclusive with both ``credentials`` and
+  ``token``. The command string is split using standard command-line syntax
+  and executed directly without a shell, with tilde and environment variable
+  expansion. The bearer token returned by the command must carry the OAuth
+  scopes required by korgalore (``https://www.googleapis.com/auth/gmail.labels``
+  and ``https://www.googleapis.com/auth/gmail.insert``).
 
 Maildir Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

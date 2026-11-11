@@ -3,6 +3,8 @@
 [targets.personal]
 type = 'gmail'
 credentials = '/path/to/personal-credentials.json'
+# Alternatively, obtain tokens from an external command:
+# token_command = 'oama access personal'
 
 [targets.work]
 type = 'gmail'

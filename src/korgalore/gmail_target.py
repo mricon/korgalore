@@ -11,7 +11,7 @@ from googleapiclient.discovery import Resource, build  # type: ignore[import-unt
 from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
 
 from korgalore import AuthenticationError, ConfigurationError, RemoteError
-from korgalore.google_creds import OAuthFileCredentials
+from korgalore.google_creds import CommandCredentials, OAuthFileCredentials, parse_token_command
 from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
@@ -53,8 +53,11 @@ class GmailTarget:
         Creates the Gmail API service object if not already connected.
 
         Raises:
-            ConfigurationError: If credentials file is not found during refresh.
+            ConfigurationError: If credentials file is missing or token_command
+                                cannot be executed.
             AuthenticationError: If OAuth token refresh or authentication fails.
+            RemoteError: If token_command fails, times out, or returns an
+                         invalid token.
         """
         if self.service is not None:
             return
@@ -201,11 +204,23 @@ def make_gmail_credentials(
         Configured credentials instance compatible with ``GmailTarget``.
 
     Raises:
-        ConfigurationError: If required configuration keys are missing or have
-                            invalid types.
+        ConfigurationError: If required configuration keys are missing,
+                            mutually exclusive, or invalid.
     """
-    if 'credentials' not in details:
-        raise ConfigurationError(f"No credentials file specified for Gmail target '{identifier}'.")
+    has_creds = 'credentials' in details
+    has_token = 'token' in details
+    has_cmd = 'token_command' in details
+
+    if has_cmd:
+        if has_creds or has_token:
+            raise ConfigurationError(
+                f"Gmail target '{identifier}' cannot specify both 'token_command' and 'credentials'/'token'."
+            )
+        command = parse_token_command(details['token_command'], f"Gmail target '{identifier}'")
+        return CommandCredentials(identifier=identifier, command=command)
+
+    if not has_creds:
+        raise ConfigurationError(f"Gmail target '{identifier}' must specify either 'credentials' or 'token_command'.")
 
     creds_raw = details['credentials']
     if not isinstance(creds_raw, str):

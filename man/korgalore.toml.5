@@ -30,11 +30,21 @@ name and a type that determines which parameters are required.
 Must be \fI'gmail'\fR.
 .TP
 .B credentials
-Path to the OAuth credentials JSON file from Google Cloud Console.
+Path to the OAuth credentials JSON file from Google Cloud Console (required
+unless \fBtoken_command\fR is specified).
 .TP
 .B token
 (Optional) Path to store the OAuth token. Defaults to
 \fI~/.config/korgalore/gmail-<name>-token.json\fR.
+.TP
+.B token_command
+(Optional) External command to execute that prints an OAuth2 bearer token to
+stdout. Mutually exclusive with both \fBcredentials\fR and \fBtoken\fR.
+The command is split into arguments using standard command-line syntax and
+executed directly without a shell, with tilde and environment variable
+expansion. The bearer token must carry the OAuth scopes required by
+korgalore (\fIhttps://www.googleapis.com/auth/gmail.labels\fR and
+\fIhttps://www.googleapis.com/auth/gmail.insert\fR).
 .RE
 .PP
 .B Maildir Targets

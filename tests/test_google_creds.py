@@ -1,13 +1,19 @@
-"""Tests for Google OAuth2 credential providers."""
+"""Tests for Google OAuth2 and token_command credential providers."""
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from google.auth.exceptions import RefreshError
 
-from korgalore import AuthenticationError, ConfigurationError
-from korgalore.google_creds import OAuthFileCredentials
+from korgalore import AuthenticationError, ConfigurationError, RemoteError
+from korgalore.google_creds import (
+    CommandCredentials,
+    OAuthFileCredentials,
+    parse_token_command,
+    run_token_command,
+)
 
 TEST_SCOPES = ['https://example.invalid/scope.a', 'https://example.invalid/scope.b']
 
@@ -152,3 +158,105 @@ class TestOAuthFileCredentials:
         provider = OAuthFileCredentials('test', str(creds), token, scopes=TEST_SCOPES, interactive=False)
         assert provider.needs_auth
         assert not provider.valid
+
+
+class TestTokenCommandHelpers:
+    """Tests for target-agnostic parse_token_command and run_token_command helpers."""
+
+    def test_parse_expands_env_and_home(self, tmp_path: Path) -> None:
+        """Splits quoted args and expands environment variables and tildes."""
+        with patch.dict('os.environ', {'HOME': str(tmp_path), 'HELPER_ARG': 'work account'}):
+            args = parse_token_command('~/bin/get-token --profile "$HELPER_ARG"', "target 'test'")
+
+        assert args == [f'{tmp_path}/bin/get-token', '--profile', 'work account']
+
+    @pytest.mark.parametrize(
+        ('value', 'expected_match'),
+        [
+            (123, 'must be a string'),
+            ('   ', 'cannot be empty'),
+            ('unclosed "quote', 'syntax'),
+        ],
+        ids=['non-string', 'whitespace-only', 'bad-quoting'],
+    )
+    def test_parse_invalid_values_raise(self, value: object, expected_match: str) -> None:
+        """Invalid command strings raise ConfigurationError."""
+        with pytest.raises(ConfigurationError, match=expected_match):
+            parse_token_command(value, "target 'test'")
+
+    @patch('korgalore.google_creds.subprocess.run')
+    def test_run_returns_stripped_token(self, mock_run: MagicMock) -> None:
+        """Executes command without a shell and returns the stripped bearer token."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=['get-token'], returncode=0, stdout='  valid-bearer-token\n', stderr=''
+        )
+
+        assert run_token_command(['get-token'], "target 'test'") == 'valid-bearer-token'
+        mock_run.assert_called_once_with(
+            ['get-token'],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=30,
+            check=False,
+        )
+
+    @patch('korgalore.google_creds.subprocess.run')
+    def test_run_nonzero_exit_raises_remote_error(self, mock_run: MagicMock) -> None:
+        """Non-zero exit raises RemoteError including the last non-empty stderr line."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=['get-token'], returncode=1, stdout='', stderr='ignored line\nauth failed\n'
+        )
+
+        with pytest.raises(RemoteError, match='auth failed'):
+            run_token_command(['get-token'], "target 'test'")
+
+    @pytest.mark.parametrize(
+        'stdout',
+        ['   \n', 'multi word token\n'],
+        ids=['empty', 'embedded-whitespace'],
+    )
+    @patch('korgalore.google_creds.subprocess.run')
+    def test_run_invalid_output_raises_remote_error(self, mock_run: MagicMock, stdout: str) -> None:
+        """Empty or whitespace-containing stdout raises RemoteError."""
+        mock_run.return_value = subprocess.CompletedProcess(args=['get-token'], returncode=0, stdout=stdout, stderr='')
+
+        with pytest.raises(RemoteError, match='empty or invalid'):
+            run_token_command(['get-token'], "target 'test'")
+
+    @patch('korgalore.google_creds.subprocess.run')
+    def test_run_timeout_raises_remote_error(self, mock_run: MagicMock) -> None:
+        """Subprocess timeout raises RemoteError."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd='get-token', timeout=30)
+
+        with pytest.raises(RemoteError, match='timed out after 30s'):
+            run_token_command(['get-token'], "target 'test'")
+
+    @patch('korgalore.google_creds.subprocess.run')
+    def test_run_oserror_raises_configuration_error(self, mock_run: MagicMock) -> None:
+        """Missing executable raises ConfigurationError."""
+        mock_run.side_effect = FileNotFoundError('No such file or directory')
+
+        with pytest.raises(ConfigurationError, match='Failed to execute'):
+            run_token_command(['nonexistent-cmd'], "target 'test'")
+
+
+class TestCommandCredentials:
+    """Tests for CommandCredentials."""
+
+    @patch('korgalore.google_creds.subprocess.run')
+    def test_refresh_sets_token_and_marks_valid(self, mock_run: MagicMock) -> None:
+        """CommandCredentials.refresh() invokes run_token_command and populates token."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=['get-token'], returncode=0, stdout='valid-bearer-token\n', stderr=''
+        )
+
+        creds = CommandCredentials('test', ['get-token'])
+        assert not creds.valid
+
+        creds.refresh(None)
+
+        assert creds.valid
+        assert creds.token == 'valid-bearer-token'
