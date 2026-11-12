@@ -18,7 +18,7 @@ from typing import Any
 
 import requests
 
-from korgalore import AuthenticationError, ConfigurationError
+from korgalore import AuthenticationError, ConfigurationError, atomic_write
 
 logger = logging.getLogger('korgalore')
 
@@ -111,14 +111,8 @@ class ImapOAuth2Authenticator:
         if self._token is None:
             return
 
-        # Ensure directory exists
         self._token_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with self._token_path.open('w') as f:
-            json.dump(self._token.to_dict(), f, indent=2)
-
-        # Set restrictive permissions
-        self._token_path.chmod(0o600)
+        atomic_write(self._token_path, json.dumps(self._token.to_dict(), indent=2))
         logger.debug('Saved OAuth2 token to %s', self._token_path)
 
     @property
