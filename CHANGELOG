@@ -4,6 +4,78 @@ Korgalore Changelog
 v0.8 (unreleased)
 -----------------
 
+Enhancements
+~~~~~~~~~~~~
+
+* Gmail targets can get their access token from an external command with
+  ``token_command``, such as ``oama access personal``. This replaces the
+  Google OAuth client secrets file and the browser login, and lets
+  korgalore share a credential store with other mail tools
+
+  - The command must print a bearer token that has the ``gmail.labels``
+    and ``gmail.insert`` scopes
+  - ``token_command`` cannot be combined with ``credentials`` or ``token``
+  - ``kgl auth`` now lists the Gmail labels, so a token that Gmail rejects
+    is found right away instead of at the next pull
+
+* ``$VARS`` and a leading ``~`` are now expanded in the ``command`` of pipe
+  targets and command summarizers, the same as in ``token_command``
+
+  - These commands still run without a shell. The pipe target docs showed
+    a redirect, which cannot work that way; they now show ``sh -c``
+
+Bug Fixes
+~~~~~~~~~
+
+* A crash or power loss while korgalore writes its state no longer breaks
+  later pulls. Before, a damaged file stopped the whole pull, including
+  all the healthy feeds
+
+  - State files are synced to disk before they are renamed into place,
+    so a crash can no longer leave an empty file behind
+  - A damaged ``korgalore.feed`` is rebuilt from the local epochs, and the
+    pull still fetches new mail
+  - A damaged ``epochs.json`` is treated as missing and fetched again. It
+    is now written atomically too
+  - A damaged delivery state file is removed, and the delivery starts
+    again at the top of the feed. Mail that arrived since its last run
+    can be skipped, so korgalore warns about it
+  - Damaged lines in the list of failed deliveries are dropped; the other
+    messages are still retried
+
+* After a failed fetch or clone of a lore feed, the next pull fetches
+  again. Before, the manifest was recorded before the fetch ran, so new
+  mail could wait until the list got another message, which can take
+  days on a quiet list
+
+* OAuth token files for Gmail and IMAP (Microsoft 365) are now created
+  with mode 0600 and written atomically
+
+  - Before, other local users could read them for a moment after they
+    were written
+  - A crash during the write left a truncated token, and only a new
+    browser login could replace it
+
+* ``kgl auth`` and ``kgl yank`` print an error instead of a traceback when
+  a target cannot connect
+
+Refactoring
+~~~~~~~~~~~
+
+* Move Gmail credential handling out of ``GmailTarget`` into
+  ``google_creds``. The OAuth file login and ``token_command`` are both
+  ``google.auth`` credential providers, so the API client renews either
+  one when Gmail answers 401
+
+* Share one ``split_command()`` between every configured command, and one
+  ``atomic_write()`` between the feed state files and both token files
+
+Development
+~~~~~~~~~~~
+
+* Add tests for OAuth token refresh, and move the tests for CLI commands
+  whose target fails to connect into ``test_cli_target_errors.py``
+
 v0.7.0 (2026-10-06)
 -------------------
 
