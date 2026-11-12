@@ -1,6 +1,5 @@
 import base64
 import logging
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -44,8 +43,10 @@ class GmailTarget:
 
     @property
     def needs_auth(self) -> bool:
-        """Check if this target needs re-authentication."""
-        return bool(getattr(self.creds, 'needs_auth', False))
+        """Check if this target needs an interactive login."""
+        # Only OAuthFileCredentials can run a browser login. For the others,
+        # asking for one would only send the user into a flow that cannot help.
+        return isinstance(self.creds, OAuthFileCredentials) and self.creds.needs_auth
 
     def connect(self) -> None:
         """Establish connection to the Gmail API service.
@@ -174,14 +175,13 @@ class GmailTarget:
             AuthenticationError: If interactive re-authentication is unsupported
                                  or the OAuth flow fails.
         """
-        reauth = getattr(self.creds, 'reauthenticate', None)
-        if not callable(reauth):
+        if not isinstance(self.creds, OAuthFileCredentials):
             raise AuthenticationError(
                 f"Target '{self.identifier}' does not support interactive reauthentication.",
                 target_id=self.identifier,
                 target_type='gmail',
             )
-        reauth()
+        self.creds.reauthenticate()
         self.service = None
         self._label_map = None
 
@@ -189,16 +189,16 @@ class GmailTarget:
 def make_gmail_credentials(
     identifier: str,
     details: Mapping[str, Any],
+    config_dir: Path,
     interactive: bool = True,
-    config_dir: Path | str | None = None,
 ) -> BaseCredentials:
     """Create credentials for a Gmail target from configuration.
 
     Args:
         identifier: Unique identifier for the Gmail target.
         details: Target configuration mapping from ``korgalore.toml``.
+        config_dir: Configuration directory that holds the default token file.
         interactive: Whether interactive OAuth browser flows are permitted.
-        config_dir: Optional base configuration directory for default token paths.
 
     Returns:
         Configured credentials instance compatible with ``GmailTarget``.
@@ -230,15 +230,7 @@ def make_gmail_credentials(
     if token_raw is not None and not isinstance(token_raw, str):
         raise ConfigurationError(f"Gmail target '{identifier}': 'token' must be a string.")
 
-    if not token_raw:
-        base_dir = (
-            Path(config_dir)
-            if config_dir is not None
-            else Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'korgalore'
-        )
-        token_file: str | Path = base_dir / f'gmail-{identifier}-token.json'
-    else:
-        token_file = token_raw
+    token_file: str | Path = token_raw or config_dir / f'gmail-{identifier}-token.json'
 
     return OAuthFileCredentials(
         identifier=identifier,

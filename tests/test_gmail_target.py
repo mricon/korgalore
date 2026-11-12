@@ -59,15 +59,28 @@ class TestGmailTargetInit:
         assert target.creds is mock_creds
         assert target.service is None
 
+    @pytest.mark.parametrize(
+        ('creds', 'expected'),
+        [
+            (MagicMock(spec=OAuthFileCredentials, needs_auth=True), True),
+            (MagicMock(spec=OAuthFileCredentials, needs_auth=False), False),
+            # A token command can fail, but no browser login can fix it.
+            (MagicMock(spec=CommandCredentials), False),
+        ],
+        ids=['oauth-needs-auth', 'oauth-ok', 'command'],
+    )
+    def test_needs_auth(self, creds: MagicMock, expected: bool) -> None:
+        """The GUI shows its login button only for credentials that can log in."""
+        assert GmailTarget('test', creds=creds).needs_auth is expected
+
     def test_reauthenticate_delegates_and_resets_service(self, gmail_labels: tuple[GmailTarget, MagicMock]) -> None:
         """Delegates reauthenticate() to creds and clears cached service state."""
         target, _ = gmail_labels
-        reauth_mock = MagicMock()
-        setattr(target.creds, 'reauthenticate', reauth_mock)
+        target.creds = MagicMock(spec=OAuthFileCredentials)
 
         target.reauthenticate()
 
-        reauth_mock.assert_called_once_with()
+        target.creds.reauthenticate.assert_called_once_with()
         assert target.service is None
         assert target._label_map is None
 
@@ -297,13 +310,18 @@ class TestGmailTargetImportMessage:
         assert [r['id'] for r in results] == ['msg0', 'msg1', 'msg2', 'msg3', 'msg4']
 
 
+# Most config errors are found before a token path is needed, so these
+# tests never touch the config directory.
+UNUSED_CONFIG_DIR = Path('/nonexistent/korgalore')
+
+
 class TestMakeGmailCredentials:
     """Tests for make_gmail_credentials configuration factory."""
 
     def test_no_credentials_or_token_command_raises(self) -> None:
         """Must specify either credentials or token_command."""
         with pytest.raises(ConfigurationError, match='must specify either'):
-            make_gmail_credentials('test', {})
+            make_gmail_credentials('test', {}, UNUSED_CONFIG_DIR)
 
     @pytest.mark.parametrize(
         'details',
@@ -316,16 +334,16 @@ class TestMakeGmailCredentials:
     def test_mutually_exclusive_token_command_options_raise(self, details: dict[str, object]) -> None:
         """Specifying token_command alongside credentials or token raises ConfigurationError."""
         with pytest.raises(ConfigurationError, match='cannot specify both'):
-            make_gmail_credentials('test', details)
+            make_gmail_credentials('test', details, UNUSED_CONFIG_DIR)
 
     def test_token_command_invalid_syntax_raises(self) -> None:
         """Unclosed quotes in token_command raise ConfigurationError."""
         with pytest.raises(ConfigurationError, match='syntax'):
-            make_gmail_credentials('test', {'token_command': 'unclosed "quote'})
+            make_gmail_credentials('test', {'token_command': 'unclosed "quote'}, UNUSED_CONFIG_DIR)
 
     def test_token_command_returns_command_credentials(self) -> None:
         """Valid token_command builds CommandCredentials without running interactive OAuth."""
-        creds = make_gmail_credentials('test', {'token_command': 'get-token --profile work'})
+        creds = make_gmail_credentials('test', {'token_command': 'get-token --profile work'}, UNUSED_CONFIG_DIR)
         assert isinstance(creds, CommandCredentials)
         assert creds.command == ['get-token', '--profile', 'work']
 
@@ -341,18 +359,16 @@ class TestMakeGmailCredentials:
     def test_invalid_option_types_raise(self, details: dict[str, object], expected_match: str) -> None:
         """Non-string configuration values raise ConfigurationError."""
         with pytest.raises(ConfigurationError, match=expected_match):
-            make_gmail_credentials('test', details)
+            make_gmail_credentials('test', details, UNUSED_CONFIG_DIR)
 
     @patch('korgalore.google_creds.Credentials')
-    def test_default_token_file_uses_xdg_config_dir(self, mock_credentials: MagicMock, tmp_path: Path) -> None:
-        """When token is omitted, defaults to gmail-{identifier}-token.json in XDG config dir."""
-        default_token = tmp_path / 'korgalore' / 'gmail-personal-token.json'
-        default_token.parent.mkdir(parents=True)
+    def test_default_token_file_is_in_config_dir(self, mock_credentials: MagicMock, tmp_path: Path) -> None:
+        """When token is omitted, defaults to gmail-{identifier}-token.json in the config dir."""
+        default_token = tmp_path / 'gmail-personal-token.json'
         default_token.write_text('{}')
         mock_credentials.from_authorized_user_file.return_value = MagicMock(valid=True)
 
-        with patch.dict('os.environ', {'XDG_CONFIG_HOME': str(tmp_path)}):
-            creds = make_gmail_credentials('personal', {'credentials': str(tmp_path / 'creds.json')})
+        creds = make_gmail_credentials('personal', {'credentials': str(tmp_path / 'creds.json')}, tmp_path)
 
         mock_credentials.from_authorized_user_file.assert_called_once_with(str(default_token))
         assert isinstance(creds, OAuthFileCredentials)

@@ -332,4 +332,7 @@ class CommandCredentials(BaseCredentials):
             RemoteError: If the token command fails, times out, or emits invalid
                          output.
         """
+        # The helper does not say how long the token lives, so expiry stays
+        # unset and the token counts as valid until the API rejects it. On
+        # that 401 the API client calls refresh() and retries the request.
         self.token = run_token_command(self.command, f"target '{self.identifier}'")
