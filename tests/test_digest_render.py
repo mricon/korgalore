@@ -210,26 +210,26 @@ class TestMidUrl:
         assert mid_url(base, msgid) == f'https://lore.kernel.org/lkml/{expected}/'
 
 
+EVIL = '<script>alert(1)</script><a href="https://evil.example/">click</a>"\'&'
+# A quoted local part is the one way odd characters survive Message-ID
+# parsing
+EVIL_MSGID = '"x onclick=alert(1) & <b"@x'
+
+
+@pytest.fixture(scope='module')
+def evil() -> _Collector:
+    """The parsed HTML of a digest in which everything is hostile."""
+    threads = group_threads(
+        [
+            mkmsg(EVIL_MSGID, f'[PATCH] {EVIL}', sender=formataddr((EVIL, 'e@example.org'))),
+            mkmsg('b@x', f'Re: {EVIL} other', irt=EVIL_MSGID, sender='x@example.org'),
+        ]
+    )
+    return parse_html(render_html(make_info('m'), threads, {EVIL_MSGID: EVIL}))
+
+
 class TestHtmlSafety:
     """Mail content and summaries must never become markup."""
-
-    EVIL = '<script>alert(1)</script><a href="https://evil.example/">click</a>"\'&'
-    # A quoted local part is the one way odd characters survive Message-ID
-    # parsing
-    EVIL_MSGID = '"x onclick=alert(1) & <b"@x'
-
-    def evil_threads(self) -> list[DigestThread]:
-        return group_threads(
-            [
-                mkmsg(self.EVIL_MSGID, f'[PATCH] {self.EVIL}', sender=formataddr((self.EVIL, 'e@example.org'))),
-                mkmsg('b@x', f'Re: {self.EVIL} other', irt=self.EVIL_MSGID, sender='x@example.org'),
-            ]
-        )
-
-    @pytest.fixture(scope='module')
-    def evil(self) -> _Collector:
-        """The parsed HTML of a digest in which everything is hostile."""
-        return parse_html(render_html(make_info('m'), self.evil_threads(), {self.EVIL_MSGID: self.EVIL}))
 
     def test_no_injected_markup(self, evil: _Collector) -> None:
         """Only the tags we write appear, and only links to the archive."""
@@ -260,7 +260,7 @@ class TestHtmlSafety:
         """The hostile strings are still visible to the reader, as plain text."""
         text = ''.join(evil.text)
         assert '<script>alert(1)</script>' in text
-        assert text.count(self.EVIL) >= 3  # subject, author, summary
+        assert text.count(EVIL) >= 3  # subject, author, summary
 
     def test_trailer_and_looked_up_subject_shown_as_text(self) -> None:
         """A review trailer and an archive subject are mail content too."""
@@ -273,14 +273,14 @@ class TestHtmlSafety:
             refs=['cover@x', 'p2@x'],
             sender='rev@example.org',
         )
-        threads = group_threads([reply], {'cover@x': f'[PATCH v3 0/7] {self.EVIL}'})
+        threads = group_threads([reply], {'cover@x': f'[PATCH v3 0/7] {EVIL}'})
         doc = render_html(make_info(), threads)
         parsed = parse_html(doc)
         tags = {tag for tag, _attrs in parsed.tags}
         assert 'script' not in tags
         assert 'b' not in tags
         text = ''.join(parsed.text)
-        assert self.EVIL in text
+        assert EVIL in text
         assert f'Reviewed-by: {trailer}' in text
 
     def test_msgid_in_href_is_quoted(self, evil: _Collector) -> None:
@@ -741,6 +741,17 @@ class TestSections:
             assert len(digest_html(msg).encode()) <= 3000
 
 
+Thirty = tuple[list[DigestThread], list[EmailMessage], list[list[DigestThread]]]
+
+
+@pytest.fixture(scope='module')
+def thirty() -> Thirty:
+    """30 threads in parts of at most 4000 bytes: (threads, parts, chunks)."""
+    threads = many_threads(30)
+    parts = render_digest_parts(make_info(), threads, now=RENDER_NOW, max_size=4000)
+    return threads, parts, split_threads(make_info(), threads, max_size=4000)
+
+
 class TestSplit:
     """Big digests are split into numbered parts."""
 
@@ -789,16 +800,7 @@ class TestSplit:
         assert msg['X-Korgalore-Digest-Part'] is None
         assert digest_html(msg) == render_html(info, threads)
 
-    @pytest.fixture(scope='module')
-    def thirty(self) -> tuple[list[DigestThread], list[EmailMessage], list[list[DigestThread]]]:
-        """30 threads in parts of at most 4000 bytes: (threads, parts, chunks)."""
-        threads = many_threads(30)
-        parts = render_digest_parts(make_info(), threads, now=RENDER_NOW, max_size=4000)
-        return threads, parts, split_threads(make_info(), threads, max_size=4000)
-
-    def test_part_headers(
-        self, thirty: tuple[list[DigestThread], list[EmailMessage], list[list[DigestThread]]]
-    ) -> None:
+    def test_part_headers(self, thirty: Thirty) -> None:
         _, parts, _ = thirty
         total = len(parts)
         first_msgid = parts[0]['Message-ID']
@@ -812,7 +814,7 @@ class TestSplit:
                 assert msg['References'] == first_msgid
         assert len({msg['Message-ID'] for msg in parts}) == total
 
-    def test_part_labels(self, thirty: tuple[list[DigestThread], list[EmailMessage], list[list[DigestThread]]]) -> None:
+    def test_part_labels(self, thirty: Thirty) -> None:
         threads, parts, chunks = thirty
         first = 1
         for number, (msg, chunk) in enumerate(zip(parts, chunks, strict=True), start=1):
