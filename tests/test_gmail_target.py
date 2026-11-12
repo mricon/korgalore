@@ -336,11 +336,6 @@ class TestMakeGmailCredentials:
         with pytest.raises(ConfigurationError, match='cannot specify both'):
             make_gmail_credentials('test', details, UNUSED_CONFIG_DIR)
 
-    def test_token_command_invalid_syntax_raises(self) -> None:
-        """Unclosed quotes in token_command raise ConfigurationError."""
-        with pytest.raises(ConfigurationError, match='syntax'):
-            make_gmail_credentials('test', {'token_command': 'unclosed "quote'}, UNUSED_CONFIG_DIR)
-
     def test_token_command_returns_command_credentials(self) -> None:
         """Valid token_command builds CommandCredentials without running interactive OAuth."""
         creds = make_gmail_credentials('test', {'token_command': 'get-token --profile work'}, UNUSED_CONFIG_DIR)

@@ -18,6 +18,8 @@ from korgalore.google_creds import (
 
 TEST_SCOPES = ['https://example.invalid/scope.a', 'https://example.invalid/scope.b']
 
+Loaded = tuple[OAuthFileCredentials, MagicMock, Path]
+
 
 class TestOAuthFileCredentials:
     """Tests for OAuthFileCredentials initialization, refresh, and reauth."""
@@ -202,6 +204,65 @@ class TestOAuthFileCredentials:
         provider = OAuthFileCredentials('test', str(creds), token, scopes=TEST_SCOPES, interactive=False)
         assert provider.needs_auth
         assert not provider.valid
+
+
+class TestOAuthFileCredentialsRefresh:
+    """Tests for refresh(), which runs long after the constructor.
+
+    GmailTarget.connect() calls it for a token that has expired, and the
+    API client calls it when Gmail answers 401 in the middle of a pull.
+    """
+
+    @pytest.fixture
+    def loaded(self, tmp_path: Path) -> Loaded:
+        """A provider that loaded a valid token without a browser login."""
+        token = tmp_path / 'token.json'
+        token.write_text('{"token": "old"}')
+        with patch('korgalore.google_creds.Credentials') as mock_credentials:
+            mock_creds = MagicMock(valid=True)
+            mock_credentials.from_authorized_user_file.return_value = mock_creds
+            provider = OAuthFileCredentials(
+                'test', str(tmp_path / 'creds.json'), token, scopes=TEST_SCOPES, interactive=False
+            )
+        return provider, mock_creds, token
+
+    def test_refresh_saves_new_token(self, loaded: Loaded) -> None:
+        """A refreshed access token is saved, so the next run does not refresh again."""
+        provider, mock_creds, token = loaded
+        mock_creds.to_json.return_value = '{"token": "new"}'
+
+        provider.refresh(MagicMock())
+
+        mock_creds.refresh.assert_called_once()
+        assert token.read_text() == '{"token": "new"}'
+        assert not provider.needs_auth
+
+    def test_revoked_refresh_token_sets_token_aside(self, loaded: Loaded) -> None:
+        """A revoked token is moved aside and the GUI is told to offer a login."""
+        provider, mock_creds, token = loaded
+        mock_creds.refresh.side_effect = RefreshError
+
+        with pytest.raises(AuthenticationError, match='Failed to refresh'):
+            provider.refresh(MagicMock())
+
+        assert provider.needs_auth
+        assert not token.exists()
+        assert token.with_name('token.json.invalid').read_text() == '{"token": "old"}'
+
+    def test_no_token_non_interactive_needs_auth(self, tmp_path: Path) -> None:
+        """Without a token, a non-interactive refresh must not start a browser login."""
+        creds = tmp_path / 'creds.json'
+        creds.write_text('{}')
+        provider = OAuthFileCredentials('test', str(creds), tmp_path / 'token.json', TEST_SCOPES, interactive=False)
+
+        with (
+            patch('korgalore.google_creds.InstalledAppFlow') as mock_flow_class,
+            pytest.raises(AuthenticationError, match='requires authentication'),
+        ):
+            provider.refresh(MagicMock())
+
+        mock_flow_class.from_client_secrets_file.assert_not_called()
+        assert provider.needs_auth
 
 
 class TestTokenCommandHelpers:
