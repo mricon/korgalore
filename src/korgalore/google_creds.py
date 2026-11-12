@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shlex
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,7 +14,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore[import-untyped]
 
-from korgalore import AuthenticationError, ConfigurationError, RemoteError
+from korgalore import AuthenticationError, ConfigurationError, RemoteError, split_command
 
 logger = logging.getLogger('korgalore')
 
@@ -248,12 +247,12 @@ def parse_token_command(command: Any, context: str) -> list[str]:
     if not isinstance(command, str):
         raise ConfigurationError(f"{context}: 'token_command' must be a string.")
     try:
-        raw_args = shlex.split(command)
+        args = split_command(command)
     except ValueError as e:
         raise ConfigurationError(f"Invalid 'token_command' syntax for {context}: {e}") from e
-    if not raw_args:
+    if not args:
         raise ConfigurationError(f"{context}: 'token_command' cannot be empty.")
-    return [os.path.expanduser(os.path.expandvars(arg)) for arg in raw_args]  # noqa: PTH111
+    return args
 
 
 def run_token_command(command: Sequence[str], context: str, timeout: int = 30) -> str:

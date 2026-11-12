@@ -375,10 +375,10 @@ class TestMakeSummarizer:
 
     @pytest.mark.parametrize(('extra', 'model'), [({}, 'llm'), ({'model': 'x'}, 'x')], ids=['program-name', 'named'])
     def test_command(self, extra: dict[str, Any], model: str) -> None:
-        details = {'type': 'command', 'command': 'llm -m x', 'allow_private_feeds': True, **extra}
+        details = {'type': 'command', 'command': '~/bin/llm -m x', 'allow_private_feeds': True, **extra}
         summarizer = make_summarizer('cli', details)
         assert isinstance(summarizer, CommandSummarizer)
-        assert summarizer.args == ['llm', '-m', 'x']
+        assert summarizer.args == [f'{Path.home()}/bin/llm', '-m', 'x']
         assert summarizer.allow_private_feeds is True
         assert summarizer.model == model
 

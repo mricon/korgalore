@@ -18,7 +18,6 @@ import ipaddress
 import json
 import logging
 import re
-import shlex
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -32,7 +31,7 @@ from urllib.parse import urlparse
 import requests
 from liblore.utils import clean_header, get_clean_msgid, msg_get_payload
 
-from korgalore import ConfigurationError, KorgaloreError, get_requests_session
+from korgalore import ConfigurationError, KorgaloreError, get_requests_session, split_command
 from korgalore.digest import DigestThread, NoSummary, shrink_thread
 from korgalore.lore_feed import HISTORY_MAX
 
@@ -326,7 +325,7 @@ class CommandSummarizer:
     ) -> None:
         self.name = name
         self.command = command
-        self.args = shlex.split(command)
+        self.args = split_command(command)
         # The model name goes in the digest headers and the summary cache
         # key. The program's name is the best guess when the config does
         # not say: the whole command line could carry an API key.
@@ -400,7 +399,7 @@ def make_summarizer(name: str, details: Mapping[str, Any]) -> Summarizer:
         if not isinstance(command, str):
             raise bad('command', 'is required')
         try:
-            args = shlex.split(command)
+            args = split_command(command)
         except ValueError as e:
             raise bad('command', f'cannot be parsed: {e}') from e
         if not args:

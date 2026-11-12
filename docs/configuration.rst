@@ -337,13 +337,15 @@ To configure a pipe target, specify the command to pipe messages to:
    command = '/usr/local/bin/process-email.sh'
 
 The command receives the raw email message (RFC 2822 format) on stdin. The command
-can include arguments:
+can include arguments. It is split like a shell command line, and ``$VARS`` and a
+leading ``~`` are expanded, but no shell runs it. For redirects or pipes, run a
+shell yourself:
 
 .. code-block:: toml
 
    [targets.archive]
    type = 'pipe'
-   command = 'gzip >> ~/mail-archive.gz'
+   command = "sh -c 'gzip >> ~/mail-archive.gz'"
 
 Labels specified in deliveries are appended as additional command line arguments:
 
@@ -416,9 +418,8 @@ Gmail Target Parameters
   ``~/.config/korgalore/gmail-{identifier}-token.json``
 * ``token_command``: (Optional) External command that prints a valid OAuth2
   bearer token to stdout. Mutually exclusive with both ``credentials`` and
-  ``token``. The command string is split using standard command-line syntax
-  and executed directly without a shell, with tilde and environment variable
-  expansion. The bearer token returned by the command must carry the OAuth
+  ``token``. It is split like a shell command line, and ``$VARS`` and a
+  leading ``~`` are expanded, but no shell runs it. The bearer token returned by the command must carry the OAuth
   scopes required by korgalore (``https://www.googleapis.com/auth/gmail.labels``
   and ``https://www.googleapis.com/auth/gmail.insert``).
 
@@ -528,7 +529,8 @@ Pipe Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 * ``type``: Must be ``'pipe'``
-* ``command``: Command to pipe messages to (can include arguments)
+* ``command``: Command to pipe messages to (can include arguments). ``$VARS``
+  and a leading ``~`` are expanded, but no shell runs it
 
 Dummy Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -829,7 +831,8 @@ the instructions and the thread on stdin, and writes the summary to
 stdout. This works with tools like ``llm`` or ``claude -p``:
 
 * ``command``: The command to run, such as ``'llm -m mistral'``. It is
-  split like a shell command line, but no shell runs it
+  split like a shell command line, and ``$VARS`` and a leading ``~`` are
+  expanded, but no shell runs it
 * ``model``: (Optional) The model name to record in the digest headers
   and the summary cache. Without it, the program name is used, such as
   ``llm``. The full command line is never recorded, since it may hold

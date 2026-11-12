@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shlex
 import subprocess
 import threading
 import time
@@ -248,3 +249,30 @@ def format_key_for_display(key: str | None) -> str:
         except Exception:
             return key
     return key
+
+
+def split_command(command: str) -> list[str]:
+    """Split a configured command line into arguments for subprocess.
+
+    Configured commands run without a shell, but people still expect $VARS
+    and ~ to work in them. Do those two expansions and nothing else, the
+    same way for every command option.
+
+    Raises:
+        ValueError: If the quoting is unbalanced.
+    """
+    return [os.path.expandvars(_expand_tilde(arg)) for arg in shlex.split(command)]
+
+
+def _expand_tilde(arg: str) -> str:
+    if not arg.startswith('~'):
+        return arg
+    # Only the ~ or ~user part goes through Path: Path would also normalise
+    # the rest, and 'a//b' or a trailing '/' can mean something to the program.
+    head, sep, tail = arg.partition('/')
+    try:
+        home = Path(head).expanduser()
+    except RuntimeError:
+        # There is no such user. A shell leaves the word alone, so do we.
+        return arg
+    return f'{home}{sep}{tail}'

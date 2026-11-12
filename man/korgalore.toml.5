@@ -40,9 +40,8 @@ unless \fBtoken_command\fR is specified).
 .B token_command
 (Optional) External command to execute that prints an OAuth2 bearer token to
 stdout. Mutually exclusive with both \fBcredentials\fR and \fBtoken\fR.
-The command is split into arguments using standard command-line syntax and
-executed directly without a shell, with tilde and environment variable
-expansion. The bearer token must carry the OAuth scopes required by
+It is split like a shell command line, and \fI$VARS\fR and a leading
+\fI~\fR are expanded, but no shell runs it. The bearer token must carry the OAuth scopes required by
 korgalore (\fIhttps://www.googleapis.com/auth/gmail.labels\fR and
 \fIhttps://www.googleapis.com/auth/gmail.insert\fR).
 .RE
@@ -130,7 +129,9 @@ must be provided.
 Must be \fI'pipe'\fR.
 .TP
 .B command
-Command to pipe messages to. Labels are appended as arguments.
+Command to pipe messages to. Labels are appended as arguments. It is split
+like a shell command line, and \fI$VARS\fR and a leading \fI~\fR are
+expanded, but no shell runs it.
 .RE
 .SS [feeds.<name>]
 Feeds define reusable feed URLs that can be referenced by multiple deliveries.
@@ -241,7 +242,8 @@ default is the program name.
 .TP
 .B command
 (command) The program to run, such as \fIllm \-m mistral\fR. It is split
-like a shell command line, but no shell runs it.
+like a shell command line, and \fI$VARS\fR and a leading \fI~\fR are
+expanded, but no shell runs it.
 .TP
 .B max_input_chars
 (Optional) The most characters sent for one thread (default \fI24000\fR,

@@ -1,6 +1,7 @@
 """Tests for PipeTarget message delivery."""
 
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,8 +22,9 @@ class TestPipeTargetInit:
                 ['mail', '-s', 'Test Subject', 'user@example.com'],
             ),
             ('/usr/bin/sendmail -t', ['/usr/bin/sendmail', '-t']),
+            ('~/bin/filter', [f'{Path.home()}/bin/filter']),
         ],
-        ids=['simple', 'quoted-args', 'full-path'],
+        ids=['simple', 'quoted-args', 'full-path', 'home-dir'],
     )
     def test_valid_command(self, command: str, expected_args: list[str]) -> None:
         target = PipeTarget('my-pipe-target', command)

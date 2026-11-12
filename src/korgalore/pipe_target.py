@@ -1,11 +1,10 @@
 """Service for delivering messages by piping to an external command."""
 
 import logging
-import shlex
 import subprocess
 from typing import Any
 
-from korgalore import ConfigurationError, DeliveryError
+from korgalore import ConfigurationError, DeliveryError, split_command
 from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
@@ -34,7 +33,7 @@ class PipeTarget:
         self.command = command
         # Parse command for validation
         try:
-            self.command_args = shlex.split(command)
+            self.command_args = split_command(command)
         except ValueError as e:
             raise ConfigurationError(f"Invalid command for pipe target '{identifier}': {e}") from e
 
