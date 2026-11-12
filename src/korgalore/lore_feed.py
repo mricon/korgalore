@@ -191,11 +191,14 @@ class LoreFeed(PIFeed):
                 logger.warning('Invalid epoch string: %s in %s', epoch_str, self.feed_url)
         # Sort epochs by their numeric value
         epochs.sort(key=lambda x: x[0])
-        self.store_epochs_info(epochs)
         return epochs
 
     def store_epochs_info(self, epochs: list[tuple[int, str, str]]) -> None:
-        """Save epoch information to local JSON file."""
+        """Record the manifest that the local epochs are now in sync with.
+
+        Call this only after the fetch and the clone have succeeded, so
+        that a failed update is retried on the next pull.
+        """
         epochs_file = self.feed_dir / 'epochs.json'
         epochs_info = []
         for enum, epath, fpr in epochs:
@@ -204,10 +207,13 @@ class LoreFeed(PIFeed):
             json.dump(epochs_info, ef, indent=2)
 
     def load_epochs_info(self) -> list[tuple[int, str, str]]:
-        """Load epoch information from local JSON file."""
+        """Load the manifest recorded by the last successful update.
+
+        Returns an empty list when no update has succeeded yet.
+        """
         epochs_file = self.feed_dir / 'epochs.json'
         if not epochs_file.exists():
-            raise StateError(f'Epochs file {epochs_file} does not exist.')
+            return []
         with epochs_file.open() as ef:
             epochs_data = json.load(ef)
         return [(entry['epoch'], entry['path'], entry['fpr']) for entry in epochs_data]
@@ -263,7 +269,12 @@ class LoreFeed(PIFeed):
             raise RemoteError(f'Git fetch failed (exit {retcode}): {error.decode()}')
 
     def init_feed(self) -> None:
-        """Initialize a new Lore feed by fetching manifest and cloning latest epoch."""
+        """Initialize a new Lore feed by fetching manifest and cloning latest epoch.
+
+        The manifest is not recorded here, because clone_epoch() leaves an
+        existing epoch as it is, and that epoch may be behind. The first
+        update then fetches and records it.
+        """
         if not self.feed_dir.exists():
             self.feed_dir.mkdir(parents=True, exist_ok=True)
         epochs = self.get_manifest_epochs()
@@ -306,6 +317,7 @@ class LoreFeed(PIFeed):
         logger.debug('Highest remote epoch: %d', highest_remote_epoch)
         if highest_local_epoch == highest_remote_epoch:
             logger.debug('No new epochs detected for feed %s', self.feed_dir)
+            self.store_epochs_info(remote_epoch_info)
             return self.STATUS_UPDATED if updated else self.STATUS_NOCHANGE
 
         # In theory, we could have more than one new epoch, for example if
@@ -317,4 +329,5 @@ class LoreFeed(PIFeed):
         # We don't clone shallow for new epochs, since we want all the mail there for the initial run
         self.clone_epoch(epoch=highest_remote_epoch, shallow=False)
         self.save_feed_state(epoch=highest_remote_epoch, success=True)
+        self.store_epochs_info(remote_epoch_info)
         return self.STATUS_UPDATED
