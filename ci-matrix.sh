@@ -11,7 +11,7 @@ set -eu
 # The linters and type checkers are deliberately not repeated here. ci.sh runs
 # them once, and they are configured against a fixed target version
 # (target-version/python_version in pyproject.toml), so re-running them per
-# interpreter would report the same thing four times.
+# interpreter would only report the same thing again for each one.
 #
 # Missing interpreters are pulled automatically from uv's managed Python
 # cache (python-build-standalone), so no system packages or sudo are needed.
@@ -32,13 +32,13 @@ set -eu
 # CPython not yet in PYTHONS (a beta ahead of its final release, say), so we
 # get an early signal without waiting on a relock. It resolves fresh against
 # PyPI instead of uv.lock, and never fails the run -- see the lane itself for
-# why. Override or skip it: PRERELEASE_PY=3.16 ./ci-matrix.sh (or
-# PRERELEASE_PY= ./ci-matrix.sh to skip)
+# why. It is off until uv can install the next CPython; turn it on with
+# PRERELEASE_PY=3.16 ./ci-matrix.sh
 
 # ${VAR-default} rather than ${VAR:-default}: the latter also substitutes for
 # an explicitly empty value, which would make "PYTHONS= ./ci-matrix.sh" run
 # the full sweep instead of skipping it.
-PYTHONS="${PYTHONS-3.11 3.12 3.13 3.14}"
+PYTHONS="${PYTHONS-3.11 3.12 3.13 3.14 3.15}"
 
 # Install any requested interpreters that are missing. This is an explicit
 # step because a dev may have set UV_PYTHON_DOWNLOADS=manual globally to
@@ -156,8 +156,10 @@ fi
 # install can still resolve a stale prerelease even with --upgrade. Print
 # `uv --version` alongside the resolved interpreter so that is visible
 # without having to dig through a failure traceback.
-# Override or skip: PRERELEASE_PY=3.16 ./ci-matrix.sh (or PRERELEASE_PY= to skip)
-PRERELEASE_PY="${PRERELEASE_PY-3.15}"
+# Off by default while there is no newer CPython than the last one in PYTHONS
+# for uv to install. Set the default to 3.16 once `uv python list 3.16` shows
+# an alpha; until then, run it with PRERELEASE_PY=3.16 ./ci-matrix.sh
+PRERELEASE_PY="${PRERELEASE_PY-}"
 if [ -n "$PRERELEASE_PY" ]; then
     printf '\n=== Prerelease (advisory) on Python %s ===\n' "$PRERELEASE_PY"
     uv --version
