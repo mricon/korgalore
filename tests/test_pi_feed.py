@@ -5,6 +5,7 @@ These tests cover the delivery tracking functionality including:
 - mark_failed_delivery: adding/updating failed entries, rejection after timeout
 - JSONL file operations
 - feed locking, also when another process holds the lock
+- the feed state file, also when it is corrupt
 
 The git-backed parts of PIFeed are tested in test_pi_feed_git.py.
 """
@@ -20,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from korgalore import FeedLockedError, PublicInboxError
+from korgalore import FeedLockedError, PublicInboxError, StateCorruptError, StateError
 from korgalore.pi_feed import LOCKED_FEEDS, RETRY_FAILED_INTERVAL, PIFeed
 from tests.conftest import make_pi_feed
 
@@ -314,3 +315,34 @@ class TestLegacyMigration:
             (feed_dir / 'git').mkdir()
 
         make_pi_feed(feed_dir, key='new-feed', highest_epoch=None, top_commit=None)._perform_legacy_migration()
+
+
+class TestFeedState:
+    """update_feed() initializes a feed without state, but rebuilds a corrupt one."""
+
+    def test_missing_state_is_not_corrupt(self, mock_feed: PIFeed) -> None:
+        with pytest.raises(StateError) as info:
+            mock_feed.load_feed_state()
+        assert not isinstance(info.value, StateCorruptError)
+
+    @pytest.mark.parametrize(
+        'content',
+        [
+            pytest.param(b'', id='empty-file'),
+            pytest.param(b'{"epochs": {"0": {"lat', id='truncated'),
+            pytest.param(b'{"epochs": "\xff\xfe"}', id='not-utf8'),
+            pytest.param(b'[]', id='not-an-object'),
+            pytest.param(b'{}', id='no-epochs'),
+            pytest.param(b'{"epochs": []}', id='epochs-not-an-object'),
+            pytest.param(b'{"epochs": {}}', id='no-epoch-recorded'),
+        ],
+    )
+    def test_corrupt_state_is_rebuilt(self, mock_feed: PIFeed, temp_feed_dir: Path, content: bytes) -> None:
+        (temp_feed_dir / 'korgalore.feed').write_bytes(content)
+        with pytest.raises(StateCorruptError, match='is corrupt'):
+            mock_feed.load_feed_state()
+
+        state = mock_feed.rebuild_feed_state()
+
+        assert state['epochs']['0']['latest_commit'] == 'abc123'
+        assert mock_feed.load_feed_state() == state

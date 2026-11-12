@@ -4,6 +4,7 @@ The epochs are real repositories built with InboxRepo. Only the network
 side is mocked: the manifest request, and the git clone and fetch.
 """
 
+import json
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from korgalore import RemoteError
+from korgalore.lei_feed import LeiFeed
 from korgalore.lore_feed import LoreFeed
 from korgalore.pi_feed import PIFeed
 from tests.digest_helpers import InboxRepo
@@ -45,6 +47,18 @@ def lore_feed(tmp_path: Path) -> LoreFeed:
     feed = new_lore_feed(tmp_path)
     with remote(feed):
         feed.update_feed()
+    return feed
+
+
+@pytest.fixture
+def lei_feed(tmp_path: Path) -> LeiFeed:
+    """A LeiFeed that has been initialized over a one-message search."""
+    repo = InboxRepo(tmp_path / 'search')
+    repo.add(b'Subject: first\nMessage-ID: <first@example.com>\n\nbody\n', WHEN)
+    searches = json.dumps([{'output': f'v2:{repo.feed_dir}'}]).encode()
+    with patch('korgalore.lei_feed.run_lei_command', return_value=(0, searches)):
+        feed = LeiFeed('search', f'lei:{repo.feed_dir}')
+    feed.init_feed()
     return feed
 
 
@@ -94,3 +108,32 @@ class TestLoreUpdate:
             assert lore_feed.update_feed() == PIFeed.STATUS_UPDATED
         fetch.assert_called_once()
         clone.assert_called_once_with(epoch=1, shallow=False)
+
+
+class TestCorruptFeedState:
+    """A crash can leave korgalore.feed empty; the pull rebuilds it and carries on.
+
+    The status is never STATUS_INITIALIZED, because the deliveries of an
+    existing feed keep their own state. It is always STATUS_UPDATED, because
+    the crash may have come before the deliveries of the last pull ran.
+    """
+
+    @pytest.mark.parametrize('new_mail', [False, True], ids=['no-new-mail', 'new-mail'])
+    def test_lore_feed(self, lore_feed: LoreFeed, new_mail: bool) -> None:
+        (lore_feed.feed_dir / 'korgalore.feed').write_bytes(b'')
+        if new_mail:
+            serve_manifest(lore_feed, e0='b')
+
+        with remote(lore_feed) as (_clone, fetch):
+            assert lore_feed.update_feed() == PIFeed.STATUS_UPDATED
+
+        assert fetch.called == new_mail
+        assert lore_feed.load_feed_state()['epochs'].keys() == {'0'}
+
+    def test_lei_feed(self, lei_feed: LeiFeed) -> None:
+        (lei_feed.feed_dir / 'korgalore.feed').write_bytes(b'')
+
+        with patch('korgalore.lei_feed.run_lei_command', return_value=(0, b'')):
+            assert lei_feed.update_feed() == PIFeed.STATUS_UPDATED
+
+        assert lei_feed.load_feed_state()['epochs'].keys() == {'0'}

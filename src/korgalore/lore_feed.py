@@ -6,7 +6,7 @@ from gzip import GzipFile
 from pathlib import Path
 from typing import Any
 
-from korgalore import RemoteError, StateError, run_git_command
+from korgalore import RemoteError, StateCorruptError, StateError, run_git_command
 from korgalore.pi_feed import PIFeed
 from liblore import LoreNode
 
@@ -293,9 +293,18 @@ class LoreFeed(PIFeed):
         """
         try:
             feed_state = self.load_feed_state()
+        except StateCorruptError as e:
+            logger.warning('%s, rebuilding it from the local epochs', e)
+            # The deliveries of the pull that lost the state may never have
+            # run, so let this pull run them
+            return self._update_epochs(self.rebuild_feed_state(), keep_history_since) | self.STATUS_UPDATED
         except StateError:
             self.init_feed()
             return self.STATUS_INITIALIZED
+        return self._update_epochs(feed_state, keep_history_since)
+
+    def _update_epochs(self, feed_state: dict[str, Any], keep_history_since: datetime | None) -> int:
+        """Fetch and clone what the remote manifest has that we lack."""
         local_epoch_info = self.load_epochs_info()
         remote_epoch_info = self.get_manifest_epochs()
         if local_epoch_info == remote_epoch_info:
