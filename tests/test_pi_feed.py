@@ -94,6 +94,25 @@ class TestJSONLOperations:
 
         assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123'), (2, 'def456')]
 
+    def test_write_reaches_disk_before_rename(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """Renaming unsynced data can leave an empty file behind after a crash."""
+        filepath = temp_feed_dir / 'test.jsonl'
+        events: list[str] = []
+        real_replace = Path.replace
+
+        def replace(src: Path, dst: Path) -> Path:
+            events.append('rename')
+            return real_replace(src, dst)
+
+        with (
+            patch('korgalore.pi_feed.os.fsync', side_effect=lambda _fd: events.append('fsync')),
+            patch.object(Path, 'replace', replace),
+        ):
+            mock_feed._write_jsonl_file(filepath, [(1, 'abc123')])
+
+        assert events == ['fsync', 'rename']
+        assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123')]
+
 
 class TestMarkSuccessfulDelivery:
     """Tests for mark_successful_delivery function.
