@@ -11,6 +11,7 @@ The git-backed parts of PIFeed are tested in test_pi_feed_git.py.
 """
 
 import json
+import logging
 import subprocess
 import sys
 from collections.abc import Generator
@@ -94,6 +95,53 @@ class TestJSONLOperations:
         mock_feed._append_to_jsonl_file(filepath, (2, 'def456'))
 
         assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123'), (2, 'def456')]
+
+    @pytest.mark.parametrize(
+        'content',
+        [
+            pytest.param(b'[1, "abc123"]\n[2, "def4', id='torn-last-line'),
+            pytest.param(b'[1, "abc123"]\n\x00\x00\x00', id='nul-bytes'),
+            pytest.param(b'\xff\xfe\n[1, "abc123"]\n', id='not-utf8'),
+            pytest.param(b'{"epoch": 2}\n[1, "abc123"]\n', id='not-a-list'),
+        ],
+    )
+    def test_read_drops_damaged_lines(
+        self, mock_feed: PIFeed, temp_feed_dir: Path, content: bytes, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A crash damages one line; the other failed deliveries must still be retried.
+
+        The damaged line is also removed from the file. Otherwise the next
+        append lands on the end of a torn line and is lost with it.
+        """
+        filepath = temp_feed_dir / 'test.jsonl'
+        filepath.write_bytes(content)
+
+        with caplog.at_level(logging.WARNING, logger='korgalore'):
+            assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123')]
+        assert 'Dropped 1 unreadable' in caplog.text
+
+        mock_feed._append_to_jsonl_file(filepath, (3, 'fed789'))
+        assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123'), (3, 'fed789')]
+
+    def test_read_ends_unterminated_last_line(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        """An append torn just before its newline leaves a last line that still reads.
+
+        The next append must not land on the end of it, or both entries are lost.
+        """
+        filepath = temp_feed_dir / 'test.jsonl'
+        filepath.write_bytes(b'[1, "abc123"]\n[2, "def456"]')
+
+        assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123'), (2, 'def456')]
+
+        mock_feed._append_to_jsonl_file(filepath, (3, 'fed789'))
+        assert mock_feed._read_jsonl_file(filepath) == [(1, 'abc123'), (2, 'def456'), (3, 'fed789')]
+
+    def test_read_removes_file_with_only_damaged_lines(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
+        filepath = temp_feed_dir / 'test.jsonl'
+        filepath.write_bytes(b'[1, "abc')
+
+        assert mock_feed._read_jsonl_file(filepath) == []
+        assert not filepath.exists()
 
     def test_write_reaches_disk_before_rename(self, mock_feed: PIFeed, temp_feed_dir: Path) -> None:
         """Renaming unsynced data can leave an empty file behind after a crash."""
