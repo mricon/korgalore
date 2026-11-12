@@ -5,6 +5,7 @@ are built once per module.
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -272,3 +273,61 @@ class TestSaveDeliveryInfoEpochZero:
         assert list(epochs) == ['1']
         assert epochs['1']['last'] == new
         assert epochs['1']['msgid'] == '<new@example.com>'
+
+
+class TestCorruptDeliveryState:
+    """A delivery state file that cannot be read has lost its pointer for good.
+
+    The pull must not crash on it. The delivery starts again as a new one,
+    at the top of the feed, and the user is told once that mail may be
+    missing.
+    """
+
+    @pytest.mark.parametrize(
+        'content',
+        [
+            pytest.param(b'', id='empty-file'),
+            pytest.param(b'{"epochs": {"0": {"la', id='truncated'),
+            pytest.param(b'{"epochs": "\xff\xfe"}', id='not-utf8'),
+            pytest.param(b'[]', id='not-an-object'),
+            pytest.param(b'{"epochs": []}', id='epochs-not-an-object'),
+        ],
+    )
+    def test_delivery_restarts_at_top(self, tmp_path: Path, content: bytes, caplog: pytest.LogCaptureFixture) -> None:
+        repo = InboxRepo(tmp_path / 'feed')
+        repo.add(b'Subject: first\nMessage-ID: <first@example.com>\n\nbody\n', WHEN)
+        feed = real_feed(repo.feed_dir)
+        feed.save_delivery_info('test-delivery')
+        top = repo.add(b'Subject: second\nMessage-ID: <second@example.com>\n\nbody\n', LATER)
+        state_file = repo.feed_dir / 'korgalore.test-delivery.info'
+        state_file.write_bytes(content)
+
+        with caplog.at_level(logging.WARNING, logger='korgalore'):
+            assert feed.get_latest_commits_for_delivery('test-delivery') == []
+
+        assert read_epochs(feed)['0']['last'] == top
+        assert caplog.text.count('is corrupt') == 1
+
+    def test_removed_by_another_reader(self, tmp_path: Path) -> None:
+        """A digest worker reads without the feed lock, so a pull may remove the file first."""
+        feed = real_feed(tmp_path)
+        state_file = tmp_path / 'korgalore.test-delivery.info'
+        state_file.write_bytes(b'')
+        real_read_text = Path.read_text
+
+        def read_then_lose_race(path: Path) -> str:
+            text = real_read_text(path)
+            path.unlink()
+            return text
+
+        with patch.object(Path, 'read_text', read_then_lose_race):
+            assert not feed.has_delivery_pointer('test-delivery')
+
+    def test_digest_state_reads_as_missing(self, tmp_path: Path) -> None:
+        """The digest code reads the file on every pull, before any delivery runs."""
+        feed = real_feed(tmp_path)
+        (tmp_path / 'korgalore.test-delivery.info').write_bytes(b'')
+
+        assert not feed.has_delivery_pointer('test-delivery')
+        assert feed.load_digest_sent('test-delivery') is None
+        assert feed.get_digest_history_start('test-delivery') is None
