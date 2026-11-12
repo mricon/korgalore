@@ -718,25 +718,48 @@ class PIFeed:
         return epoch_info
 
     def load_delivery_info(self, delivery_name: str) -> dict[str, Any]:
-        """Load delivery progress state from disk."""
-        state_file = self._get_state_file_path(delivery_name, 'info')
-        if not state_file.exists():
+        """Load delivery progress state from disk.
+
+        A delivery without usable state starts at the top of the feed.
+        """
+        info = self._read_delivery_info(delivery_name)
+        if info is None:
             logger.debug('Initializing new state file for delivery: %s', delivery_name)
             self.save_delivery_info(delivery_name)
-
-        with state_file.open() as gf:
-            info: dict[str, Any] = json.load(gf)
-
+            info = self._read_delivery_info(delivery_name)
+        if info is None:
+            raise StateError(f'No delivery state for {delivery_name}.')
         return info
 
     def _read_delivery_info(self, delivery_name: str) -> dict[str, Any] | None:
-        """Read the delivery state file as it is, or None if there is none."""
+        """Read the delivery state file, or None if there is no usable one.
+
+        A corrupt file is removed, because the pointer in it cannot be
+        recovered. The delivery is then a new one for every reader, and the
+        user is warned only once.
+        """
         state_file = self._get_state_file_path(delivery_name, 'info')
         if not state_file.exists():
             return None
-        with state_file.open() as gf:
-            info: dict[str, Any] = json.load(gf)
-        return info
+        try:
+            info = json.loads(state_file.read_text())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            problem = str(e)
+        else:
+            if isinstance(info, dict) and isinstance(info.get('epochs', {}), dict):
+                return info
+            problem = 'not a delivery state'
+        logger.warning(
+            'Delivery state %s is corrupt (%s), removing it. %s starts again as a new delivery'
+            ' and may miss mail that came in since its last run.',
+            state_file,
+            problem,
+            delivery_name,
+        )
+        # Readers that need no feed lock, like the digest worker, may have
+        # removed it already
+        state_file.unlink(missing_ok=True)
+        return None
 
     def get_digest_job_dir(self, delivery_name: str) -> Path:
         """Where a digest delivery keeps a digest until it is sent."""
