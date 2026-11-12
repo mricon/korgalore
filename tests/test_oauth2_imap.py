@@ -119,7 +119,7 @@ class TestImapOAuth2Authenticator:
         assert not auth.needs_auth
 
     def test_save_token(self, tmp_path: Path) -> None:
-        """Token is saved to file with correct permissions."""
+        """The token file is created 0600; it is never readable by others, even briefly."""
         token_file = tmp_path / 'subdir' / 'token.json'
         auth = make_auth(token_file)
         auth._token = OAuth2Token(
@@ -127,12 +127,33 @@ class TestImapOAuth2Authenticator:
             refresh_token='saved_refresh',
             expires_at=1234567890.0,
         )
-        auth._save_token()
+        old_umask = os.umask(0)
+        try:
+            auth._save_token()
+        finally:
+            os.umask(old_umask)
 
-        assert token_file.exists()
-        # 0o600 = owner read/write only
         assert (token_file.stat().st_mode & 0o777) == 0o600
         assert json.loads(token_file.read_text())['access_token'] == 'saved_access'
+
+    def test_failed_save_keeps_old_token(self, tmp_path: Path) -> None:
+        """A save that dies half-way must not leave a truncated token behind.
+
+        The file holds the refresh token. Losing it means a new browser
+        login, which a headless pull cannot do.
+        """
+        token_file = valid_token_file(tmp_path, access_token='old_access')
+        auth = make_auth(token_file)
+        # json.dump() has already written the first keys when it reaches
+        # the value it cannot serialise, like a crash in the middle of writing.
+        with (
+            patch.object(OAuth2Token, 'to_dict', return_value={'access_token': 'new', 'oops': object()}),
+            pytest.raises(TypeError),
+        ):
+            auth._save_token()
+
+        assert json.loads(token_file.read_text())['access_token'] == 'old_access'
+        assert [p.name for p in token_file.parent.iterdir()] == [token_file.name]
 
     def test_get_access_token_no_token_non_interactive(self, tmp_path: Path) -> None:
         """Non-interactive mode raises AuthenticationError when no token."""
