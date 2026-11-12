@@ -1,8 +1,17 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
-from korgalore import ConfigurationError, GitError, PublicInboxError, StateError, run_git_command, run_lei_command
+from korgalore import (
+    ConfigurationError,
+    GitError,
+    PublicInboxError,
+    StateCorruptError,
+    StateError,
+    run_git_command,
+    run_lei_command,
+)
 from korgalore.pi_feed import PIFeed
 
 logger = logging.getLogger('korgalore')
@@ -143,10 +152,18 @@ class LeiFeed(PIFeed):
 
         try:
             finfo = self.load_feed_state()
+        except StateCorruptError as e:
+            logger.warning('%s, rebuilding it from the local epochs', e)
+            # The deliveries of the pull that lost the state may never have
+            # run, so let this pull run them
+            return self._update_epochs(self.rebuild_feed_state()) | self.STATUS_UPDATED
         except StateError:
             self.init_feed()
             return self.STATUS_INITIALIZED
+        return self._update_epochs(finfo)
 
+    def _update_epochs(self, finfo: dict[str, Any]) -> int:
+        """Record what 'lei up' added and pick up a new epoch."""
         known_epochs = [int(e) for e in finfo['epochs']]
         highest_known_epoch = max(known_epochs)
 

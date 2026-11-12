@@ -110,6 +110,10 @@ class StateError(KorgaloreError):
     """Raised when there is an error with the internal state."""
 
 
+class StateCorruptError(StateError):
+    """Raised when a state file exists but cannot be used."""
+
+
 class DeliveryError(KorgaloreError):
     """Raised when there is an error during message delivery."""
 

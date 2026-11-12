@@ -11,7 +11,7 @@ from typing import Any
 
 from liblore.utils import clean_header, msg_get_subject, parse_message
 
-from korgalore import FeedLockedError, GitError, PublicInboxError, StateError, run_git_command
+from korgalore import FeedLockedError, GitError, PublicInboxError, StateCorruptError, StateError, run_git_command
 
 logger = logging.getLogger('korgalore')
 
@@ -869,10 +869,32 @@ class PIFeed:
             if not state_file.exists():
                 raise StateError(f'Feed state not found: {state_file}')
 
-        with state_file.open() as f:
-            result = json.load(f)
-            assert isinstance(result, dict)
-            return result
+        return self._read_feed_state(state_file)
+
+    def _read_feed_state(self, state_file: Path) -> dict[str, Any]:
+        """Read a feed state file that exists.
+
+        Raises:
+            StateCorruptError: If the file is not a usable feed state.
+        """
+        try:
+            state = json.loads(state_file.read_text())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise StateCorruptError(f'Feed state {state_file} is corrupt: {e}') from e
+        # save_feed_state() always records an epoch, and every reader
+        # relies on having at least one
+        if not isinstance(state, dict) or not isinstance(state.get('epochs'), dict) or not state['epochs']:
+            raise StateCorruptError(f'Feed state {state_file} is corrupt: no epochs recorded')
+        return state
+
+    def rebuild_feed_state(self) -> dict[str, Any]:
+        """Replace a corrupt feed state with one made from the local epochs.
+
+        Deliveries keep their state in their own files, so they carry on
+        from where they were.
+        """
+        self.save_feed_state(epoch=self.get_highest_epoch())
+        return self.load_feed_state()
 
     def save_feed_state(self, epoch: int | None = None, latest_commit: str | None = None, success: bool = True) -> None:
         """Save feed-level state to disk."""
@@ -884,11 +906,13 @@ class PIFeed:
         if latest_commit is None:
             latest_commit = self.get_top_commit(epoch)
 
-        state: dict[str, Any]
+        state: dict[str, Any] | None = None
         if state_file.exists():
-            with state_file.open() as f:
-                state = json.load(f)
-        else:
+            # Not load_feed_state(), because its legacy migration calls
+            # save_feed_state(). A corrupt file has nothing worth keeping.
+            with contextlib.suppress(StateCorruptError):
+                state = self._read_feed_state(state_file)
+        if state is None:
             state = {
                 'epochs': {},
                 'extra_data': {
