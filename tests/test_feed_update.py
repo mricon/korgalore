@@ -137,3 +137,29 @@ class TestCorruptFeedState:
             assert lei_feed.update_feed() == PIFeed.STATUS_UPDATED
 
         assert lei_feed.load_feed_state()['epochs'].keys() == {'0'}
+
+
+class TestCorruptEpochsFile:
+    """epochs.json only records the last fetch, so a corrupt one means: fetch again."""
+
+    @pytest.mark.parametrize(
+        'content',
+        [
+            pytest.param(b'', id='empty-file'),
+            pytest.param(b'[{"epoch": 0, "pa', id='truncated'),
+            pytest.param(b'\xff\xfe', id='not-utf8'),
+            pytest.param(b'{}', id='not-a-list'),
+            pytest.param(b'[0]', id='entry-not-an-object'),
+            pytest.param(b'[{"epoch": 0}]', id='entry-missing-keys'),
+        ],
+    )
+    def test_fetches_and_rewrites_it(self, lore_feed: LoreFeed, content: bytes) -> None:
+        (lore_feed.feed_dir / 'epochs.json').write_bytes(content)
+
+        with remote(lore_feed) as (_clone, fetch):
+            lore_feed.update_feed()
+        fetch.assert_called_once()
+
+        with remote(lore_feed) as (_clone, fetch):
+            assert lore_feed.update_feed() == PIFeed.STATUS_NOCHANGE
+        fetch.assert_not_called()

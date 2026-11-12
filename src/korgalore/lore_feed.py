@@ -203,20 +203,23 @@ class LoreFeed(PIFeed):
         epochs_info = []
         for enum, epath, fpr in epochs:
             epochs_info.append({'epoch': enum, 'path': epath, 'fpr': fpr})
-        with epochs_file.open('w') as ef:
-            json.dump(epochs_info, ef, indent=2)
+        self._atomic_write(epochs_file, json.dumps(epochs_info, indent=2))
 
     def load_epochs_info(self) -> list[tuple[int, str, str]]:
         """Load the manifest recorded by the last successful update.
 
-        Returns an empty list when no update has succeeded yet.
+        Returns an empty list when there is no usable record, so that the
+        update fetches and records the manifest again.
         """
         epochs_file = self.feed_dir / 'epochs.json'
         if not epochs_file.exists():
             return []
-        with epochs_file.open() as ef:
-            epochs_data = json.load(ef)
-        return [(entry['epoch'], entry['path'], entry['fpr']) for entry in epochs_data]
+        try:
+            epochs_data = json.loads(epochs_file.read_text())
+            return [(entry['epoch'], entry['path'], entry['fpr']) for entry in epochs_data]
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError) as e:
+            logger.warning('Epochs file %s is corrupt, fetching to rebuild it: %s', epochs_file, e)
+            return []
 
     @staticmethod
     def shallow_since(keep_history_since: datetime | None, now: datetime | None = None) -> str | None:
