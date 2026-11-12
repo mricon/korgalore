@@ -6,7 +6,7 @@ from gzip import GzipFile
 from pathlib import Path
 from typing import Any
 
-from korgalore import RemoteError, StateCorruptError, StateError, run_git_command
+from korgalore import RemoteError, StateCorruptError, StateError, atomic_write, run_git_command
 from korgalore.pi_feed import PIFeed
 from liblore import LoreNode
 
@@ -203,7 +203,7 @@ class LoreFeed(PIFeed):
         epochs_info = []
         for enum, epath, fpr in epochs:
             epochs_info.append({'epoch': enum, 'path': epath, 'fpr': fpr})
-        self._atomic_write(epochs_file, json.dumps(epochs_info, indent=2))
+        atomic_write(epochs_file, json.dumps(epochs_info, indent=2))
 
     def load_epochs_info(self) -> list[tuple[int, str, str]]:
         """Load the manifest recorded by the last successful update.

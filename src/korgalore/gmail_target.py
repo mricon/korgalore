@@ -11,7 +11,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
 from googleapiclient.discovery import build  # type: ignore
 from googleapiclient.errors import HttpError  # type: ignore
 
-from korgalore import AuthenticationError, ConfigurationError, RemoteError
+from korgalore import AuthenticationError, ConfigurationError, RemoteError, atomic_write
 from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
@@ -111,8 +111,7 @@ class GmailTarget:
                     f'{self._credentials_file} not found. Please download it from Google Cloud Console.'
                 )
 
-            # Save the credentials for the next run
-            self._token_file.write_text(self.creds.to_json())
+            atomic_write(self._token_file, self.creds.to_json())
 
         self._needs_auth = False
 
@@ -239,8 +238,7 @@ class GmailTarget:
         flow = InstalledAppFlow.from_client_secrets_file(str(self._credentials_file), SCOPES)
         self.creds = flow.run_local_server(port=0)
 
-        # Save the credentials
-        self._token_file.write_text(self.creds.to_json())
+        atomic_write(self._token_file, self.creds.to_json())
 
         self._needs_auth = False
         self.service = None  # Reset service to force reconnect with new creds

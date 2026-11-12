@@ -1,8 +1,6 @@
 import contextlib
 import json
 import logging
-import os
-import tempfile
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from fcntl import LOCK_EX, LOCK_NB, LOCK_UN, lockf
@@ -11,7 +9,15 @@ from typing import Any
 
 from liblore.utils import clean_header, msg_get_subject, parse_message
 
-from korgalore import FeedLockedError, GitError, PublicInboxError, StateCorruptError, StateError, run_git_command
+from korgalore import (
+    FeedLockedError,
+    GitError,
+    PublicInboxError,
+    StateCorruptError,
+    StateError,
+    atomic_write,
+    run_git_command,
+)
 
 logger = logging.getLogger('korgalore')
 
@@ -84,28 +90,7 @@ class PIFeed:
                 filepath.unlink()
             return
         content = ''.join(json.dumps(obj) + '\n' for obj in data)
-        self._atomic_write(filepath, content)
-
-    def _atomic_write(self, filepath: Path, content: str) -> None:
-        """Write content to file atomically using temp file and rename."""
-        dirpath = filepath.parent
-        fd, tmp_name = tempfile.mkstemp(dir=dirpath, prefix='.tmp_')
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, 'w') as f:
-                f.write(content)
-                # The rename alone is atomic but not durable: a crash can
-                # land the rename without the data and leave an empty file.
-                # Syncing the directory too is not needed, because losing
-                # the rename only brings back the old, valid content.
-                f.flush()
-                os.fsync(f.fileno())
-            tmp_path.replace(filepath)
-        except Exception:
-            # Clean up temp file on error
-            with contextlib.suppress(OSError):
-                tmp_path.unlink()
-            raise
+        atomic_write(filepath, content)
 
     def get_gitdir(self, epoch: int) -> Path:
         """Return the path to the git directory for a specific epoch."""
@@ -716,7 +701,7 @@ class PIFeed:
         if digest_sent is not None:
             state_info['digest'] = {'last_sent': digest_sent.isoformat()}
 
-        self._atomic_write(state_file, json.dumps(state_info, indent=2))
+        atomic_write(state_file, json.dumps(state_info, indent=2))
 
     def get_delivery_info_for_epoch(self, delivery_name: str, epoch: int | None = None) -> dict[str, Any]:
         """Retrieve saved delivery state for a specific epoch."""
@@ -968,4 +953,4 @@ class PIFeed:
             'latest_commit': latest_commit,
         }
 
-        self._atomic_write(state_file, json.dumps(state, indent=2))
+        atomic_write(state_file, json.dumps(state, indent=2))
