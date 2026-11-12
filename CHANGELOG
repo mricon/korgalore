@@ -80,6 +80,10 @@ Development
   0.0.101. Turn off five rules that are new in ty; the reasons are next
   to them in ``pyproject.toml``
 
+* Update the locked dependencies, including liblore 0.10.1, oauthlib 4
+  and pytest 9.2, and move the ``liblore`` submodule to v0.10.1. The
+  minimum versions in ``pyproject.toml`` are unchanged
+
 v0.7.0 (2026-10-06)
 -------------------
 
