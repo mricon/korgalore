@@ -1,21 +1,20 @@
+import base64
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from google.auth.exceptions import RefreshError
-from google.auth.external_account_authorized_user import Credentials as ExternalAccountCredentials
+from google.auth.credentials import Credentials as BaseCredentials
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
-from googleapiclient.discovery import build  # type: ignore
-from googleapiclient.errors import HttpError  # type: ignore
+from googleapiclient.discovery import Resource, build  # type: ignore[import-untyped]
+from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
 
 from korgalore import AuthenticationError, ConfigurationError, RemoteError
+from korgalore.google_creds import CommandCredentials, OAuthFileCredentials, parse_token_command
 from korgalore.message import RawMessage
 
 logger = logging.getLogger('korgalore')
-
 
 # If modifying these scopes, delete the file token.json.
 # We need scopes for reading and inserting new emails, but not
@@ -25,105 +24,55 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.insert',
 ]
 
-# InstalledAppFlow.run_local_server() returns either flavour depending on what
-# the client_secrets file describes. Both expose the valid/expired/refresh_token
-# attributes and the to_json() and refresh() methods used below, so the code
-# does not care which one it gets -- but the declared type has to allow both.
-GmailCredentials = Credentials | ExternalAccountCredentials
-
 
 class GmailTarget:
     """Target class for delivering email messages to Gmail via the API."""
 
     DEFAULT_LABELS: list[str] = ['INBOX', 'UNREAD']
 
-    def __init__(self, identifier: str, credentials_file: str, token_file: str, interactive: bool = True) -> None:
+    def __init__(self, identifier: str, creds: BaseCredentials) -> None:
         """Initialize a GmailTarget instance.
 
         Args:
             identifier: Unique identifier for this Gmail target.
-            credentials_file: Path to the Google OAuth credentials JSON file.
-            token_file: Path to store/load the OAuth token.
-            interactive: If True, run OAuth flow interactively when needed.
-                        If False, raise AuthenticationError instead (for GUI mode).
-
-        Raises:
-            ConfigurationError: If credentials file is not found.
-            AuthenticationError: If token is expired/revoked and re-auth is needed,
-                               or if interactive=False and no token exists.
+            creds: Google API credentials instance.
         """
         self.identifier = identifier
-        self.creds: GmailCredentials | None = None
-        self.service: Any | None = None
+        self.creds = creds
+        self.service: Resource | None = None
         self._label_map: dict[str, str] | None = None
-        # Store expanded paths for potential re-authentication
-        self._credentials_file = Path(os.path.expandvars(credentials_file)).expanduser()
-        self._token_file = Path(os.path.expandvars(token_file)).expanduser()
-        self._needs_auth = False
-        self._interactive = interactive
-        self._load_credentials()
 
-    def _load_credentials(self) -> None:
-        """Load or refresh OAuth credentials for Gmail API access.
-
-        Attempts to load existing credentials from token_file. If not present
-        or expired, initiates OAuth flow using credentials_file.
-
-        Raises:
-            ConfigurationError: If credentials file is not found.
-            AuthenticationError: If token is expired/revoked and re-auth is needed.
-        """
-        # The file token.json stores the user's access and refresh tokens
-        if self._token_file.exists():
-            self.creds = Credentials.from_authorized_user_file(str(self._token_file), SCOPES)  # type: ignore
-
-        # If there are no (valid) credentials available, let the user log in
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                try:
-                    self.creds.refresh(Request())  # type: ignore
-                except RefreshError as e:
-                    logger.warning('Gmail token for %s has expired or been revoked.', self.identifier)
-                    invalid_token_file = self._token_file.with_name(f'{self._token_file.name}.invalid')
-                    invalid_token_file.unlink(missing_ok=True)
-                    self._token_file.rename(invalid_token_file)
-                    self._needs_auth = True
-                    if not self._interactive:
-                        # In non-interactive mode, just return - caller will check needs_auth
-                        return
-                    raise AuthenticationError(
-                        f"Gmail token for '{self.identifier}' is invalid. Please re-authenticate.",
-                        target_id=self.identifier,
-                        target_type='gmail',
-                    ) from e
-            elif self._credentials_file.exists():
-                if not self._interactive:
-                    # In non-interactive mode (GUI), don't run OAuth flow
-                    # Just mark as needing auth and return - caller will check needs_auth
-                    self._needs_auth = True
-                    return
-                logger.critical('Log in to Gmail account for %s', self.identifier)
-
-                flow = InstalledAppFlow.from_client_secrets_file(str(self._credentials_file), SCOPES)
-                self.creds = flow.run_local_server(port=0)
-            else:
-                raise ConfigurationError(
-                    f'{self._credentials_file} not found. Please download it from Google Cloud Console.'
-                )
-
-            # Save the credentials for the next run
-            self._token_file.write_text(self.creds.to_json())
-
-        self._needs_auth = False
+    @property
+    def needs_auth(self) -> bool:
+        """Check if this target needs re-authentication."""
+        return bool(getattr(self.creds, 'needs_auth', False))
 
     def connect(self) -> None:
         """Establish connection to the Gmail API service.
 
         Creates the Gmail API service object if not already connected.
+
+        Raises:
+            ConfigurationError: If credentials file is missing or token_command
+                                cannot be executed.
+            AuthenticationError: If OAuth token refresh or authentication fails.
+            RemoteError: If token_command fails, times out, or returns an
+                         invalid token.
         """
-        if self.service is None:
-            logger.debug('Connecting to Gmail service for %s', self.identifier)
-            self.service = build('gmail', 'v1', credentials=self.creds, cache_discovery=False)
+        if self.service is not None:
+            return
+
+        if not self.creds.valid:
+            self.creds.refresh(Request())  # type: ignore[no-untyped-call]
+
+        logger.debug('Connecting to Gmail service for %s', self.identifier)
+        self.service = build('gmail', 'v1', credentials=self.creds, cache_discovery=False)
+        try:
+            self._label_map = {label['name']: label['id'] for label in self.list_labels()}
+        except Exception:
+            self.service = None
+            self._label_map = None
+            raise
 
     def _api(self) -> Any:
         """Return the connected Gmail API service, connecting first if needed.
@@ -163,8 +112,8 @@ class GmailTarget:
         """
         # Translate label names to their corresponding IDs
         if self._label_map is None:
-            # Get all labels from Gmail
-            self._label_map = {label['name']: label['id'] for label in self.list_labels()}
+            self.connect()
+        assert self._label_map is not None
         translated: list[str] = []
         for label in labels:
             label_id = self._label_map.get(label, None)
@@ -197,8 +146,6 @@ class GmailTarget:
             RemoteError: If the Gmail API call fails.
         """
         try:
-            import base64
-
             msg = RawMessage(raw_message)
             encoded_message = base64.urlsafe_b64encode(msg.as_bytes(feed_name, delivery_name)).decode()
             message_body: dict[str, Any] = {'raw': encoded_message}
@@ -215,33 +162,89 @@ class GmailTarget:
         except HttpError as error:
             raise RemoteError(f'An error occurred: {error}') from error
 
-    @property
-    def needs_auth(self) -> bool:
-        """Check if this target needs re-authentication."""
-        return self._needs_auth
-
     def reauthenticate(self) -> None:
         """Perform OAuth re-authentication flow.
 
-        Opens a browser window for the user to log in and authorize the app.
-        Updates credentials upon successful authentication.
+        Delegates interactive re-authentication to the underlying credentials
+        provider and clears cached API state so the next operation reconnects
+        with the updated credentials.
 
         Raises:
             ConfigurationError: If credentials file is not found.
+            AuthenticationError: If interactive re-authentication is unsupported
+                                 or the OAuth flow fails.
         """
-        if not self._credentials_file.exists():
-            raise ConfigurationError(
-                f'{self._credentials_file} not found. Please download it from Google Cloud Console.'
+        reauth = getattr(self.creds, 'reauthenticate', None)
+        if not callable(reauth):
+            raise AuthenticationError(
+                f"Target '{self.identifier}' does not support interactive reauthentication.",
+                target_id=self.identifier,
+                target_type='gmail',
             )
+        reauth()
+        self.service = None
+        self._label_map = None
 
-        logger.info('Starting re-authentication for Gmail account %s', self.identifier)
 
-        flow = InstalledAppFlow.from_client_secrets_file(str(self._credentials_file), SCOPES)
-        self.creds = flow.run_local_server(port=0)
+def make_gmail_credentials(
+    identifier: str,
+    details: Mapping[str, Any],
+    interactive: bool = True,
+    config_dir: Path | str | None = None,
+) -> BaseCredentials:
+    """Create credentials for a Gmail target from configuration.
 
-        # Save the credentials
-        self._token_file.write_text(self.creds.to_json())
+    Args:
+        identifier: Unique identifier for the Gmail target.
+        details: Target configuration mapping from ``korgalore.toml``.
+        interactive: Whether interactive OAuth browser flows are permitted.
+        config_dir: Optional base configuration directory for default token paths.
 
-        self._needs_auth = False
-        self.service = None  # Reset service to force reconnect with new creds
-        logger.info('Re-authentication successful for %s', self.identifier)
+    Returns:
+        Configured credentials instance compatible with ``GmailTarget``.
+
+    Raises:
+        ConfigurationError: If required configuration keys are missing,
+                            mutually exclusive, or invalid.
+    """
+    has_creds = 'credentials' in details
+    has_token = 'token' in details
+    has_cmd = 'token_command' in details
+
+    if has_cmd:
+        if has_creds or has_token:
+            raise ConfigurationError(
+                f"Gmail target '{identifier}' cannot specify both 'token_command' and 'credentials'/'token'."
+            )
+        command = parse_token_command(details['token_command'], f"Gmail target '{identifier}'")
+        return CommandCredentials(identifier=identifier, command=command)
+
+    if not has_creds:
+        raise ConfigurationError(f"Gmail target '{identifier}' must specify either 'credentials' or 'token_command'.")
+
+    creds_raw = details['credentials']
+    if not isinstance(creds_raw, str):
+        raise ConfigurationError(f"Gmail target '{identifier}': 'credentials' must be a string.")
+
+    token_raw = details.get('token')
+    if token_raw is not None and not isinstance(token_raw, str):
+        raise ConfigurationError(f"Gmail target '{identifier}': 'token' must be a string.")
+
+    if not token_raw:
+        base_dir = (
+            Path(config_dir)
+            if config_dir is not None
+            else Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'korgalore'
+        )
+        token_file: str | Path = base_dir / f'gmail-{identifier}-token.json'
+    else:
+        token_file = token_raw
+
+    return OAuthFileCredentials(
+        identifier=identifier,
+        credentials_file=creds_raw,
+        token_file=token_file,
+        scopes=SCOPES,
+        interactive=interactive,
+        target_type='gmail',
+    )

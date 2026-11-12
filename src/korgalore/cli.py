@@ -54,7 +54,7 @@ from korgalore.digest import (
     strip_reply_prefixes,
 )
 from korgalore.dummy_target import DummyTarget
-from korgalore.gmail_target import GmailTarget
+from korgalore.gmail_target import GmailTarget, make_gmail_credentials
 from korgalore.imap_target import ImapTarget
 from korgalore.jmap_target import JmapTarget
 from korgalore.lei_feed import LeiFeed
@@ -280,8 +280,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
     if target_type == 'gmail':
         service = get_gmail_target(
             identifier=identifier,
-            credentials_file=details.get('credentials', ''),
-            token_file=details.get('token', None),
+            details=details,
             interactive=interactive,
         )
     elif target_type == 'maildir':
@@ -334,19 +333,19 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
 
 
 def get_gmail_target(
-    identifier: str, credentials_file: str, token_file: str | None, interactive: bool = True
+    identifier: str,
+    details: Mapping[str, Any],
+    interactive: bool = True,
 ) -> GmailTarget:
     """Create a Gmail target service instance."""
-    if not credentials_file:
-        logger.critical('No credentials file specified for Gmail target: %s', identifier)
-        raise click.Abort()
-    if not token_file:
-        cfgdir = get_xdg_config_dir()
-        token_file = str(cfgdir / f'gmail-{identifier}-token.json')
     try:
-        gt = GmailTarget(
-            identifier=identifier, credentials_file=credentials_file, token_file=token_file, interactive=interactive
+        creds = make_gmail_credentials(
+            identifier=identifier,
+            details=details,
+            interactive=interactive,
+            config_dir=get_xdg_config_dir(),
         )
+        gt = GmailTarget(identifier=identifier, creds=creds)
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort() from fe
@@ -1949,6 +1948,9 @@ def auth(ctx: click.Context, target: str | None) -> None:
             ts = get_target(ctx, identifier)
             ts.connect()
             logger.info('Authenticated target: %s (type: %s)', identifier, target_type)
+        except (ConfigurationError, AuthenticationError, RemoteError) as e:
+            logger.error('Failed to authenticate target %s: %s', identifier, e)
+            raise click.Abort() from e
         except click.Abort:
             logger.error('Failed to authenticate target: %s', identifier)
             raise
@@ -2484,7 +2486,12 @@ def yank(ctx: click.Context, target: str | None, labels: tuple[str, ...], thread
         uploaded = 0
         failed = 0
 
-        ts.connect()
+        try:
+            ts.connect()
+        except (ConfigurationError, AuthenticationError, liblore.RemoteError) as e:
+            logger.critical('Failed to connect to target "%s": %s', target, e)
+            raise click.Abort() from e
+
         with click.progressbar(
             messages, label='Uploading thread', show_pos=True, file=progress_file(ctx.obj['hide_bar'])
         ) as bar:
@@ -2525,7 +2532,7 @@ def yank(ctx: click.Context, target: str | None, labels: tuple[str, ...], thread
             ts.connect()
             ts.import_message(raw_message, labels=labels_list)
             logger.info('Successfully uploaded message.')
-        except liblore.RemoteError as e:
+        except (ConfigurationError, AuthenticationError, liblore.RemoteError) as e:
             logger.critical('Failed to upload message: %s', str(e))
             raise click.Abort() from e
 
