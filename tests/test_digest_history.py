@@ -98,6 +98,7 @@ class TestFetchEpoch:
             patch.object(feed, 'get_manifest_epochs', return_value=[(0, '/lkml/git/0.git', 'new')]),
             patch.object(feed, 'feed_updated', return_value=True),
             patch.object(feed, 'save_feed_state'),
+            patch.object(feed, 'store_epochs_info'),
             patch.object(feed, 'fetch_epoch') as fetch_epoch,
         ):
             assert feed.update_feed(keep_history_since=keep) == PIFeed.STATUS_UPDATED
