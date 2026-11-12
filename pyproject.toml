@@ -191,3 +191,20 @@ missing-override-decorator = "ignore"
 # need for mypy and pyright as redundant. Whether a suppression is unused is
 # not a question one checker out of three can answer on its own.
 unused-type-ignore-comment = "ignore"
+# "if value:" on an optional string or collection is our idiom for "set
+# and not empty". Spelling it bool(value) adds noise, and "is not None"
+# would change what an empty value does.
+truthiness-test-of-none-union = "ignore"
+# Annotating a value that comes from click's ctx.obj, JSON or a mock is
+# how such a value gets its type here. mypy and pyright accept that; the
+# alternative is a cast() at every one of those places.
+unsound-assignment = "ignore"
+# ty keeps an attribute narrowed across a method call that changes it, or
+# while a GUI callback on another thread changes it, so this reports
+# conditions that can be false as always true.
+redundant-condition-strict = "ignore"
+# click_log ships no type information, and we cannot fix that here.
+dynamic-function-decorator-return = "ignore"
+# The one hit is a test that casts None on purpose: callers pass header
+# lookups straight in, so the function must survive None.
+disjoint-cast = "ignore"
