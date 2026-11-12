@@ -45,17 +45,35 @@ class PIFeed:
         self.feed_url: str = ''
 
     def _read_jsonl_file(self, filepath: Path) -> list[tuple[int | str, ...]]:
-        """Read a JSONL state file and return a list of tuples."""
+        """Read a JSONL state file and return a list of tuples.
+
+        Lines that cannot be read are dropped from the file as well, and a
+        last line without its newline gets one, so that a later append does
+        not land on the end of a torn line.
+        """
         results: list[tuple[int | str, ...]] = []
         if not filepath.exists():
             return results
-        with filepath.open() as f:
-            for raw_line in f:
-                line = raw_line.strip()
-                if not line:
-                    continue
+        damaged = 0
+        # Read as bytes, so that one line with bad UTF-8 does not take the
+        # good lines down with it
+        content = filepath.read_bytes()
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
                 obj = json.loads(line)
-                results.append(tuple(obj))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                obj = None
+            if not isinstance(obj, list):
+                damaged += 1
+                continue
+            results.append(tuple(obj))
+        if damaged:
+            logger.warning('Dropped %d unreadable entries from %s', damaged, filepath)
+        if damaged or (content and not content.endswith(b'\n')):
+            self._write_jsonl_file(filepath, results)
         return results
 
     def _write_jsonl_file(self, filepath: Path, data: list[tuple[int | str, ...]]) -> None:
