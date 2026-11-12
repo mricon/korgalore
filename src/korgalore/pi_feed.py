@@ -76,6 +76,12 @@ class PIFeed:
         try:
             with os.fdopen(fd, 'w') as f:
                 f.write(content)
+                # The rename alone is atomic but not durable: a crash can
+                # land the rename without the data and leave an empty file.
+                # Syncing the directory too is not needed, because losing
+                # the rename only brings back the old, valid content.
+                f.flush()
+                os.fsync(f.fileno())
             tmp_path.replace(filepath)
         except Exception:
             # Clean up temp file on error
