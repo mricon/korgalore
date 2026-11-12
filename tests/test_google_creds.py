@@ -1,5 +1,6 @@
 """Tests for Google OAuth2 and token_command credential providers."""
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -57,6 +58,49 @@ class TestOAuthFileCredentials:
 
         mock_creds.refresh.assert_called_once()
         assert token.read_text() == '{"token": "refreshed"}'
+        assert (token.stat().st_mode & 0o777) == 0o600
+
+    @patch('korgalore.google_creds.Credentials')
+    @patch('korgalore.google_creds.Request')
+    def test_failed_save_keeps_old_token(
+        self, mock_request: MagicMock, mock_credentials: MagicMock, tmp_path: Path
+    ) -> None:
+        """A save that dies half-way must not leave a truncated token behind.
+
+        The token file holds the refresh token. If it is lost, the user has
+        to log in again in a browser, which a headless pull cannot do.
+        """
+        token = tmp_path / 'token.json'
+        token.write_text('{"token": "stale"}')
+        mock_creds = MagicMock()
+        mock_creds.valid = False
+        mock_creds.expired = True
+        mock_creds.refresh_token = 'refresh_token_value'
+        # A lone surrogate cannot be encoded, so the write fails after the
+        # file has been opened, like a crash in the middle of writing.
+        mock_creds.to_json.return_value = '{"token": "\udc80"}'
+        mock_credentials.from_authorized_user_file.return_value = mock_creds
+
+        with pytest.raises(UnicodeEncodeError):
+            OAuthFileCredentials('test', str(tmp_path / 'creds.json'), token, scopes=TEST_SCOPES)
+
+        assert token.read_text() == '{"token": "stale"}'
+        assert [p.name for p in tmp_path.iterdir()] == ['token.json']
+
+    @patch('korgalore.google_creds.InstalledAppFlow')
+    def test_new_token_is_private_whatever_the_umask(self, mock_flow_class: MagicMock, tmp_path: Path) -> None:
+        """The token file is created 0600; it is never readable by others, even briefly."""
+        creds = tmp_path / 'creds.json'
+        creds.write_text('{}')
+        token = tmp_path / 'token.json'
+        mock_flow_class.from_client_secrets_file.return_value.run_local_server.return_value.to_json.return_value = '{}'
+
+        old_umask = os.umask(0)
+        try:
+            OAuthFileCredentials('test', str(creds), token, scopes=TEST_SCOPES)
+        finally:
+            os.umask(old_umask)
+
         assert (token.stat().st_mode & 0o777) == 0o600
 
     @patch('korgalore.google_creds.Credentials')

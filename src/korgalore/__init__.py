@@ -1,9 +1,11 @@
 """Korgalore - A command-line tool to put public-inbox sources directly into Gmail."""
 
+import contextlib
 import logging
 import os
 import shlex
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -276,3 +278,28 @@ def _expand_tilde(arg: str) -> str:
         # There is no such user. A shell leaves the word alone, so do we.
         return arg
     return f'{home}{sep}{tail}'
+
+
+def atomic_write(filepath: Path, content: str) -> None:
+    """Replace a file's content so that a crash leaves either old or new.
+
+    The file always ends up mode 0600, because mkstemp() creates it that
+    way. OAuth token files depend on this: they are never readable by
+    other users, not even between creating and chmod-ing the file.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=filepath.parent, prefix='.tmp_')
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+            # The rename alone is atomic but not durable: a crash can
+            # land the rename without the data and leave an empty file.
+            # Syncing the directory too is not needed, because losing
+            # the rename only brings back the old, valid content.
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(filepath)
+    except Exception:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise

@@ -154,7 +154,7 @@ class TestJSONLOperations:
             return real_replace(src, dst)
 
         with (
-            patch('korgalore.pi_feed.os.fsync', side_effect=lambda _fd: events.append('fsync')),
+            patch('korgalore.os.fsync', side_effect=lambda _fd: events.append('fsync')),
             patch.object(Path, 'replace', replace),
         ):
             mock_feed._write_jsonl_file(filepath, [(1, 'abc123')])

@@ -14,7 +14,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore[import-untyped]
 
-from korgalore import AuthenticationError, ConfigurationError, RemoteError, split_command
+from korgalore import AuthenticationError, ConfigurationError, RemoteError, atomic_write, split_command
 
 logger = logging.getLogger('korgalore')
 
@@ -152,10 +152,8 @@ class OAuthFileCredentials(BaseCredentials):
         """Persist current OAuth credentials to the configured token file."""
         if self._creds is None:
             return
-        # Save the credentials for the next run
         self._token_file.parent.mkdir(parents=True, exist_ok=True)
-        self._token_file.write_text(self._creds.to_json())  # type: ignore[no-untyped-call]
-        self._token_file.chmod(0o600)
+        atomic_write(self._token_file, self._creds.to_json())  # type: ignore[no-untyped-call]
 
     def _quarantine_token(self) -> None:
         """Rename a revoked or invalid token file aside to ``.invalid``."""
