@@ -101,7 +101,9 @@ class MaildirTarget:
             target_maildir = self._get_maildir(subfolder)
             # mailbox.Maildir.add() handles atomic delivery automatically
             # It writes to tmp/ and moves to new/
-            key = target_maildir.add(msg.as_bytes(feed_name, delivery_name))
+            # Maildir files use local Unix line endings, which mail readers
+            # expect; CRLF is only for the wire
+            key = target_maildir.add(msg.as_bytes(feed_name, delivery_name, crlf=False))
             logger.debug('Delivered message to maildir with key: %s', key)
             return key
         except Exception as e:
