@@ -14,18 +14,30 @@ class PipeTarget:
     """Service for delivering messages by piping to an external command."""
 
     DEFAULT_LABELS: list[str] = []
+    LINE_ENDINGS = ('crlf', 'lf')
 
-    def __init__(self, identifier: str, command: str) -> None:
+    def __init__(self, identifier: str, command: str, line_endings: str = 'crlf') -> None:
         """Initialize pipe target.
 
         Args:
             identifier: Target identifier for logging
             command: Command to pipe messages to (can include arguments)
+            line_endings: 'crlf' (the wire format) or 'lf', which local MDAs
+                and filters such as procmail and formail expect
 
         Raises:
-            ConfigurationError: If command is empty
+            ConfigurationError: If command is empty or line_endings is unknown
         """
         self.identifier = identifier
+
+        # Reject anything unknown, instead of falling back to the default,
+        # so a typo can't quietly change the bytes a command receives
+        if line_endings not in self.LINE_ENDINGS:
+            allowed = ', '.join(repr(le) for le in self.LINE_ENDINGS)
+            raise ConfigurationError(
+                f"Pipe target '{identifier}' has invalid line_endings {line_endings!r}; allowed values: {allowed}"
+            )
+        self.crlf = line_endings == 'crlf'
 
         if not command:
             raise ConfigurationError(f"Pipe target '{identifier}' requires a command")
@@ -73,7 +85,10 @@ class PipeTarget:
 
         try:
             result = subprocess.run(
-                command_with_args, input=msg.as_bytes(feed_name, delivery_name), capture_output=True, check=False
+                command_with_args,
+                input=msg.as_bytes(feed_name, delivery_name, crlf=self.crlf),
+                capture_output=True,
+                check=False,
             )
 
             if result.returncode != 0:

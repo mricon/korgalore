@@ -52,6 +52,15 @@ password_file = '~/.config/korgalore/imap-password.txt'
 # folder = 'Lists/LKML'
 # password = 'your-password-here'
 
+# Pipe target: each message goes to the stdin of a command. No shell runs
+# it, so use "sh -c '...'" for redirects or pipes.
+[targets.procmail]
+type = 'pipe'
+command = '/usr/bin/procmail -m ~/.procmailrc-lists'
+# Local mail tools such as procmail and formail expect Unix line endings
+# (default: 'crlf', the same as mail servers get)
+line_endings = 'lf'
+
 ### Feeds ###
 # Feeds can be defined here and referenced by name in deliveries
 # This allows multiple deliveries to share the same feed URL
@@ -104,6 +113,12 @@ labels = ['inbox']  # Can use lowercase role names
 feed = 'lkml'  # References the feed defined above
 target = 'imap-server'
 labels = []  # Labels are ignored for IMAP (single folder delivery)
+
+# Example: Filter a list through procmail
+[deliveries.linux-doc-procmail]
+feed = 'linux-doc'  # References the feed defined above
+target = 'procmail'
+labels = []  # Labels are added to the end of the command as arguments
 
 # Example: One summary email per day instead of every message
 # [deliveries.lkml-digest]

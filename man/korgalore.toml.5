@@ -132,6 +132,11 @@ Must be \fI'pipe'\fR.
 Command to pipe messages to. Labels are appended as arguments. It is split
 like a shell command line, and \fI$VARS\fR and a leading \fI~\fR are
 expanded, but no shell runs it.
+.TP
+.B line_endings
+(Optional) Line endings of the message the command gets: \fI'crlf'\fR or
+\fI'lf'\fR. Use \fI'lf'\fR for local mail tools such as procmail, formail
+and maildrop, which expect Unix line endings. Default: \fI'crlf'\fR.
 .RE
 .SS [feeds.<name>]
 Feeds define reusable feed URLs that can be referenced by multiple deliveries.

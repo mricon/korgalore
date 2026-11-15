@@ -2,12 +2,16 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 
 from korgalore import ConfigurationError, DeliveryError
+from korgalore.cli import get_target
 from korgalore.pipe_target import PipeTarget
+from tests.digest_helpers import make_ctx
 
 
 class TestPipeTargetInit:
@@ -33,17 +37,57 @@ class TestPipeTargetInit:
         assert target.command_args == expected_args
 
     @pytest.mark.parametrize(
-        ('command', 'message'),
+        ('command', 'options', 'message'),
         [
-            ('', 'requires a command'),
-            ('   ', 'requires a non-empty command'),
-            ("echo 'unclosed quote", 'Invalid command'),
+            ('', {}, 'requires a command'),
+            ('   ', {}, 'requires a non-empty command'),
+            ("echo 'unclosed quote", {}, 'Invalid command'),
+            ('cat', {'line_endings': 'dos'}, r"'test'.*'dos'.*'crlf', 'lf'"),
+            ('cat', {'line_endings': 'LF'}, r"'test'.*'LF'.*'crlf', 'lf'"),
         ],
-        ids=['empty', 'whitespace-only', 'bad-quoting'],
+        ids=[
+            'empty',
+            'whitespace-only',
+            'bad-quoting',
+            'unknown-line-endings',
+            'uppercase-line-endings',
+        ],
     )
-    def test_invalid_command_raises(self, command: str, message: str) -> None:
+    def test_invalid_config_raises(self, command: str, options: dict[str, str], message: str) -> None:
+        """Bad settings fail when the target is built, naming the target and what is allowed.
+
+        A typo in line_endings must not quietly fall back to the default,
+        or a pipe would get line endings its owner did not ask for.
+        """
         with pytest.raises(ConfigurationError, match=message):
-            PipeTarget('test', command)
+            PipeTarget('test', command, **options)
+
+
+class TestPipeTargetFromConfig:
+    """Tests for building a PipeTarget from the configuration file."""
+
+    @staticmethod
+    def build(settings: dict[str, Any]) -> Any:
+        config = {'targets': {'test': {'type': 'pipe', 'command': 'cat', **settings}}}
+        return get_target(make_ctx({'config': config, 'targets': {}}), 'test')
+
+    @pytest.mark.parametrize(
+        ('settings', 'crlf'),
+        [({}, True), ({'line_endings': 'crlf'}, True), ({'line_endings': 'lf'}, False)],
+        ids=['default', 'explicit-crlf', 'lf'],
+    )
+    def test_line_endings_setting_reaches_the_target(self, settings: dict[str, Any], crlf: bool) -> None:
+        """The line_endings key in the config decides what the target sends.
+
+        Without this, the option could be documented and validated but
+        never read, and every pipe would quietly keep getting CRLF.
+        """
+        assert self.build(settings).crlf is crlf
+
+    def test_invalid_line_endings_aborts(self) -> None:
+        """A wrong value, such as a TOML boolean, stops the command instead of delivering with a guess."""
+        with pytest.raises(click.Abort):
+            self.build({'line_endings': True})
 
 
 class TestPipeTargetConnect:
@@ -60,11 +104,20 @@ class TestPipeTargetConnect:
 class TestPipeTargetImportMessage:
     """Tests for PipeTarget import_message method."""
 
-    def test_successful_delivery(self) -> None:
-        """Message is piped to the command, normalized to CRLF."""
-        target = PipeTarget('test', 'cat')
+    @pytest.mark.parametrize(
+        ('options', 'expected_output'),
+        [
+            pytest.param({}, b'From: test@example.com\r\nSubject: Test\r\n\r\nBody', id='default-crlf'),
+            pytest.param({'line_endings': 'lf'}, b'From: test@example.com\nSubject: Test\n\nBody', id='lf'),
+        ],
+    )
+    def test_successful_delivery(self, options: dict[str, str], expected_output: bytes) -> None:
+        """Message is piped to the command with the configured line endings.
+
+        CRLF stays the default so existing pipe configs see the same bytes.
+        """
+        target = PipeTarget('test', 'cat', **options)
         raw_message = b'From: test@example.com\nSubject: Test\n\nBody'
-        expected_output = b'From: test@example.com\r\nSubject: Test\r\n\r\nBody'
 
         with patch('subprocess.run') as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=b'', stderr=b'')

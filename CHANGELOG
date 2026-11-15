@@ -7,6 +7,15 @@ v0.8 (unreleased)
 Enhancements
 ~~~~~~~~~~~~
 
+* Pipe targets can send messages with Unix LF line endings instead of CRLF,
+  with ``line_endings = 'lf'``. Local mail tools such as procmail and
+  formail expect LF. With CRLF, headers they add end up with mixed line
+  endings, and header values they extract keep a stray carriage return
+
+  - The default stays ``'crlf'``, so existing pipe targets get the same
+    bytes as before
+  - Any other value is a configuration error
+
 * Gmail targets can get their access token from an external command with
   ``token_command``, such as ``oama access personal``. This replaces the
   Google OAuth client secrets file and the browser login, and lets

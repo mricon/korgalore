@@ -83,30 +83,35 @@ class RawMessage:
                 pass
         return self._message_id
 
-    def as_bytes(self, feed_name: str | None = None, delivery_name: str | None = None) -> bytes:
+    def as_bytes(self, feed_name: str | None = None, delivery_name: str | None = None, *, crlf: bool = True) -> bytes:
         """Return message as binary data suitable for delivery.
 
         Performs any necessary transformations for target delivery:
-        - Normalizes line endings to CRLF as required by RFC 2822/5322
+        - Normalizes line endings to CRLF as required by RFC 2822/5322,
+          or to LF when crlf is False
         - Injects X-Korgalore-Trace header if feed_name and delivery_name provided
 
-        Git stores messages with Unix LF endings, but mail protocols require CRLF.
+        Mail protocols require CRLF, but local tools such as procmail and
+        other MDAs expect native Unix LF, the same as git stores.
 
         Args:
             feed_name: Optional feed name for trace header
             delivery_name: Optional delivery name for trace header
+            crlf: Use CRLF line endings (True) or plain LF (False)
 
         Returns:
             Message bytes ready for delivery to a target.
         """
-        # First normalize to LF, then we'll convert to CRLF at the end
+        # Normalize to LF first, so a message stored with CRLF never comes
+        # out with mixed endings, and the trace header only handles one form
         normalized = self._raw.replace(b'\r\n', b'\n')
 
         # Inject trace header if context is provided
         if feed_name is not None and delivery_name is not None:
             normalized = self._inject_trace_header(normalized, feed_name, delivery_name)
 
-        # Convert to CRLF
+        if not crlf:
+            return normalized
         return normalized.replace(b'\n', b'\r\n')
 
     def _inject_trace_header(self, message: bytes, feed_name: str, delivery_name: str) -> bytes:

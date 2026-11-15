@@ -362,6 +362,22 @@ Labels specified in deliveries are appended as additional command line arguments
 
 This would execute: ``/usr/local/bin/process-mail.sh --list=lkml --priority=high``
 
+By default, the command gets the message with CRLF line endings, the same as
+mail servers get. Local mail tools such as procmail, formail, maildrop and
+``sendmail -t`` expect plain Unix LF line endings, so set ``line_endings`` to
+``'lf'`` for them:
+
+.. code-block:: toml
+
+   [targets.procmail]
+   type = 'pipe'
+   command = '/usr/bin/procmail -m ~/.procmailrc-lists'
+   line_endings = 'lf'
+
+In ``'lf'`` mode, a message stored with CRLF line endings is converted to LF
+too, so the command does not get a mix of both. A carriage return that is not
+part of a line ending is left as it is.
+
 .. warning::
    Ensure the command is trusted and handles email data safely. The raw message
    bytes are piped directly to the command's stdin.
@@ -531,6 +547,8 @@ Pipe Target Parameters
 * ``type``: Must be ``'pipe'``
 * ``command``: Command to pipe messages to (can include arguments). ``$VARS``
   and a leading ``~`` are expanded, but no shell runs it
+* ``line_endings``: (Optional) ``'crlf'`` or ``'lf'`` (default: ``'crlf'``).
+  Use ``'lf'`` for local mail tools such as procmail
 
 Dummy Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~

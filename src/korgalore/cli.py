@@ -311,7 +311,11 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             interactive=interactive,
         )
     elif target_type == 'pipe':
-        service = get_pipe_target(identifier=identifier, command=details.get('command', ''))
+        service = get_pipe_target(
+            identifier=identifier,
+            command=details.get('command', ''),
+            line_endings=details.get('line_endings', 'crlf'),
+        )
     elif target_type == 'dummy':
         service = get_dummy_target(identifier=identifier)
     else:
@@ -465,14 +469,14 @@ def get_imap_target(
     return it
 
 
-def get_pipe_target(identifier: str, command: str) -> PipeTarget:
+def get_pipe_target(identifier: str, command: str, line_endings: str = 'crlf') -> PipeTarget:
     """Create a Pipe target service instance."""
     if not command:
         logger.critical('No command specified for pipe target: %s', identifier)
         raise click.Abort()
 
     try:
-        pt = PipeTarget(identifier=identifier, command=command)
+        pt = PipeTarget(identifier=identifier, command=command, line_endings=line_endings)
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort() from fe
