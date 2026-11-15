@@ -125,34 +125,43 @@ class TestRawMessageTraceHeader:
         assert parsedate_to_datetime(date).tzinfo is not None
 
     @pytest.mark.parametrize(
-        'names',
+        ('feed_name', 'delivery_name'),
         [
-            pytest.param({}, id='no-params'),
-            pytest.param({'feed_name': 'test-feed'}, id='feed-only'),
-            pytest.param({'delivery_name': 'test-delivery'}, id='delivery-only'),
+            pytest.param(None, None, id='no-params'),
+            pytest.param('test-feed', None, id='feed-only'),
+            pytest.param(None, 'test-delivery', id='delivery-only'),
         ],
     )
-    def test_trace_header_not_injected_without_both_params(self, names: dict[str, str]) -> None:
+    def test_trace_header_not_injected_without_both_params(
+        self, feed_name: str | None, delivery_name: str | None
+    ) -> None:
         raw = b'From: test@example.com\nSubject: Test\n\nBody'
 
-        assert b'X-Korgalore-Trace:' not in RawMessage(raw).as_bytes(**names)
+        assert b'X-Korgalore-Trace:' not in RawMessage(raw).as_bytes(feed_name, delivery_name)
 
     @pytest.mark.parametrize(
         'raw',
         [
-            pytest.param(b'From: test@example.com\nSubject: Test\n\nBody content', id='lf'),
-            pytest.param(b'From: test@example.com\r\nSubject: Test\r\n\r\nBody content', id='crlf'),
+            pytest.param(b'From: test@example.com\nSubject: Test\n\nBody content', id='lf-input'),
+            pytest.param(b'From: test@example.com\r\nSubject: Test\r\n\r\nBody content', id='crlf-input'),
         ],
     )
-    def test_trace_header_is_last_header_with_crlf(self, raw: bytes) -> None:
-        """Trace header goes at the end of the headers, before the body, with CRLF throughout."""
-        result = RawMessage(raw).as_bytes(feed_name='feed', delivery_name='delivery')
+    @pytest.mark.parametrize('crlf', [True, False], ids=['crlf-output', 'lf-output'])
+    def test_trace_header_is_last_header_with_uniform_endings(self, raw: bytes, crlf: bool) -> None:
+        """Trace header goes at the end of the headers, before the body, in the requested line endings.
+
+        Both output modes must agree on placement and format, and no line,
+        including the trace header, may end differently from the rest.
+        """
+        result = RawMessage(raw).as_bytes(feed_name='feed', delivery_name='delivery', crlf=crlf)
 
         parsed = email.message_from_bytes(result)
         assert list(parsed.keys()) == ['From', 'Subject', 'X-Korgalore-Trace']
         assert parsed.get_payload() == 'Body content'
-        # All line endings should be CRLF
-        assert result.replace(b'\r\n', b'').find(b'\n') == -1
+        if crlf:
+            assert result.replace(b'\r\n', b'').find(b'\n') == -1
+        else:
+            assert b'\r' not in result
 
     def test_trace_header_message_without_body(self) -> None:
         """Trace header works on message with headers only (no body)."""

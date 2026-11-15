@@ -2,6 +2,7 @@
 
 import logging
 import mailbox
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,7 +10,6 @@ import pytest
 
 from korgalore import ConfigurationError
 from korgalore.maildir_target import MaildirTarget
-from korgalore.message import RawMessage
 
 SIMPLE_MESSAGE = b'From: test@example.com\nSubject: Test\n\nBody'
 
@@ -100,16 +100,31 @@ class TestMaildirTargetImportMessage:
     @pytest.mark.parametrize(
         'raw_message',
         [
+            SIMPLE_MESSAGE,
             b'From: test@example.com\nSubject: Empty\n\n',
             b'From: test@example.com\nContent-Type: application/octet-stream\n\n' + bytes(range(256)),
         ],
-        ids=['empty-body', 'binary-body'],
+        ids=['simple', 'empty-body', 'binary-body'],
     )
-    def test_odd_payloads_round_trip(self, maildir: MaildirTarget, raw_message: bytes) -> None:
+    def test_stored_with_lf_line_endings(self, maildir: MaildirTarget, raw_message: bytes) -> None:
+        """An LF message is stored byte for byte, not converted to CRLF.
+
+        Maildir files use the local Unix convention, and readers such as
+        mutt, notmuch and Dovecot expect LF, and can show a CR left in as
+        a stray character.
+        """
         key = maildir.import_message(raw_message, [])
 
+        assert mailbox.Maildir(str(maildir.maildir_path)).get_bytes(key) == raw_message
+
+    def test_trace_header_stored_with_lf(self, maildir: MaildirTarget) -> None:
+        """The folded trace header uses the same LF line endings as the rest of the file."""
+        key = maildir.import_message(SIMPLE_MESSAGE, [], feed_name='feed', delivery_name='delivery')
+
         stored = mailbox.Maildir(str(maildir.maildir_path)).get_bytes(key)
-        assert stored == RawMessage(raw_message).as_bytes()
+        assert b'X-Korgalore-Trace: from feed=feed for delivery=delivery' in stored
+        assert re.search(rb'X-Korgalore-Trace:[^\n]*\n ', stored)
+        assert b'\r' not in stored
 
     def test_identical_messages_get_unique_keys(self, maildir: MaildirTarget) -> None:
         """Maildir generates unique filenames even for identical messages."""
