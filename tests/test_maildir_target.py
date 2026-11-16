@@ -3,13 +3,16 @@
 import logging
 import mailbox
 import re
+import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from korgalore import ConfigurationError
 from korgalore.maildir_target import MaildirTarget
+from tests.target_helpers import DATED_MESSAGE, RECEIVED_AT, UNDATED_MESSAGE
 
 SIMPLE_MESSAGE = b'From: test@example.com\nSubject: Test\n\nBody'
 
@@ -69,6 +72,10 @@ class TestMaildirTargetInit:
             mock_maildir.side_effect = error
             with pytest.raises(ConfigurationError, match='Failed to initialize maildir'):
                 MaildirTarget('test', str(tmp_path / 'mail'))
+
+    def test_invalid_message_date_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ConfigurationError, match='invalid message_date'):
+            MaildirTarget('test', str(tmp_path / 'mail'), message_date='sender')
 
 
 class TestMaildirTargetConnect:
@@ -141,6 +148,44 @@ class TestMaildirTargetImportMessage:
 
         assert 'Failed to deliver to maildir' in str(exc_info.value)
         assert 'Disk full' in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ('kwargs', 'raw_message', 'subfolder', 'dated'),
+        [
+            ({}, DATED_MESSAGE, None, True),
+            ({}, DATED_MESSAGE, 'Lists/LKML', True),
+            ({'message_date': 'header'}, UNDATED_MESSAGE, None, False),
+            ({'message_date': 'import'}, DATED_MESSAGE, None, False),
+        ],
+        ids=['default-is-header', 'header-in-subfolder', 'header-without-date', 'import'],
+    )
+    def test_file_mtime(
+        self, tmp_path: Path, kwargs: dict[str, Any], raw_message: bytes, subfolder: str | None, dated: bool
+    ) -> None:
+        """Mail readers such as mutt take a maildir message's received time from its file mtime."""
+        target = MaildirTarget('test', str(tmp_path / 'mail'), **kwargs)
+        # Some filesystems store whole seconds only
+        before = int(time.time())
+
+        key = target.import_message(raw_message, [], subfolder=subfolder)
+
+        folder = target.maildir_path if subfolder is None else target.maildir_path / subfolder
+        # Only the stored date may change: rewriting the message would break its DKIM signature
+        assert (folder / 'new' / key).read_bytes() == raw_message
+        mtime = (folder / 'new' / key).stat().st_mtime
+        if dated:
+            assert mtime == RECEIVED_AT.timestamp()
+        else:
+            assert mtime >= before
+
+    def test_failed_mtime_still_delivers(self, maildir: MaildirTarget, caplog: pytest.LogCaptureFixture) -> None:
+        """The message is already in new/, so failing here would make a retry deliver it twice."""
+        with patch('korgalore.maildir_target.os.utime', side_effect=PermissionError('Read-only')):
+            key = maildir.import_message(DATED_MESSAGE, [])
+
+        assert count_new(maildir.maildir_path) == 1
+        assert key in caplog.text
+        assert 'Read-only' in caplog.text
 
 
 class TestMaildirTargetSubfolder:

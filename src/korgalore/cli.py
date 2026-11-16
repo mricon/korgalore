@@ -284,7 +284,11 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             interactive=interactive,
         )
     elif target_type == 'maildir':
-        service = get_maildir_target(identifier=identifier, maildir_path=details.get('path', ''))
+        service = get_maildir_target(
+            identifier=identifier,
+            maildir_path=details.get('path', ''),
+            message_date=details.get('message_date', 'header'),
+        )
     elif target_type == 'jmap':
         service = get_jmap_target(
             identifier=identifier,
@@ -294,6 +298,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             token_file=details.get('token_file', None),
             timeout=details.get('timeout', 60),
             reqsession=get_requests_session(),
+            message_date=details.get('message_date', 'header'),
         )
     elif target_type == 'imap':
         service = get_imap_target(
@@ -309,6 +314,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             tenant=details.get('tenant', 'common'),
             token=details.get('token', None),
             interactive=interactive,
+            message_date=details.get('message_date', 'header'),
         )
     elif target_type == 'pipe':
         service = get_pipe_target(
@@ -349,7 +355,7 @@ def get_gmail_target(
             interactive=interactive,
             config_dir=get_xdg_config_dir(),
         )
-        gt = GmailTarget(identifier=identifier, creds=creds)
+        gt = GmailTarget(identifier=identifier, creds=creds, message_date=details.get('message_date', 'header'))
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort() from fe
@@ -357,14 +363,14 @@ def get_gmail_target(
     return gt
 
 
-def get_maildir_target(identifier: str, maildir_path: str) -> MaildirTarget:
+def get_maildir_target(identifier: str, maildir_path: str, message_date: str = 'header') -> MaildirTarget:
     """Create a Maildir target service instance."""
     if not maildir_path:
         logger.critical('No maildir path specified for target: %s', identifier)
         raise click.Abort()
 
     try:
-        mt = MaildirTarget(identifier=identifier, maildir_path=maildir_path)
+        mt = MaildirTarget(identifier=identifier, maildir_path=maildir_path, message_date=message_date)
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort() from fe
@@ -385,6 +391,7 @@ def get_jmap_target(
     token_file: str | None,
     timeout: int,
     reqsession: requests.Session | None = None,
+    message_date: str = 'header',
 ) -> JmapTarget:
     """Create a JMAP target service instance."""
     if not server:
@@ -409,6 +416,7 @@ def get_jmap_target(
             token_file=token_file,
             timeout=timeout,
             reqsession=reqsession,
+            message_date=message_date,
         )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
@@ -430,6 +438,7 @@ def get_imap_target(
     tenant: str = 'common',
     token: str | None = None,
     interactive: bool = True,
+    message_date: str = 'header',
 ) -> ImapTarget:
     """Create an IMAP target service instance."""
     if not server:
@@ -461,6 +470,7 @@ def get_imap_target(
             tenant=tenant,
             token=token,
             interactive=interactive,
+            message_date=message_date,
         )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))

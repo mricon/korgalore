@@ -717,7 +717,7 @@ requires-dist = [
     { name = "google-auth", specifier = ">=2.0.0" },
     { name = "google-auth-httplib2", specifier = ">=0.1.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.0.0" },
-    { name = "liblore", specifier = ">=0.9.0" },
+    { name = "liblore", specifier = ">=0.10.2" },
     { name = "pygobject", marker = "extra == 'gui'", specifier = ">=3.42.0" },
 ]
 provides-extras = ["gui"]

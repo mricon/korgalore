@@ -44,6 +44,12 @@ It is split like a shell command line, and \fI$VARS\fR and a leading
 \fI~\fR are expanded, but no shell runs it. The bearer token must carry the OAuth scopes required by
 korgalore (\fIhttps://www.googleapis.com/auth/gmail.labels\fR and
 \fIhttps://www.googleapis.com/auth/gmail.insert\fR).
+.TP
+.B message_date
+(Optional) The date that Gmail keeps for each message. \fI'header'\fR
+uses the \fIDate:\fR header, or the time of delivery when that date is in
+the future or at or before 1970. \fI'import'\fR uses the time of delivery.
+Default: \fI'header'\fR.
 .RE
 .PP
 .B Maildir Targets
@@ -55,6 +61,13 @@ Must be \fI'maildir'\fR.
 .B path
 Path to the maildir directory. Created automatically if it doesn't exist.
 Tilde expansion is supported.
+.TP
+.B message_date
+(Optional) The modification time of each message file, which mail
+readers such as mutt use as the received time. \fI'header'\fR uses the
+latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when there is
+none. A date in the future becomes the time of delivery, and a date at or
+before 1970 is ignored. \fI'import'\fR uses the time of delivery. Default: \fI'header'\fR.
 .RE
 .PP
 .B IMAP Targets
@@ -97,6 +110,12 @@ For OAuth2 authentication (Microsoft 365):
 .TP
 .B token
 (Optional) Path to OAuth2 token file.
+.TP
+.B message_date
+(Optional) The date that the server keeps for each message. \fI'header'\fR
+uses the latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when
+there is none. A date in the future becomes the time of delivery, and a date at or
+before 1970 is ignored. \fI'import'\fR uses the time of delivery. Default: \fI'header'\fR.
 .RE
 .PP
 .B JMAP Targets
@@ -120,6 +139,12 @@ must be provided.
 .TP
 .B timeout
 (Optional) Request timeout in seconds. Default: 60.
+.TP
+.B message_date
+(Optional) The date that the server keeps for each message. \fI'header'\fR
+uses the latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when
+there is none. A date in the future becomes the time of delivery, and a date at or
+before 1970 is ignored. \fI'import'\fR uses the time of delivery. Default: \fI'header'\fR.
 .RE
 .PP
 .B Pipe Targets

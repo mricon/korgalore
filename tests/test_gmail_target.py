@@ -2,6 +2,7 @@
 
 import base64
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,11 +14,11 @@ from korgalore.gmail_target import SCOPES, GmailTarget, make_gmail_credentials
 from korgalore.google_creds import CommandCredentials, OAuthFileCredentials
 
 
-def make_target() -> tuple[GmailTarget, MagicMock]:
+def make_target(**kwargs: Any) -> tuple[GmailTarget, MagicMock]:
     """A GmailTarget with valid mock credentials."""
     mock_creds = MagicMock(spec=BaseCredentials)
     mock_creds.valid = True
-    return GmailTarget('test', creds=mock_creds), mock_creds
+    return GmailTarget('test', creds=mock_creds, **kwargs), mock_creds
 
 
 @pytest.fixture
@@ -72,6 +73,10 @@ class TestGmailTargetInit:
     def test_needs_auth(self, creds: MagicMock, expected: bool) -> None:
         """The GUI shows its login button only for credentials that can log in."""
         assert GmailTarget('test', creds=creds).needs_auth is expected
+
+    def test_invalid_message_date_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match='invalid message_date'):
+            make_target(message_date='sender')
 
     def test_reauthenticate_delegates_and_resets_service(self, gmail_labels: tuple[GmailTarget, MagicMock]) -> None:
         """Delegates reauthenticate() to creds and clears cached service state."""
@@ -243,6 +248,35 @@ class TestGmailTargetImportMessage:
         body = import_body(service)
         assert 'raw' in body
         assert body['labelIds'] == ['INBOX', 'UNREAD']
+
+    @pytest.mark.parametrize(
+        ('kwargs', 'date', 'expected'),
+        [
+            ({}, b'Mon, 2 Nov 2026 10:00:00 +0000', 'dateHeader'),
+            ({'message_date': 'header'}, None, 'dateHeader'),
+            ({'message_date': 'header'}, b'Mon, 2 Nov 2099 10:00:00 +0000', 'receivedTime'),
+            ({'message_date': 'header'}, b'Thu, 1 Jan 1970 00:00:00 +0000', 'receivedTime'),
+            ({'message_date': 'import'}, b'Mon, 2 Nov 2026 10:00:00 +0000', 'receivedTime'),
+        ],
+        ids=['default-is-header', 'no-date', 'future-date', 'epoch-date', 'import'],
+    )
+    def test_import_internal_date_source(self, kwargs: dict[str, Any], date: bytes | None, expected: str) -> None:
+        """Gmail takes no timestamp, only a choice between the Date header and import time.
+
+        A Date that the other targets would not use, because it comes from
+        a clock set ahead or reset to zero, gets import time instead.
+        Without a Date, Gmail falls back to import time on its own.
+        """
+        target, _ = make_target(**kwargs)
+        service = MagicMock()
+        target.service = service
+        raw = b'Subject: Test\n\nBody\n' if date is None else b'Date: ' + date + b'\n\nBody\n'
+
+        target.import_message(raw, [])
+
+        assert service.users().messages().import_.call_args[1]['internalDateSource'] == expected
+        # Only the stored date may change: rewriting the message would break its DKIM signature
+        assert base64.urlsafe_b64decode(str(import_body(service)['raw'])) == raw.replace(b'\n', b'\r\n')
 
     @pytest.mark.parametrize(
         ('labels', 'expected_ids'),

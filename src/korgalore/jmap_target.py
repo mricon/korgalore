@@ -1,13 +1,14 @@
 """Service for delivering messages to JMAP-compatible mail servers."""
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import requests
 
 from korgalore import ConfigurationError, RemoteError
-from korgalore.message import RawMessage
+from korgalore.message import RawMessage, use_header_date
 
 logger = logging.getLogger('korgalore')
 
@@ -26,6 +27,7 @@ class JmapTarget:
         token_file: str | None = None,
         timeout: int = 60,
         reqsession: requests.Session | None = None,
+        message_date: str = 'header',
     ) -> None:
         """Initialize JMAP service.
 
@@ -37,6 +39,8 @@ class JmapTarget:
             token_file: Path to file containing bearer token
             timeout: Request timeout in seconds (default: 60)
             reqsession: Optional requests session for HTTP calls
+            message_date: 'header' to give the server the date the message
+                arrived, or 'import' to use the time of delivery
 
         Raises:
             ConfigurationError: If configuration is invalid
@@ -45,6 +49,7 @@ class JmapTarget:
         self.server = server.rstrip('/')
         self.username = username
         self._reqsession = reqsession
+        self.use_header_date = use_header_date(identifier, message_date)
 
         # Load token from file or use provided token
         if token:
@@ -332,6 +337,17 @@ class JmapTarget:
         # Build mailboxIds dict (id -> true)
         mailbox_ids = {mb_id: True for mb_id in mailbox_ids_list}
 
+        email: dict[str, Any] = {
+            'blobId': blob_id,
+            'mailboxIds': mailbox_ids,
+            'keywords': {},  # Can add $seen, $flagged, etc.
+        }
+        # Without receivedAt the server uses the latest Received header, so
+        # import time has to be sent explicitly
+        when = msg.date if self.use_header_date else datetime.now(UTC)
+        if when is not None:
+            email['receivedAt'] = when.strftime('%Y-%m-%dT%H:%M:%SZ')
+
         # Step 5: Import email
         try:
             request_body = {
@@ -341,13 +357,7 @@ class JmapTarget:
                         'Email/import',
                         {
                             'accountId': self.account_id,
-                            'emails': {
-                                'msg1': {
-                                    'blobId': blob_id,
-                                    'mailboxIds': mailbox_ids,
-                                    'keywords': {},  # Can add $seen, $flagged, etc.
-                                }
-                            },
+                            'emails': {'msg1': email},
                         },
                         'call-0',
                     ]

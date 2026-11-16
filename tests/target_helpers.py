@@ -6,6 +6,18 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+# The Date is two minutes before the Received stamp, so a target that ends
+# up with RECEIVED_AT took its date from Received, as liblore prefers.
+DATED_MESSAGE = (
+    b'Received: from mail.example.com by lore.example.org; Mon, 2 Nov 2026 10:00:00 +0000\n'
+    b'Date: Mon, 2 Nov 2026 11:58:00 +0200\n'
+    b'Message-ID: <dated@example.com>\n'
+    b'\n'
+    b'Body\n'
+)
+RECEIVED_AT = datetime(2026, 11, 2, 10, 0, tzinfo=UTC)
+UNDATED_MESSAGE = b'Message-ID: <undated@example.com>\n\nBody\n'
+
 
 def valid_token_file(
     tmp_path: Path,

@@ -11,7 +11,7 @@ import pytest
 from korgalore import ConfigurationError, RemoteError
 from korgalore.imap_target import ImapTarget
 from korgalore.message import RawMessage
-from tests.target_helpers import valid_token_file
+from tests.target_helpers import DATED_MESSAGE, UNDATED_MESSAGE, valid_token_file
 
 SERVER = 'imap.example.com'
 USER = 'user@example.com'
@@ -125,8 +125,9 @@ class TestImapTargetInit:
                 'Password file not found',
             ),
             ({'password': None, 'auth_type': 'invalid'}, 'Invalid auth_type'),
+            ({'message_date': 'sender'}, 'invalid message_date'),
         ],
-        ids=['no-server', 'no-username', 'no-password', 'missing-password-file', 'bad-auth-type'],
+        ids=['no-server', 'no-username', 'no-password', 'missing-password-file', 'bad-auth-type', 'bad-message-date'],
     )
     def test_invalid_config_raises(self, kwargs: dict[str, Any], message: str) -> None:
         with pytest.raises(ConfigurationError, match=message):
@@ -246,6 +247,27 @@ class TestImapTargetImportMessage:
             '',
             RawMessage(raw_message).as_bytes(),
         )
+
+    @pytest.mark.parametrize(
+        ('kwargs', 'raw_message', 'expected'),
+        [
+            ({}, DATED_MESSAGE, '"02-Nov-2026 10:00:00 +0000"'),
+            ({'message_date': 'header'}, UNDATED_MESSAGE, ''),
+            ({'message_date': 'import'}, DATED_MESSAGE, ''),
+        ],
+        ids=['default-is-header', 'header-without-date', 'import'],
+    )
+    def test_import_append_date(
+        self, mock_imap: MagicMock, kwargs: dict[str, Any], raw_message: bytes, expected: str
+    ) -> None:
+        """APPEND carries the message's own date; an empty one lets the server stamp import time."""
+        target = make_target(**kwargs)
+
+        target.import_message(raw_message, [])
+
+        assert mock_imap.append.call_args[0][2] == expected
+        # Only the stored date may change: rewriting the message would break its DKIM signature
+        assert mock_imap.append.call_args[0][3] == raw_message.replace(b'\n', b'\r\n')
 
     @pytest.mark.parametrize(
         ('folder', 'subfolder', 'expected'),

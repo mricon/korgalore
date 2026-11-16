@@ -2,11 +2,12 @@
 
 import logging
 import mailbox
+import os
 from pathlib import Path
 from typing import Any
 
 from korgalore import ConfigurationError
-from korgalore.message import RawMessage
+from korgalore.message import RawMessage, use_header_date
 
 logger = logging.getLogger('korgalore')
 
@@ -16,18 +17,21 @@ class MaildirTarget:
 
     DEFAULT_LABELS: list[str] = []
 
-    def __init__(self, identifier: str, maildir_path: str) -> None:
+    def __init__(self, identifier: str, maildir_path: str, message_date: str = 'header') -> None:
         """Initialize maildir service.
 
         Args:
             identifier: Target identifier for logging
             maildir_path: Path to maildir directory
+            message_date: 'header' to set each file's mtime to the date the
+                message arrived, or 'import' to leave it at delivery time
 
         Raises:
             ConfigurationError: If maildir cannot be accessed
         """
         self.identifier = identifier
         self.maildir_path = Path(maildir_path).expanduser()
+        self.use_header_date = use_header_date(identifier, message_date)
 
         # Cache for subfolder maildirs
         self._subfolder_maildirs: dict[str, mailbox.Maildir] = {}
@@ -104,6 +108,18 @@ class MaildirTarget:
             # Maildir files use local Unix line endings, which mail readers
             # expect; CRLF is only for the wire
             key = target_maildir.add(msg.as_bytes(feed_name, delivery_name, crlf=False))
+            when = msg.date if self.use_header_date else None
+            if when is not None:
+                # Mail readers such as mutt take a maildir message's received
+                # time from the file's mtime
+                folder = self.maildir_path if subfolder is None else self.maildir_path / subfolder
+                path = folder / 'new' / key
+                try:
+                    os.utime(path, (path.stat().st_atime, when.timestamp()))
+                except OSError as e:
+                    # The message is delivered; failing now would make a
+                    # retry deliver it again, which is worse than a wrong date
+                    logger.warning('Could not set the date of maildir message %s: %s', key, e)
             logger.debug('Delivered message to maildir with key: %s', key)
             return key
         except Exception as e:

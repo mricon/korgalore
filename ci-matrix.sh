@@ -21,7 +21,7 @@ set -eu
 # After the interpreter sweep it runs one "floor" lane: the project resolved
 # to the *minimum* versions our metadata allows (uv --resolution
 # lowest-direct), then the suite. This is what catches a dependency floor that
-# is declared but does not actually work -- our `liblore>=0.9.0` and
+# is declared but does not actually work -- our `liblore>=0.10.2` and
 # `click>=8.1.7` bounds are claims about what we support, and every other lane
 # resolves the newest compatible release instead, so nothing else tests them.
 # It runs on the lowest supported interpreter, where the old dependency

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from korgalore import ConfigurationError, RemoteError
-from korgalore.message import RawMessage
+from korgalore.message import RawMessage, use_header_date
 from korgalore.oauth2_imap import DEFAULT_CLIENT_ID, ImapOAuth2Authenticator
 
 logger = logging.getLogger('korgalore')
@@ -31,6 +31,7 @@ class ImapTarget:
         tenant: str = 'common',
         token: str | None = None,
         interactive: bool = True,
+        message_date: str = 'header',
     ) -> None:
         """Initialize IMAP service.
 
@@ -48,6 +49,8 @@ class ImapTarget:
             token: Path to OAuth2 token file (optional, auto-generated if not specified)
             interactive: If True, run OAuth flow interactively when needed.
                         If False, raise AuthenticationError instead (for GUI mode).
+            message_date: 'header' to give the server the date the message
+                arrived, or 'import' to let it use the time of delivery
 
         Raises:
             ConfigurationError: If configuration is invalid
@@ -60,6 +63,7 @@ class ImapTarget:
         self.imap: imaplib.IMAP4_SSL | None = None
         self.auth_type = auth_type
         self._interactive = interactive
+        self.use_header_date = use_header_date(identifier, message_date)
 
         # Validate required configuration
         if not server:
@@ -283,10 +287,16 @@ class ImapTarget:
             logger.debug('Skipping import: message %s already in folder %s', msg.message_id, effective_folder)
             return {'skipped': True}
 
+        # The server sets INTERNALDATE to the time of delivery unless APPEND
+        # gives one, and clients such as the Gmail web interface sort by it
+        date_time = ''
+        when = msg.date if self.use_header_date else None
+        if when is not None:
+            date_time = imaplib.Time2Internaldate(when)
+
         try:
             # Append message to folder
             # flags: empty string = no flags set (message will be unread)
-            # date_time: empty string = use current time (imaplib doesn't accept None)
             try:
                 # imaplib type stubs are incomplete - append returns (str, list[Any])
                 typ, data = cast(
@@ -294,7 +304,7 @@ class ImapTarget:
                     imap.append(
                         effective_folder,
                         '',  # No flags (empty string)
-                        '',  # Use current time (empty string for default)
+                        date_time,
                         msg.as_bytes(feed_name, delivery_name),
                     ),
                 )

@@ -1,11 +1,51 @@
 """Raw email message wrapper with lazy parsing and common operations."""
 
+from datetime import UTC, datetime
 from email.message import EmailMessage
-from email.utils import formatdate
+from email.utils import formatdate, parsedate_to_datetime
 
-from liblore.utils import get_clean_msgid, parse_message, wrap_header
+from liblore.utils import get_clean_msgid, msg_get_date, parse_message, wrap_header
 
-from korgalore import __version__
+from korgalore import ConfigurationError, __version__
+
+MESSAGE_DATES = ('header', 'import')
+
+# Nothing older is a real mail date. The epoch itself is what a clock
+# reset to zero or a placeholder timestamp gives, so it is not usable either.
+EARLIEST_DATE = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def is_plausible_date(when: datetime) -> bool:
+    """Whether a timestamp can be when a message was really sent or received.
+
+    A date in the future comes from a clock set ahead, and a date at or
+    before the Unix epoch from a clock reset to zero.
+    """
+    return EARLIEST_DATE < when <= datetime.now(UTC)
+
+
+def use_header_date(identifier: str, message_date: str) -> bool:
+    """Check a target's message_date option.
+
+    Args:
+        identifier: Target identifier, for the error message
+        message_date: 'header' to date messages from their headers, or
+            'import' to date them by the time of delivery
+
+    Returns:
+        True for 'header', False for 'import'.
+
+    Raises:
+        ConfigurationError: If message_date is unknown
+    """
+    # Reject anything unknown, instead of falling back to the default,
+    # so a typo can't quietly change the dates of every message
+    if message_date not in MESSAGE_DATES:
+        allowed = ', '.join(repr(md) for md in MESSAGE_DATES)
+        raise ConfigurationError(
+            f"Target '{identifier}' has invalid message_date {message_date!r}; allowed values: {allowed}"
+        )
+    return message_date == 'header'
 
 
 class RawMessage:
@@ -82,6 +122,45 @@ class RawMessage:
                 # If parsing fails, leave message_id as None
                 pass
         return self._message_id
+
+    @property
+    def date(self) -> datetime | None:
+        """Return when the message arrived, as an aware UTC datetime.
+
+        Uses the latest Received timestamp and falls back to the Date
+        header. Received comes from the receiving servers, whose clocks
+        are more likely to be right than the clock on the sender's
+        computer. Returns None when neither header has a usable timestamp.
+
+        Any clock can still be wrong, so the result is kept within the
+        bounds of is_plausible_date(). A date in the future becomes the
+        current time, so that a message from a clock set ahead can't stay
+        at the top of the mailbox. A date at or before the Unix epoch
+        counts as no date at all.
+        """
+        when = msg_get_date(self.parsed)
+        if when is None or when <= EARLIEST_DATE:
+            return None
+        return min(when, datetime.now(UTC))
+
+    @property
+    def sent_date(self) -> datetime | None:
+        """Return the Date header as an aware UTC datetime, or None if it is missing or unparsable.
+
+        Gmail dates a message by this header and accepts no timestamp from
+        us, so its target needs the same value Gmail will use.
+        """
+        header = self.parsed.get('Date')
+        if not header:
+            return None
+        try:
+            when = parsedate_to_datetime(str(header))
+        except (TypeError, ValueError):
+            return None
+        # RFC 5322 says a "-0000" zone, which parses as naive, is UTC
+        if when.tzinfo is None:
+            return when.replace(tzinfo=UTC)
+        return when.astimezone(UTC)
 
     def as_bytes(self, feed_name: str | None = None, delivery_name: str | None = None, *, crlf: bool = True) -> bytes:
         """Return message as binary data suitable for delivery.

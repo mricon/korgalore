@@ -1,13 +1,16 @@
 """Tests for RawMessage wrapper class."""
 
 import email
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from unittest.mock import patch
 
 import pytest
 from liblore.utils import get_clean_msgid
 
-from korgalore.message import RawMessage
+from korgalore import ConfigurationError
+from korgalore.message import RawMessage, use_header_date
+from tests.target_helpers import DATED_MESSAGE, RECEIVED_AT, UNDATED_MESSAGE
 
 
 def trace_value(result: bytes) -> str:
@@ -107,6 +110,56 @@ class TestRawMessage:
     )
     def test_as_bytes_line_endings(self, raw: bytes, expected: bytes) -> None:
         assert RawMessage(raw).as_bytes() == expected
+
+    @pytest.mark.parametrize(
+        ('raw', 'expected'),
+        [
+            (DATED_MESSAGE, RECEIVED_AT),
+            (UNDATED_MESSAGE, None),
+            (b'Date: Thu, 1 Jan 1970 00:00:00 +0000\n\nBody\n', None),
+            (b'Date: 1 Jan 100 00:00:00 +0000\n\nBody\n', None),
+        ],
+        ids=['received-wins-over-date', 'undated', 'zero-timestamp', 'before-email-existed'],
+    )
+    def test_date(self, raw: bytes, expected: datetime | None) -> None:
+        """Targets get the date liblore picks: the server's Received stamp before the sender's Date.
+
+        A date at or before the Unix epoch comes from a clock reset to
+        zero, so it counts as no date at all.
+        """
+        assert RawMessage(raw).date == expected
+
+    @pytest.mark.parametrize(
+        'headers',
+        [
+            b'Date: Mon, 2 Nov 2099 10:00:00 +0000\n',
+            b'Received: by lore.example.org; Mon, 2 Nov 2026 10:00:00 +0000\n'
+            b'Received: by mail.example.com; Mon, 2 Nov 2099 10:00:00 +0000\n',
+        ],
+        ids=['future-date', 'future-received'],
+    )
+    def test_date_is_never_in_the_future(self, headers: bytes) -> None:
+        """A clock set ahead would otherwise pin the message to the top of the mailbox."""
+        before = datetime.now(UTC)
+        date = RawMessage(headers + b'\nBody\n').date
+        after = datetime.now(UTC)
+
+        assert date is not None
+        assert before <= date <= after
+
+
+class TestUseHeaderDate:
+    """Tests for the message_date target option."""
+
+    @pytest.mark.parametrize(('value', 'expected'), [('header', True), ('import', False)])
+    def test_valid_values(self, value: str, expected: bool) -> None:
+        assert use_header_date('test', value) is expected
+
+    @pytest.mark.parametrize('value', ['Header', 'received', ''])
+    def test_unknown_value_raises(self, value: str) -> None:
+        """A typo is an error, so it can't quietly change the dates every message gets."""
+        with pytest.raises(ConfigurationError, match=f"Target 'test' has invalid message_date {value!r}"):
+            use_header_date('test', value)
 
 
 class TestRawMessageTraceHeader:

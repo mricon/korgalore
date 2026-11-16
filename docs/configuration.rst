@@ -438,12 +438,16 @@ Gmail Target Parameters
   leading ``~`` are expanded, but no shell runs it. The bearer token returned by the command must carry the OAuth
   scopes required by korgalore (``https://www.googleapis.com/auth/gmail.labels``
   and ``https://www.googleapis.com/auth/gmail.insert``).
+* ``message_date``: (Optional) ``'header'`` or ``'import'`` (default:
+  ``'header'``). See `Message Dates`_
 
 Maildir Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 * ``type``: Must be ``'maildir'``
 * ``path``: Path to the maildir directory (will be created if it doesn't exist)
+* ``message_date``: (Optional) ``'header'`` or ``'import'`` (default:
+  ``'header'``). See `Message Dates`_
 
 Maildir deliveries also support the ``subfolder`` delivery parameter, which
 creates subdirectories under the base path. Subfolders can use strftime format
@@ -507,6 +511,8 @@ JMAP Target Parameters
 * ``token``: Bearer token provided inline (less secure)
 * ``token_file``: Path to file containing bearer token
 * ``timeout``: (Optional) Request timeout in seconds (default: ``60``)
+* ``message_date``: (Optional) ``'header'`` or ``'import'`` (default:
+  ``'header'``). See `Message Dates`_
 
 .. important::
    Either ``token`` or ``token_file`` must be provided.
@@ -520,6 +526,8 @@ IMAP Target Parameters
 * ``folder``: Target folder for delivery (default: ``'INBOX'``)
 * ``auth_type``: (Optional) Authentication type - ``'password'`` (default) or ``'oauth2'``
 * ``timeout``: (Optional) Connection timeout in seconds (default: ``60``)
+* ``message_date``: (Optional) ``'header'`` or ``'import'`` (default:
+  ``'header'``). See `Message Dates`_
 
 **For password authentication** (``auth_type = 'password'`` or omitted):
 
@@ -554,6 +562,48 @@ Dummy Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 * ``type``: Must be ``'dummy'``
+
+Message Dates
+~~~~~~~~~~~~~
+
+Mail servers keep their own date for each message, apart from the ``Date:``
+header. Gmail, Fastmail and many other mail clients sort by this date. The
+``message_date`` option sets it for Gmail, JMAP, IMAP and maildir targets:
+
+* ``'header'`` (default): the date the message arrived on the list. This is
+  the latest timestamp in the ``Received:`` headers, which the mail servers
+  add. When a message has none, the ``Date:`` header is used. An old thread
+  that you ``yank`` shows up next to the other mail from that time.
+* ``'import'``: the time korgalore delivers the message. A thread that you
+  ``yank`` shows up at the top of your mailbox, as if it had just arrived.
+
+``Received:`` comes before ``Date:`` because it is likely to be more
+accurate. Mail servers add ``Received:``, and their clocks are usually kept in
+sync. The sender's own computer sets ``Date:``, and its clock can be wrong by
+minutes, hours or even years.
+
+Any clock can still be wrong, so korgalore checks the date first:
+
+* A date in the future comes from a clock set ahead. It is replaced with the
+  time of delivery, so that the message can't stay at the top of your
+  mailbox.
+* A date at or before 1 January 1970 comes from a clock reset to zero. It is
+  ignored, and the message is treated as if it had no date.
+
+Gmail only accepts a choice between the ``Date:`` header and import time, so
+in ``'header'`` mode a Gmail target uses ``Date:``, not ``Received:``. When
+``Date:`` fails the checks above, it uses import time instead. In a
+maildir target, the date is the modification time of the message file. Mail
+readers such as mutt use it as the received time.
+
+.. code-block:: toml
+
+   [targets.fastmail]
+   type = 'jmap'
+   server = 'https://api.fastmail.com'
+   username = 'user@fastmail.com'
+   token_file = '~/.config/korgalore/fastmail-token.txt'
+   message_date = 'import'
 
 Feeds
 -----

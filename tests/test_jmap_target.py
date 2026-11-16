@@ -1,6 +1,7 @@
 """Tests for JmapTarget message delivery."""
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,7 @@ import requests
 from korgalore import ConfigurationError, RemoteError
 from korgalore.jmap_target import JmapTarget
 from korgalore.message import RawMessage
+from tests.target_helpers import DATED_MESSAGE, UNDATED_MESSAGE
 
 SERVER = 'https://api.example.com'
 
@@ -85,15 +87,19 @@ def mock_post() -> Iterator[MagicMock]:
         yield post
 
 
-@pytest.fixture
-def jmap() -> JmapTarget:
+def make_connected(**kwargs: Any) -> JmapTarget:
     """A target with session state pre-populated, as after connect()."""
-    target = make_target()
+    target = make_target(**kwargs)
     target.session = SAMPLE_SESSION
     target.account_id = 'acc-123'
     target.api_url = 'https://api.example.com/jmap/api/'
     target.upload_url = 'https://api.example.com/jmap/upload/acc-123/'
     return target
+
+
+@pytest.fixture
+def jmap() -> JmapTarget:
+    return make_connected()
 
 
 @pytest.fixture
@@ -157,8 +163,9 @@ class TestJmapTargetInit:
         [
             ({'token': None}, 'No token or token_file specified'),
             ({'token': None, 'token_file': '/nonexistent/path/token.txt'}, 'Token file not found'),
+            ({'message_date': 'sender'}, 'invalid message_date'),
         ],
-        ids=['no-token', 'missing-token-file'],
+        ids=['no-token', 'missing-token-file', 'bad-message-date'],
     )
     def test_invalid_config_raises(self, kwargs: dict[str, Any], message: str) -> None:
         with pytest.raises(ConfigurationError, match=message):
@@ -337,6 +344,44 @@ class TestJmapTargetImportMessage:
 
         request_body = mock_post.call_args_list[1][1]['json']
         assert request_body['methodCalls'][0][1]['emails']['msg1']['mailboxIds'] == expected_ids
+
+    @pytest.mark.parametrize(
+        ('kwargs', 'raw_message', 'expected'),
+        [
+            ({}, DATED_MESSAGE, '2026-11-02T10:00:00Z'),
+            ({'message_date': 'header'}, UNDATED_MESSAGE, None),
+        ],
+        ids=['default-is-header', 'header-without-date'],
+    )
+    def test_import_received_at(
+        self, mock_post: MagicMock, kwargs: dict[str, Any], raw_message: bytes, expected: str | None
+    ) -> None:
+        """receivedAt is the message's own date, or left to the server when the message has none."""
+        target = make_connected(**kwargs)
+        target._mailbox_map = dict(MAILBOX_MAP)
+        mock_post.side_effect = [query_response([]), upload_response(), created()]
+
+        target.import_message(raw_message, ['inbox'])
+
+        email = mock_post.call_args[1]['json']['methodCalls'][0][1]['emails']['msg1']
+        assert email.get('receivedAt') == expected
+        # Only the stored date may change: rewriting the message would break its DKIM signature
+        assert mock_post.call_args_list[1][1]['data'] == raw_message.replace(b'\n', b'\r\n')
+
+    def test_import_received_at_import_time(self, mock_post: MagicMock) -> None:
+        """Import mode must send the time explicitly: a missing receivedAt means the latest Received."""
+        target = make_connected(message_date='import')
+        target._mailbox_map = dict(MAILBOX_MAP)
+        mock_post.side_effect = [query_response([]), upload_response(), created()]
+
+        # receivedAt has whole seconds, so compare against whole seconds
+        before = datetime.now(UTC).replace(microsecond=0)
+        target.import_message(DATED_MESSAGE, ['inbox'])
+        after = datetime.now(UTC)
+
+        email = mock_post.call_args[1]['json']['methodCalls'][0][1]['emails']['msg1']
+        received_at = datetime.strptime(email['receivedAt'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=UTC)
+        assert before <= received_at <= after
 
     def test_import_already_exists(self, jmap_mailboxes: JmapTarget, mock_post: MagicMock) -> None:
         mock_post.side_effect = [

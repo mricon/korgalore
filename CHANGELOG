@@ -7,6 +7,26 @@ v0.8 (unreleased)
 Enhancements
 ~~~~~~~~~~~~
 
+* IMAP and maildir targets now keep the date when a message reached the
+  list, instead of the time korgalore delivered it. Before, an old thread
+  that you yanked looked new in clients that sort by the server's date,
+  such as the Gmail web interface, and replies quoted today's date
+
+  - The date is the latest ``Received:`` timestamp, or the ``Date:``
+    header when there is none. ``Received:`` comes first, because mail
+    servers set it from clocks that are usually in sync, while the
+    sender's computer sets ``Date:`` from a clock that may be wrong
+  - A date in the future comes from a clock set ahead, so it is replaced
+    with the time of delivery. A date at or before 1970 comes from a clock
+    reset to zero, so it is ignored
+  - The new ``message_date`` target option chooses between this
+    (``'header'``, the default) and the time of delivery (``'import'``),
+    for Gmail, JMAP, IMAP and maildir targets
+  - JMAP targets already used ``Received:`` and Gmail targets already
+    used ``Date:``. For them, only these checks and
+    ``message_date = 'import'`` are new
+  - Requires liblore 0.10.2
+
 * Pipe targets can send messages with Unix LF line endings instead of CRLF,
   with ``line_endings = 'lf'``. Local mail tools such as procmail and
   formail expect LF. With CRLF, headers they add end up with mixed line

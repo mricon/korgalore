@@ -11,7 +11,7 @@ from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
 
 from korgalore import AuthenticationError, ConfigurationError, RemoteError
 from korgalore.google_creds import CommandCredentials, OAuthFileCredentials, parse_token_command
-from korgalore.message import RawMessage
+from korgalore.message import RawMessage, is_plausible_date, use_header_date
 
 logger = logging.getLogger('korgalore')
 
@@ -29,15 +29,18 @@ class GmailTarget:
 
     DEFAULT_LABELS: list[str] = ['INBOX', 'UNREAD']
 
-    def __init__(self, identifier: str, creds: BaseCredentials) -> None:
+    def __init__(self, identifier: str, creds: BaseCredentials, message_date: str = 'header') -> None:
         """Initialize a GmailTarget instance.
 
         Args:
             identifier: Unique identifier for this Gmail target.
             creds: Google API credentials instance.
+            message_date: 'header' to date messages by their Date header, or
+                'import' to use the time of delivery.
         """
         self.identifier = identifier
         self.creds = creds
+        self.use_header_date = use_header_date(identifier, message_date)
         self.service: Resource | None = None
         self._label_map: dict[str, str] | None = None
 
@@ -156,12 +159,33 @@ class GmailTarget:
                 message_body['labelIds'] = label_ids
 
             # Upload the message
-            result = self._api().users().messages().import_(userId='me', body=message_body).execute()
+            result = (
+                self._api()
+                .users()
+                .messages()
+                .import_(userId='me', body=message_body, internalDateSource=self._internal_date_source(msg))
+                .execute()
+            )
 
             return result
 
         except HttpError as error:
             raise RemoteError(f'An error occurred: {error}') from error
+
+    def _internal_date_source(self, msg: RawMessage) -> str:
+        """Choose how Gmail dates the message.
+
+        Gmail takes no timestamp, only a choice between the Date header and
+        import time, so it can't get the Received date the other targets
+        get. The most we can do is refuse a Date the other targets would not
+        use either. Without a Date, Gmail uses import time on its own.
+        """
+        if not self.use_header_date:
+            return 'receivedTime'
+        sent = msg.sent_date
+        if sent is not None and not is_plausible_date(sent):
+            return 'receivedTime'
+        return 'dateHeader'
 
     def reauthenticate(self) -> None:
         """Perform OAuth re-authentication flow.
