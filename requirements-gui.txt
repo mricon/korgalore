@@ -392,9 +392,9 @@ idna==3.20 \
     --hash=sha256:a7db850025b95ded1eae8a46181a1a6c56c92c96f0e2b005d9ff8dc0210cab44 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
     # via requests
-liblore==0.10.1 \
-    --hash=sha256:37e6d756d810c78351179c1a348361ef2966c1649711c1350ae7217e5497f248 \
-    --hash=sha256:847ed8b2551c5562e8ae4d0fae51ae7558f84638b2424b417a546ba77a3726cf
+liblore==0.10.2 \
+    --hash=sha256:33188d75228f78b8201232c5389c7c59fb5702df3cff1f4d6e2755790ad7ea66 \
+    --hash=sha256:4c7529c22fd205d6a1078b4b60d51b6d58faeb0aafdbe91535ce0243174b5f53
     # via korgalore (pyproject.toml)
 oauthlib==4.0.1 \
     --hash=sha256:3d73febdb6faa00f277c81fb04be7b7586fb96fc3b7f0b9c772dada69a25ede7 \
