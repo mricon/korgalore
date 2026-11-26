@@ -143,10 +143,12 @@ class RawMessage:
 
         Any clock can still be wrong, so the result is kept within the
         bounds of is_plausible_date(). In 'date' mode, a Date outside
-        them is skipped in favour of Received. Otherwise a date in the
-        future becomes the current time, so that a message from a clock
-        set ahead can't stay at the top of the mailbox, and a date at or
-        before the Unix epoch counts as no date at all.
+        them is skipped in favour of Received. In 'received' mode, a
+        Received stamp at or before the Unix epoch is skipped in favour
+        of Date. Otherwise a date in the future becomes the current
+        time, so that a message from a clock set ahead can't stay at the
+        top of the mailbox, and a date at or before the Unix epoch counts
+        as no date at all.
         """
         if message_date == 'import':
             return None
@@ -154,8 +156,12 @@ class RawMessage:
             sent = self.sent_date
             if sent is not None and is_plausible_date(sent):
                 return sent
-        # liblore prefers Received and falls back to Date
+        # liblore returns a Received stamp from a clock reset to zero
+        # instead of falling back to Date, so skip it here the same way
+        # 'date' mode skips an implausible Date.
         when = msg_get_date(self.parsed)
+        if message_date == 'received' and when is not None and when <= EARLIEST_DATE:
+            when = self.sent_date
         if when is None or when <= EARLIEST_DATE:
             return None
         return min(when, datetime.now(UTC))

@@ -160,6 +160,17 @@ class TestRawMessage:
 
         assert RawMessage(raw).delivery_date('date') == RECEIVED_AT
 
+    @pytest.mark.parametrize(
+        'received',
+        [b'Thu, 1 Jan 1970 00:00:00 +0000', b'Wed, 31 Dec 1969 23:59:59 +0000'],
+        ids=['epoch', 'before-epoch'],
+    )
+    def test_unusable_received_falls_back_to_date(self, received: bytes) -> None:
+        """A Received stamp from a clock reset to zero must not hide a usable Date."""
+        raw = b'Received: by mx.example.org; ' + received + b'\n' + SENT_ONLY
+
+        assert RawMessage(raw).delivery_date('received') == SENT_AT
+
     @pytest.mark.parametrize('message_date', ['date', 'received'])
     @pytest.mark.parametrize(
         'raw',
@@ -181,7 +192,8 @@ class TestRawMessage:
             (
                 'received',
                 b'Received: by lore.example.org; Mon, 2 Nov 2026 10:00:00 +0000\n'
-                b'Received: by mail.example.com; Mon, 2 Nov 2099 10:00:00 +0000\n',
+                b'Received: by mail.example.com; Mon, 2 Nov 2099 10:00:00 +0000\n'
+                b'Date: Mon, 2 Nov 2026 09:58:00 +0000\n',
             ),
         ],
         ids=['date-future-date', 'received-future-date', 'received-future-received'],

@@ -579,10 +579,10 @@ header. Gmail, Fastmail and many other mail clients sort by this date. The
   ``Date:`` one second apart.
 * ``'received'``: the date the message arrived on the list. This is the
   latest timestamp in the ``Received:`` headers, which the mail servers
-  add. When a message has none, the ``Date:`` header is used. Mail servers
-  usually keep their clocks in sync, while the sender's computer can be
-  wrong by minutes, hours or even years. But delivery delays can mix up
-  the order of the patches in a series.
+  add. When a message has none, or only ones at or before 1970, the
+  ``Date:`` header is used. Mail servers usually keep their clocks in sync,
+  while the sender's computer can be wrong by minutes, hours or even years.
+  But delivery delays can mix up the order of the patches in a series.
 * ``'import'``: the time korgalore delivers the message. A thread that you
   ``yank`` shows up at the top of your mailbox, as if it had just arrived.
 
@@ -597,8 +597,10 @@ Any clock can still be wrong, so korgalore checks the date first:
   korgalore uses ``Received:`` instead when the message has one. In all
   other cases, the date is replaced with the time of delivery, so that the
   message can't stay at the top of your mailbox.
-* A date at or before 1 January 1970 comes from a clock reset to zero. It is
-  ignored, and the message is treated as if it had no date.
+* A date at or before 1 January 1970 comes from a clock reset to zero. In
+  ``'received'`` mode, korgalore uses ``Date:`` instead. In all other
+  cases, the date is ignored, and the message is treated as if it had no
+  date.
 
 Gmail only accepts a choice between the ``Date:`` header and import time, so
 in both ``'date'`` and ``'received'`` modes a Gmail target uses ``Date:``.

@@ -329,9 +329,9 @@ header is missing, in the future, or at or before 1970. Patches in a series
 keep the order their author gave them. This is the default.
 .TP
 .B 'received'
-The latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when there
-is none. A date in the future becomes the time of delivery, and a date at
-or before 1970 is ignored.
+The latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when none
+is later than 1970. A date in the future becomes the time of delivery,
+and a date at or before 1970 is ignored.
 .TP
 .B 'import'
 The time of delivery.
