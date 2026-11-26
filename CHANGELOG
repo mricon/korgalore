@@ -66,39 +66,6 @@ Enhancements
 Bug Fixes
 ~~~~~~~~~
 
-* Maildir targets now store messages with Unix LF line endings instead of
-  CRLF. Mail readers such as mutt, notmuch and Dovecot expect LF in
-  maildir files. Messages that were already delivered are not changed
-
-* A crash or power loss while korgalore writes its state no longer breaks
-  later pulls. Before, a damaged file stopped the whole pull, including
-  all the healthy feeds
-
-  - State files are synced to disk before they are renamed into place,
-    so a crash can no longer leave an empty file behind
-  - A damaged ``korgalore.feed`` is rebuilt from the local epochs, and the
-    pull still fetches new mail
-  - A damaged ``epochs.json`` is treated as missing and fetched again. It
-    is now written atomically too
-  - A damaged delivery state file is removed, and the delivery starts
-    again at the top of the feed. Mail that arrived since its last run
-    can be skipped, so korgalore warns about it
-  - Damaged lines in the list of failed deliveries are dropped; the other
-    messages are still retried
-
-* After a failed fetch or clone of a lore feed, the next pull fetches
-  again. Before, the manifest was recorded before the fetch ran, so new
-  mail could wait until the list got another message, which can take
-  days on a quiet list
-
-* OAuth token files for Gmail and IMAP (Microsoft 365) are now created
-  with mode 0600 and written atomically
-
-  - Before, other local users could read them for a moment after they
-    were written
-  - A crash during the write left a truncated token, and only a new
-    browser login could replace it
-
 * ``kgl auth`` and ``kgl yank`` print an error instead of a traceback when
   a target cannot connect
 
@@ -129,6 +96,57 @@ Development
 * Update the locked dependencies, including liblore 0.10.2, oauthlib 4
   and pytest 9.2, and move the ``liblore`` submodule to v0.10.2. The
   minimum versions in ``pyproject.toml`` are unchanged
+
+v0.7.1 (2026-11-26)
+-------------------
+
+Bug Fixes
+~~~~~~~~~
+
+* OAuth token files for Gmail and IMAP (Microsoft 365) are now created
+  with mode 0600 and written atomically
+
+  - Before, the Gmail token was created with the permissions from the
+    umask, which is usually 0644, so other local users could read the
+    refresh token. The IMAP token was made 0600, but only after it was
+    written, so other users could read it for a moment
+  - A crash during the write left a truncated token, and only a new
+    browser login could replace it
+  - An existing Gmail token file keeps its permissions until korgalore
+    next refreshes the token, which is usually within an hour. To fix it
+    now, run ``chmod 600`` on it. The default is
+    ``~/.config/korgalore/gmail-NAME-token.json``
+
+* A crash or power loss while korgalore writes its state no longer breaks
+  later pulls. Before, a damaged file stopped the whole pull, including
+  all the healthy feeds
+
+  - State files are synced to disk before they are renamed into place,
+    so a crash can no longer leave an empty file behind
+  - A damaged ``korgalore.feed`` is rebuilt from the local epochs, and the
+    pull still fetches new mail
+  - A damaged ``epochs.json`` is treated as missing and fetched again. It
+    is now written atomically too
+  - A damaged delivery state file is removed, and the delivery starts
+    again at the top of the feed. Mail that arrived since its last run
+    can be skipped, so korgalore warns about it
+  - Damaged lines in the list of failed deliveries are dropped; the other
+    messages are still retried
+
+* After a failed fetch or clone of a lore feed, the next pull fetches
+  again. Before, the manifest was recorded before the fetch ran, so new
+  mail could wait until the list got another message, which can take
+  days on a quiet list
+
+* Maildir targets now store messages with Unix LF line endings instead of
+  CRLF. Mail readers such as mutt, notmuch and Dovecot expect LF in
+  maildir files. Messages that were already delivered are not changed
+
+Development
+~~~~~~~~~~~
+
+* Make the module-scoped digest render fixtures plain functions. pytest
+  9.2 deprecates them as instance methods, and pytest 10 will remove them
 
 v0.7.0 (2026-10-06)
 -------------------
