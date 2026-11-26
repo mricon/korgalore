@@ -5,6 +5,8 @@ type = 'gmail'
 credentials = '/path/to/personal-credentials.json'
 # Alternatively, obtain tokens from an external command:
 # token_command = 'oama access personal'
+# Prevent Gmail from marking imported messages as spam (default: false):
+# never_mark_spam = true
 
 [targets.work]
 type = 'gmail'

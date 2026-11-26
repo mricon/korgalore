@@ -29,7 +29,13 @@ class GmailTarget:
 
     DEFAULT_LABELS: list[str] = ['INBOX', 'UNREAD']
 
-    def __init__(self, identifier: str, creds: BaseCredentials, message_date: str = 'header') -> None:
+    def __init__(
+        self,
+        identifier: str,
+        creds: BaseCredentials,
+        message_date: str = 'header',
+        never_mark_spam: bool = False,
+    ) -> None:
         """Initialize a GmailTarget instance.
 
         Args:
@@ -37,10 +43,20 @@ class GmailTarget:
             creds: Google API credentials instance.
             message_date: 'header' to date messages by their Date header, or
                 'import' to use the time of delivery.
+            never_mark_spam: True to stop Gmail from filing imported messages
+                under Spam.
+
+        Raises:
+            ConfigurationError: If an option has the wrong value.
         """
         self.identifier = identifier
         self.creds = creds
         self.use_header_date = use_header_date(identifier, message_date)
+        # A quoted 'false' in the TOML file would be truthy, so insist on a
+        # real boolean instead of guessing what the user meant
+        if not isinstance(never_mark_spam, bool):
+            raise ConfigurationError(f"Gmail target '{identifier}': 'never_mark_spam' must be a boolean.")
+        self.never_mark_spam = never_mark_spam
         self.service: Resource | None = None
         self._label_map: dict[str, str] | None = None
 
@@ -163,7 +179,12 @@ class GmailTarget:
                 self._api()
                 .users()
                 .messages()
-                .import_(userId='me', body=message_body, internalDateSource=self._internal_date_source(msg))
+                .import_(
+                    userId='me',
+                    body=message_body,
+                    internalDateSource=self._internal_date_source(msg),
+                    neverMarkSpam=self.never_mark_spam,
+                )
                 .execute()
             )
 

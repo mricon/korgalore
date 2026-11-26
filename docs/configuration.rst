@@ -440,6 +440,8 @@ Gmail Target Parameters
   and ``https://www.googleapis.com/auth/gmail.insert``).
 * ``message_date``: (Optional) ``'header'`` or ``'import'`` (default:
   ``'header'``). See `Message Dates`_
+* ``never_mark_spam``: (Optional) Set to ``true`` to stop Gmail from putting
+  imported messages in Spam (default: ``false``).
 
 Maildir Target Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

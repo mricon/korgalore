@@ -355,7 +355,12 @@ def get_gmail_target(
             interactive=interactive,
             config_dir=get_xdg_config_dir(),
         )
-        gt = GmailTarget(identifier=identifier, creds=creds, message_date=details.get('message_date', 'header'))
+        gt = GmailTarget(
+            identifier=identifier,
+            creds=creds,
+            message_date=details.get('message_date', 'header'),
+            never_mark_spam=details.get('never_mark_spam', False),
+        )
     except ConfigurationError as fe:
         logger.critical('Error: %s', str(fe))
         raise click.Abort() from fe

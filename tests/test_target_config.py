@@ -19,25 +19,25 @@ TARGET_SETTINGS: dict[str, dict[str, Any]] = {
 }
 
 
-@pytest.fixture(params=sorted(TARGET_SETTINGS))
-def build(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
-    """Build a target of each type from config settings, without touching the network or the home directory."""
-    target_type: str = request.param
+def build_target(tmp_path: Path, target_type: str, extra: dict[str, Any]) -> Any:
+    """Build a target from config settings, without touching the network or the home directory."""
     settings = dict(TARGET_SETTINGS[target_type])
     if 'path' in settings:
         settings['path'] = str(tmp_path / settings['path'])
+    config = {'targets': {'test': {'type': target_type, **settings, **extra}}}
+    creds = MagicMock(spec=BaseCredentials)
+    creds.valid = True
+    with (
+        patch('korgalore.cli.make_gmail_credentials', return_value=creds),
+        patch('korgalore.cli.get_xdg_config_dir', return_value=tmp_path),
+    ):
+        return get_target(make_ctx({'config': config, 'targets': {}}), 'test')
 
-    def _build(extra: dict[str, Any]) -> Any:
-        config = {'targets': {'test': {'type': target_type, **settings, **extra}}}
-        creds = MagicMock(spec=BaseCredentials)
-        creds.valid = True
-        with (
-            patch('korgalore.cli.make_gmail_credentials', return_value=creds),
-            patch('korgalore.cli.get_xdg_config_dir', return_value=tmp_path),
-        ):
-            return get_target(make_ctx({'config': config, 'targets': {}}), 'test')
 
-    return _build
+@pytest.fixture(params=sorted(TARGET_SETTINGS))
+def build(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
+    """Build a target of each type."""
+    return lambda extra: build_target(tmp_path, request.param, extra)
 
 
 class TestMessageDateFromConfig:
@@ -62,3 +62,18 @@ class TestMessageDateFromConfig:
         """A wrong value stops the command instead of delivering with a guess."""
         with pytest.raises(click.Abort):
             build({'message_date': 'sender'})
+
+
+class TestNeverMarkSpamFromConfig:
+    """Tests for the never_mark_spam key of Gmail targets."""
+
+    @pytest.mark.parametrize(
+        ('settings', 'expected'),
+        [({}, False), ({'never_mark_spam': True}, True)],
+        ids=['default', 'enabled'],
+    )
+    def test_never_mark_spam_setting_reaches_the_target(
+        self, tmp_path: Path, settings: dict[str, Any], expected: bool
+    ) -> None:
+        """Without this, the option could be documented and validated but never read."""
+        assert build_target(tmp_path, 'gmail', settings).never_mark_spam is expected

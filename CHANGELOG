@@ -53,6 +53,14 @@ Enhancements
   - These commands still run without a shell. The pipe target docs showed
     a redirect, which cannot work that way; they now show ``sh -c``
 
+* Gmail targets can stop Gmail from filing imported messages under Spam,
+  with ``never_mark_spam = true``. Gmail runs its spam filter on imported
+  mail, so patches and list messages could end up in Spam instead of
+  under the configured labels
+
+  - The default stays ``false``, so Gmail still filters spam as before
+  - The value must be a boolean, so ``'true'`` in quotes is an error
+
 Bug Fixes
 ~~~~~~~~~
 

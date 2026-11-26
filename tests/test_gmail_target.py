@@ -78,6 +78,16 @@ class TestGmailTargetInit:
         with pytest.raises(ConfigurationError, match='invalid message_date'):
             make_target(message_date='sender')
 
+    @pytest.mark.parametrize('value', ['true', 1], ids=['str', 'int'])
+    def test_invalid_never_mark_spam_raises(self, value: Any) -> None:
+        """Only a real TOML boolean is accepted.
+
+        A quoted 'false' is truthy in Python, so accepting strings would
+        turn the option on when the user meant to turn it off.
+        """
+        with pytest.raises(ConfigurationError, match="'never_mark_spam' must be a boolean"):
+            make_target(never_mark_spam=value)
+
     def test_reauthenticate_delegates_and_resets_service(self, gmail_labels: tuple[GmailTarget, MagicMock]) -> None:
         """Delegates reauthenticate() to creds and clears cached service state."""
         target, _ = gmail_labels
@@ -277,6 +287,21 @@ class TestGmailTargetImportMessage:
         assert service.users().messages().import_.call_args[1]['internalDateSource'] == expected
         # Only the stored date may change: rewriting the message would break its DKIM signature
         assert base64.urlsafe_b64decode(str(import_body(service)['raw'])) == raw.replace(b'\n', b'\r\n')
+
+    @pytest.mark.parametrize(
+        ('kwargs', 'expected'),
+        [({}, False), ({'never_mark_spam': True}, True)],
+        ids=['default', 'enabled'],
+    )
+    def test_import_never_mark_spam(self, kwargs: dict[str, Any], expected: bool) -> None:
+        """Without neverMarkSpam, Gmail may file imported list mail under Spam."""
+        target, _ = make_target(**kwargs)
+        service = MagicMock()
+        target.service = service
+
+        target.import_message(b'Subject: Test\n\nBody\n', [])
+
+        assert service.users().messages().import_.call_args[1]['neverMarkSpam'] is expected
 
     @pytest.mark.parametrize(
         ('labels', 'expected_ids'),

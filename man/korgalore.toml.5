@@ -50,6 +50,10 @@ korgalore (\fIhttps://www.googleapis.com/auth/gmail.labels\fR and
 uses the \fIDate:\fR header, or the time of delivery when that date is in
 the future or at or before 1970. \fI'import'\fR uses the time of delivery.
 Default: \fI'header'\fR.
+.TP
+.B never_mark_spam
+(Optional) Set to \fItrue\fR to stop Gmail from putting imported messages
+in Spam. Default: \fIfalse\fR.
 .RE
 .PP
 .B Maildir Targets
