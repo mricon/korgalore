@@ -34,7 +34,7 @@ class GmailTarget:
         identifier: str,
         creds: BaseCredentials,
         message_date: str = 'header',
-        never_mark_spam: bool = False,
+        never_mark_spam: object = False,
     ) -> None:
         """Initialize a GmailTarget instance.
 
@@ -44,7 +44,8 @@ class GmailTarget:
             message_date: 'header' to date messages by their Date header, or
                 'import' to use the time of delivery.
             never_mark_spam: True to stop Gmail from filing imported messages
-                under Spam.
+                under Spam. Typed as object because it comes straight from
+                the config file and is checked here.
 
         Raises:
             ConfigurationError: If an option has the wrong value.
