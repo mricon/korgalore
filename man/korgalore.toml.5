@@ -46,10 +46,11 @@ korgalore (\fIhttps://www.googleapis.com/auth/gmail.labels\fR and
 \fIhttps://www.googleapis.com/auth/gmail.insert\fR).
 .TP
 .B message_date
-(Optional) The date that Gmail keeps for each message. \fI'header'\fR
-uses the \fIDate:\fR header, or the time of delivery when that date is in
-the future or at or before 1970. \fI'import'\fR uses the time of delivery.
-Default: \fI'header'\fR.
+(Optional) The date that Gmail keeps for each message. \fI'date'\fR and
+\fI'received'\fR both use the \fIDate:\fR header, because Gmail can't use
+\fIReceived:\fR. When that date is in the future or at or before 1970,
+Gmail uses the time of delivery. \fI'import'\fR uses the time of delivery.
+Default: \fI'date'\fR.
 .TP
 .B never_mark_spam
 (Optional) Set to \fItrue\fR to stop Gmail from putting imported messages
@@ -68,10 +69,8 @@ Tilde expansion is supported.
 .TP
 .B message_date
 (Optional) The modification time of each message file, which mail
-readers such as mutt use as the received time. \fI'header'\fR uses the
-latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when there is
-none. A date in the future becomes the time of delivery, and a date at or
-before 1970 is ignored. \fI'import'\fR uses the time of delivery. Default: \fI'header'\fR.
+readers such as mutt use as the received time. See \fBMESSAGE DATES\fR.
+Default: \fI'date'\fR.
 .RE
 .PP
 .B IMAP Targets
@@ -116,10 +115,8 @@ For OAuth2 authentication (Microsoft 365):
 (Optional) Path to OAuth2 token file.
 .TP
 .B message_date
-(Optional) The date that the server keeps for each message. \fI'header'\fR
-uses the latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when
-there is none. A date in the future becomes the time of delivery, and a date at or
-before 1970 is ignored. \fI'import'\fR uses the time of delivery. Default: \fI'header'\fR.
+(Optional) The date that the server keeps for each message. See
+\fBMESSAGE DATES\fR. Default: \fI'date'\fR.
 .RE
 .PP
 .B JMAP Targets
@@ -145,10 +142,8 @@ must be provided.
 (Optional) Request timeout in seconds. Default: 60.
 .TP
 .B message_date
-(Optional) The date that the server keeps for each message. \fI'header'\fR
-uses the latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when
-there is none. A date in the future becomes the time of delivery, and a date at or
-before 1970 is ignored. \fI'import'\fR uses the time of delivery. Default: \fI'header'\fR.
+(Optional) The date that the server keeps for each message. See
+\fBMESSAGE DATES\fR. Default: \fI'date'\fR.
 .RE
 .PP
 .B Pipe Targets
@@ -324,6 +319,24 @@ Helps server operators identify traffic from specific installations.
 .B catchall_lists
 (Optional) List of mailing list addresses to exclude from \fBtrack-subsystem\fR
 queries. Default: \fI["linux-kernel@vger.kernel.org", "patches@lists.linux.dev"]\fR.
+.SH MESSAGE DATES
+The \fBmessage_date\fR option of IMAP, JMAP and maildir targets sets the
+date that the server or mail reader keeps for each message:
+.TP
+.B 'date'
+The \fIDate:\fR header, or the latest \fIReceived:\fR timestamp when the
+header is missing, in the future, or at or before 1970. Patches in a series
+keep the order their author gave them. This is the default.
+.TP
+.B 'received'
+The latest \fIReceived:\fR timestamp, or the \fIDate:\fR header when there
+is none. A date in the future becomes the time of delivery, and a date at
+or before 1970 is ignored.
+.TP
+.B 'import'
+The time of delivery.
+.PP
+When no usable date is left, the time of delivery is used.
 .SH EXAMPLES
 Minimal Gmail configuration:
 .PP

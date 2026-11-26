@@ -11,7 +11,7 @@ from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
 
 from korgalore import AuthenticationError, ConfigurationError, RemoteError
 from korgalore.google_creds import CommandCredentials, OAuthFileCredentials, parse_token_command
-from korgalore.message import RawMessage, is_plausible_date, use_header_date
+from korgalore.message import DEFAULT_MESSAGE_DATE, RawMessage, check_message_date, is_plausible_date
 
 logger = logging.getLogger('korgalore')
 
@@ -33,7 +33,7 @@ class GmailTarget:
         self,
         identifier: str,
         creds: BaseCredentials,
-        message_date: str = 'header',
+        message_date: str = DEFAULT_MESSAGE_DATE,
         never_mark_spam: object = False,
     ) -> None:
         """Initialize a GmailTarget instance.
@@ -41,8 +41,10 @@ class GmailTarget:
         Args:
             identifier: Unique identifier for this Gmail target.
             creds: Google API credentials instance.
-            message_date: 'header' to date messages by their Date header, or
-                'import' to use the time of delivery.
+            message_date: 'date' or 'received' to date messages by their
+                Date header, or 'import' to use the time of delivery.
+                Gmail can't take the Received date, so 'received' gets
+                Date as well.
             never_mark_spam: True to stop Gmail from filing imported messages
                 under Spam. Typed as object because it comes straight from
                 the config file and is checked here.
@@ -52,7 +54,7 @@ class GmailTarget:
         """
         self.identifier = identifier
         self.creds = creds
-        self.use_header_date = use_header_date(identifier, message_date)
+        self.message_date = check_message_date(identifier, message_date)
         # A quoted 'false' in the TOML file would be truthy, so insist on a
         # real boolean instead of guessing what the user meant
         if not isinstance(never_mark_spam, bool):
@@ -198,11 +200,12 @@ class GmailTarget:
         """Choose how Gmail dates the message.
 
         Gmail takes no timestamp, only a choice between the Date header and
-        import time, so it can't get the Received date the other targets
-        get. The most we can do is refuse a Date the other targets would not
-        use either. Without a Date, Gmail uses import time on its own.
+        import time, so it can't get the Received date that other targets
+        use in 'received' mode, or as a fallback in 'date' mode. The most
+        we can do is refuse a Date the other targets would not use either.
+        Without a Date, Gmail uses import time on its own.
         """
-        if not self.use_header_date:
+        if self.message_date == 'import':
             return 'receivedTime'
         sent = msg.sent_date
         if sent is not None and not is_plausible_date(sent):

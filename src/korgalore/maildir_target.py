@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from korgalore import ConfigurationError
-from korgalore.message import RawMessage, use_header_date
+from korgalore.message import DEFAULT_MESSAGE_DATE, RawMessage, check_message_date
 
 logger = logging.getLogger('korgalore')
 
@@ -17,21 +17,22 @@ class MaildirTarget:
 
     DEFAULT_LABELS: list[str] = []
 
-    def __init__(self, identifier: str, maildir_path: str, message_date: str = 'header') -> None:
+    def __init__(self, identifier: str, maildir_path: str, message_date: str = DEFAULT_MESSAGE_DATE) -> None:
         """Initialize maildir service.
 
         Args:
             identifier: Target identifier for logging
             maildir_path: Path to maildir directory
-            message_date: 'header' to set each file's mtime to the date the
-                message arrived, or 'import' to leave it at delivery time
+            message_date: 'date' or 'received' to set each file's mtime
+                from the message headers, or 'import' to leave it at
+                delivery time
 
         Raises:
             ConfigurationError: If maildir cannot be accessed
         """
         self.identifier = identifier
         self.maildir_path = Path(maildir_path).expanduser()
-        self.use_header_date = use_header_date(identifier, message_date)
+        self.message_date = check_message_date(identifier, message_date)
 
         # Cache for subfolder maildirs
         self._subfolder_maildirs: dict[str, mailbox.Maildir] = {}
@@ -108,7 +109,7 @@ class MaildirTarget:
             # Maildir files use local Unix line endings, which mail readers
             # expect; CRLF is only for the wire
             key = target_maildir.add(msg.as_bytes(feed_name, delivery_name, crlf=False))
-            when = msg.date if self.use_header_date else None
+            when = msg.delivery_date(self.message_date)
             if when is not None:
                 # Mail readers such as mutt take a maildir message's received
                 # time from the file's mtime

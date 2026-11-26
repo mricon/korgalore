@@ -251,11 +251,12 @@ class TestImapTargetImportMessage:
     @pytest.mark.parametrize(
         ('kwargs', 'raw_message', 'expected'),
         [
-            ({}, DATED_MESSAGE, '"02-Nov-2026 10:00:00 +0000"'),
-            ({'message_date': 'header'}, UNDATED_MESSAGE, ''),
+            ({}, DATED_MESSAGE, '"02-Nov-2026 09:58:00 +0000"'),
+            ({'message_date': 'received'}, DATED_MESSAGE, '"02-Nov-2026 10:00:00 +0000"'),
+            ({'message_date': 'date'}, UNDATED_MESSAGE, ''),
             ({'message_date': 'import'}, DATED_MESSAGE, ''),
         ],
-        ids=['default-is-header', 'header-without-date', 'import'],
+        ids=['default-is-date', 'received', 'date-without-date', 'import'],
     )
     def test_import_append_date(
         self, mock_imap: MagicMock, kwargs: dict[str, Any], raw_message: bytes, expected: str

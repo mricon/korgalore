@@ -348,10 +348,11 @@ class TestJmapTargetImportMessage:
     @pytest.mark.parametrize(
         ('kwargs', 'raw_message', 'expected'),
         [
-            ({}, DATED_MESSAGE, '2026-11-02T10:00:00Z'),
-            ({'message_date': 'header'}, UNDATED_MESSAGE, None),
+            ({}, DATED_MESSAGE, '2026-11-02T09:58:00Z'),
+            ({'message_date': 'received'}, DATED_MESSAGE, '2026-11-02T10:00:00Z'),
+            ({'message_date': 'date'}, UNDATED_MESSAGE, None),
         ],
-        ids=['default-is-header', 'header-without-date'],
+        ids=['default-is-date', 'received', 'date-without-date'],
     )
     def test_import_received_at(
         self, mock_post: MagicMock, kwargs: dict[str, Any], raw_message: bytes, expected: str | None

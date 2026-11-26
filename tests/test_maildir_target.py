@@ -4,6 +4,7 @@ import logging
 import mailbox
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -12,7 +13,7 @@ import pytest
 
 from korgalore import ConfigurationError
 from korgalore.maildir_target import MaildirTarget
-from tests.target_helpers import DATED_MESSAGE, RECEIVED_AT, UNDATED_MESSAGE
+from tests.target_helpers import DATED_MESSAGE, RECEIVED_AT, SENT_AT, UNDATED_MESSAGE
 
 SIMPLE_MESSAGE = b'From: test@example.com\nSubject: Test\n\nBody'
 
@@ -150,17 +151,23 @@ class TestMaildirTargetImportMessage:
         assert 'Disk full' in str(exc_info.value)
 
     @pytest.mark.parametrize(
-        ('kwargs', 'raw_message', 'subfolder', 'dated'),
+        ('kwargs', 'raw_message', 'subfolder', 'expected'),
         [
-            ({}, DATED_MESSAGE, None, True),
-            ({}, DATED_MESSAGE, 'Lists/LKML', True),
-            ({'message_date': 'header'}, UNDATED_MESSAGE, None, False),
-            ({'message_date': 'import'}, DATED_MESSAGE, None, False),
+            ({}, DATED_MESSAGE, None, SENT_AT),
+            ({}, DATED_MESSAGE, 'Lists/LKML', SENT_AT),
+            ({'message_date': 'received'}, DATED_MESSAGE, None, RECEIVED_AT),
+            ({'message_date': 'date'}, UNDATED_MESSAGE, None, None),
+            ({'message_date': 'import'}, DATED_MESSAGE, None, None),
         ],
-        ids=['default-is-header', 'header-in-subfolder', 'header-without-date', 'import'],
+        ids=['default-is-date', 'date-in-subfolder', 'received', 'date-without-date', 'import'],
     )
     def test_file_mtime(
-        self, tmp_path: Path, kwargs: dict[str, Any], raw_message: bytes, subfolder: str | None, dated: bool
+        self,
+        tmp_path: Path,
+        kwargs: dict[str, Any],
+        raw_message: bytes,
+        subfolder: str | None,
+        expected: datetime | None,
     ) -> None:
         """Mail readers such as mutt take a maildir message's received time from its file mtime."""
         target = MaildirTarget('test', str(tmp_path / 'mail'), **kwargs)
@@ -173,8 +180,8 @@ class TestMaildirTargetImportMessage:
         # Only the stored date may change: rewriting the message would break its DKIM signature
         assert (folder / 'new' / key).read_bytes() == raw_message
         mtime = (folder / 'new' / key).stat().st_mtime
-        if dated:
-            assert mtime == RECEIVED_AT.timestamp()
+        if expected is not None:
+            assert mtime == expected.timestamp()
         else:
             assert mtime >= before
 

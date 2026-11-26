@@ -68,6 +68,7 @@ from korgalore.maintainers import (
     get_subsystem,
     normalize_subsystem_name,
 )
+from korgalore.message import DEFAULT_MESSAGE_DATE
 from korgalore.pipe_target import PipeTarget
 from korgalore.summarizer import (
     Summarizer,
@@ -287,7 +288,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
         service = get_maildir_target(
             identifier=identifier,
             maildir_path=details.get('path', ''),
-            message_date=details.get('message_date', 'header'),
+            message_date=details.get('message_date', DEFAULT_MESSAGE_DATE),
         )
     elif target_type == 'jmap':
         service = get_jmap_target(
@@ -298,7 +299,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             token_file=details.get('token_file', None),
             timeout=details.get('timeout', 60),
             reqsession=get_requests_session(),
-            message_date=details.get('message_date', 'header'),
+            message_date=details.get('message_date', DEFAULT_MESSAGE_DATE),
         )
     elif target_type == 'imap':
         service = get_imap_target(
@@ -314,7 +315,7 @@ def get_target(ctx: click.Context, identifier: str) -> Any:
             tenant=details.get('tenant', 'common'),
             token=details.get('token', None),
             interactive=interactive,
-            message_date=details.get('message_date', 'header'),
+            message_date=details.get('message_date', DEFAULT_MESSAGE_DATE),
         )
     elif target_type == 'pipe':
         service = get_pipe_target(
@@ -358,7 +359,7 @@ def get_gmail_target(
         gt = GmailTarget(
             identifier=identifier,
             creds=creds,
-            message_date=details.get('message_date', 'header'),
+            message_date=details.get('message_date', DEFAULT_MESSAGE_DATE),
             never_mark_spam=details.get('never_mark_spam', False),
         )
     except ConfigurationError as fe:
@@ -368,7 +369,7 @@ def get_gmail_target(
     return gt
 
 
-def get_maildir_target(identifier: str, maildir_path: str, message_date: str = 'header') -> MaildirTarget:
+def get_maildir_target(identifier: str, maildir_path: str, message_date: str = DEFAULT_MESSAGE_DATE) -> MaildirTarget:
     """Create a Maildir target service instance."""
     if not maildir_path:
         logger.critical('No maildir path specified for target: %s', identifier)
@@ -396,7 +397,7 @@ def get_jmap_target(
     token_file: str | None,
     timeout: int,
     reqsession: requests.Session | None = None,
-    message_date: str = 'header',
+    message_date: str = DEFAULT_MESSAGE_DATE,
 ) -> JmapTarget:
     """Create a JMAP target service instance."""
     if not server:
@@ -443,7 +444,7 @@ def get_imap_target(
     tenant: str = 'common',
     token: str | None = None,
     interactive: bool = True,
-    message_date: str = 'header',
+    message_date: str = DEFAULT_MESSAGE_DATE,
 ) -> ImapTarget:
     """Create an IMAP target service instance."""
     if not server:

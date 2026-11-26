@@ -44,19 +44,22 @@ class TestMessageDateFromConfig:
     """Tests for the message_date key of gmail, maildir, jmap and imap targets."""
 
     @pytest.mark.parametrize(
-        ('settings', 'by_header'),
-        [({}, True), ({'message_date': 'header'}, True), ({'message_date': 'import'}, False)],
-        ids=['default', 'explicit-header', 'import'],
+        ('settings', 'expected'),
+        [
+            ({}, 'date'),
+            ({'message_date': 'date'}, 'date'),
+            ({'message_date': 'received'}, 'received'),
+            ({'message_date': 'import'}, 'import'),
+        ],
+        ids=['default', 'date', 'received', 'import'],
     )
-    def test_message_date_setting_reaches_the_target(
-        self, build: Any, settings: dict[str, Any], by_header: bool
-    ) -> None:
+    def test_message_date_setting_reaches_the_target(self, build: Any, settings: dict[str, Any], expected: str) -> None:
         """The message_date key in the config decides how the target dates messages.
 
         Without this, the option could be documented and validated but
-        never read, and 'import' would quietly keep dating by the headers.
+        never read, and the target would quietly keep the default.
         """
-        assert build(settings).use_header_date is by_header
+        assert build(settings).message_date == expected
 
     def test_invalid_message_date_aborts(self, build: Any) -> None:
         """A wrong value stops the command instead of delivering with a guess."""

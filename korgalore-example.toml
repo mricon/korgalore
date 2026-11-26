@@ -45,10 +45,10 @@ username = 'user@example.com'
 folder = 'INBOX'  # Target folder (default: INBOX)
 password_file = '~/.config/korgalore/imap-password.txt'
 # timeout = 60  # Optional: connection timeout in seconds (default: 60)
-# Optional: the date the server keeps for each message. 'header' (default)
-# is when it reached the list; 'import' is when korgalore delivered it, so
-# old threads you yank show up at the top. Gmail, JMAP and maildir
-# targets take this option too.
+# Optional: the date the server keeps for each message. 'date' (default)
+# is when it was sent; 'received' is when it reached the list; 'import' is
+# when korgalore delivered it, so old threads you yank show up at the top.
+# Gmail, JMAP and maildir targets take this option too.
 # message_date = 'import'
 
 # Alternative: inline password (less secure, for testing only)

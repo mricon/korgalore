@@ -263,12 +263,22 @@ class TestGmailTargetImportMessage:
         ('kwargs', 'date', 'expected'),
         [
             ({}, b'Mon, 2 Nov 2026 10:00:00 +0000', 'dateHeader'),
-            ({'message_date': 'header'}, None, 'dateHeader'),
-            ({'message_date': 'header'}, b'Mon, 2 Nov 2099 10:00:00 +0000', 'receivedTime'),
-            ({'message_date': 'header'}, b'Thu, 1 Jan 1970 00:00:00 +0000', 'receivedTime'),
+            ({'message_date': 'date'}, None, 'dateHeader'),
+            ({'message_date': 'date'}, b'Mon, 2 Nov 2099 10:00:00 +0000', 'receivedTime'),
+            ({'message_date': 'date'}, b'Thu, 1 Jan 1970 00:00:00 +0000', 'receivedTime'),
+            ({'message_date': 'received'}, b'Mon, 2 Nov 2026 10:00:00 +0000', 'dateHeader'),
+            ({'message_date': 'received'}, b'Mon, 2 Nov 2099 10:00:00 +0000', 'receivedTime'),
             ({'message_date': 'import'}, b'Mon, 2 Nov 2026 10:00:00 +0000', 'receivedTime'),
         ],
-        ids=['default-is-header', 'no-date', 'future-date', 'epoch-date', 'import'],
+        ids=[
+            'default-is-date',
+            'no-date',
+            'future-date',
+            'epoch-date',
+            'received-uses-date',
+            'received-future-date',
+            'import',
+        ],
     )
     def test_import_internal_date_source(self, kwargs: dict[str, Any], date: bytes | None, expected: str) -> None:
         """Gmail takes no timestamp, only a choice between the Date header and import time.
@@ -276,6 +286,7 @@ class TestGmailTargetImportMessage:
         A Date that the other targets would not use, because it comes from
         a clock set ahead or reset to zero, gets import time instead.
         Without a Date, Gmail falls back to import time on its own.
+        'received' gets Date as well, since Gmail can't use Received.
         """
         target, _ = make_target(**kwargs)
         service = MagicMock()

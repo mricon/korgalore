@@ -8,7 +8,8 @@ from liblore.utils import get_clean_msgid, msg_get_date, parse_message, wrap_hea
 
 from korgalore import ConfigurationError, __version__
 
-MESSAGE_DATES = ('header', 'import')
+MESSAGE_DATES = ('date', 'received', 'import')
+DEFAULT_MESSAGE_DATE = 'date'
 
 # Nothing older is a real mail date. The epoch itself is what a clock
 # reset to zero or a placeholder timestamp gives, so it is not usable either.
@@ -24,16 +25,17 @@ def is_plausible_date(when: datetime) -> bool:
     return EARLIEST_DATE < when <= datetime.now(UTC)
 
 
-def use_header_date(identifier: str, message_date: str) -> bool:
+def check_message_date(identifier: str, message_date: str) -> str:
     """Check a target's message_date option.
 
     Args:
         identifier: Target identifier, for the error message
-        message_date: 'header' to date messages from their headers, or
-            'import' to date them by the time of delivery
+        message_date: 'date' to date messages by the Date header first,
+            'received' by the latest Received header first, or 'import'
+            by the time of delivery
 
     Returns:
-        True for 'header', False for 'import'.
+        message_date, once it is known to be valid.
 
     Raises:
         ConfigurationError: If message_date is unknown
@@ -45,7 +47,7 @@ def use_header_date(identifier: str, message_date: str) -> bool:
         raise ConfigurationError(
             f"Target '{identifier}' has invalid message_date {message_date!r}; allowed values: {allowed}"
         )
-    return message_date == 'header'
+    return message_date
 
 
 class RawMessage:
@@ -123,21 +125,36 @@ class RawMessage:
                 pass
         return self._message_id
 
-    @property
-    def date(self) -> datetime | None:
-        """Return when the message arrived, as an aware UTC datetime.
+    def delivery_date(self, message_date: str) -> datetime | None:
+        """Return the date a target should store, as an aware UTC datetime.
 
-        Uses the latest Received timestamp and falls back to the Date
-        header. Received comes from the receiving servers, whose clocks
-        are more likely to be right than the clock on the sender's
-        computer. Returns None when neither header has a usable timestamp.
+        Args:
+            message_date: a target's message_date option. 'date' prefers
+                the Date header, which keeps the order that b4 and git
+                send-email give a series even when delivery delays
+                reorder the Received stamps. 'received' prefers the
+                latest Received header, which the receiving servers set
+                from clocks that are more likely to be right. Each falls
+                back to the other header.
+
+        Returns:
+            None for 'import', or when neither header has a usable
+            timestamp; the target then uses the time of delivery.
 
         Any clock can still be wrong, so the result is kept within the
-        bounds of is_plausible_date(). A date in the future becomes the
-        current time, so that a message from a clock set ahead can't stay
-        at the top of the mailbox. A date at or before the Unix epoch
-        counts as no date at all.
+        bounds of is_plausible_date(). In 'date' mode, a Date outside
+        them is skipped in favour of Received. Otherwise a date in the
+        future becomes the current time, so that a message from a clock
+        set ahead can't stay at the top of the mailbox, and a date at or
+        before the Unix epoch counts as no date at all.
         """
+        if message_date == 'import':
+            return None
+        if message_date == 'date':
+            sent = self.sent_date
+            if sent is not None and is_plausible_date(sent):
+                return sent
+        # liblore prefers Received and falls back to Date
         when = msg_get_date(self.parsed)
         if when is None or when <= EARLIEST_DATE:
             return None
@@ -155,12 +172,13 @@ class RawMessage:
             return None
         try:
             when = parsedate_to_datetime(str(header))
-        except (TypeError, ValueError):
+            # RFC 5322 says a "-0000" zone, which parses as naive, is UTC
+            if when.tzinfo is None:
+                return when.replace(tzinfo=UTC)
+            # A date at the edge of year 9999 can have no UTC equivalent
+            return when.astimezone(UTC)
+        except (TypeError, ValueError, OverflowError):
             return None
-        # RFC 5322 says a "-0000" zone, which parses as naive, is UTC
-        if when.tzinfo is None:
-            return when.replace(tzinfo=UTC)
-        return when.astimezone(UTC)
 
     def as_bytes(self, feed_name: str | None = None, delivery_name: str | None = None, *, crlf: bool = True) -> bytes:
         """Return message as binary data suitable for delivery.

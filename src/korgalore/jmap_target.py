@@ -8,7 +8,7 @@ from typing import Any
 import requests
 
 from korgalore import ConfigurationError, RemoteError
-from korgalore.message import RawMessage, use_header_date
+from korgalore.message import DEFAULT_MESSAGE_DATE, RawMessage, check_message_date
 
 logger = logging.getLogger('korgalore')
 
@@ -27,7 +27,7 @@ class JmapTarget:
         token_file: str | None = None,
         timeout: int = 60,
         reqsession: requests.Session | None = None,
-        message_date: str = 'header',
+        message_date: str = DEFAULT_MESSAGE_DATE,
     ) -> None:
         """Initialize JMAP service.
 
@@ -39,8 +39,9 @@ class JmapTarget:
             token_file: Path to file containing bearer token
             timeout: Request timeout in seconds (default: 60)
             reqsession: Optional requests session for HTTP calls
-            message_date: 'header' to give the server the date the message
-                arrived, or 'import' to use the time of delivery
+            message_date: 'date' or 'received' to give the server a date
+                from the message headers, or 'import' to use the time of
+                delivery
 
         Raises:
             ConfigurationError: If configuration is invalid
@@ -49,7 +50,7 @@ class JmapTarget:
         self.server = server.rstrip('/')
         self.username = username
         self._reqsession = reqsession
-        self.use_header_date = use_header_date(identifier, message_date)
+        self.message_date = check_message_date(identifier, message_date)
 
         # Load token from file or use provided token
         if token:
@@ -344,7 +345,7 @@ class JmapTarget:
         }
         # Without receivedAt the server uses the latest Received header, so
         # import time has to be sent explicitly
-        when = msg.date if self.use_header_date else datetime.now(UTC)
+        when = datetime.now(UTC) if self.message_date == 'import' else msg.delivery_date(self.message_date)
         if when is not None:
             email['receivedAt'] = when.strftime('%Y-%m-%dT%H:%M:%SZ')
 
